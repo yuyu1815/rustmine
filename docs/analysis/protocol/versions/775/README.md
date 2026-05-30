@@ -24,13 +24,15 @@ official jar function
 | Traceability map | [traceability.md](traceability.md) |
 | `configuration_keepalive_codec` case note | [cases/configuration-keepalive-codec.md](cases/configuration-keepalive-codec.md) |
 | `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
+| `configuration_keepalive_clientbound_framed_dispatch` case note | [cases/configuration-keepalive-clientbound-framed-dispatch.md](cases/configuration-keepalive-clientbound-framed-dispatch.md) |
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
 
 At this snapshot, `configuration_keepalive_codec`,
-`configuration_keepalive_framed_dispatch`, and
+`configuration_keepalive_framed_dispatch`,
+`configuration_keepalive_clientbound_framed_dispatch`, and
 `configuration_finish_framed_terminal` are the proven jar-backed answer rows in
 this 775 shard. In the current run, their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against

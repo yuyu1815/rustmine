@@ -19,7 +19,7 @@ from structural observation for client-load and playability claims.
 | Load phase | Proof state | Evidence | What this proves | What it does not prove |
 |---|---|---|---|---|
 | `local_boot_resources` | `unproven` | none | nothing yet | startup, resources, assets, render setup |
-| `network_login_configuration` | `partial` | `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `configuration_finish_framed_terminal`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 after restoring JDK 25 and `_analysis/minecraft-26.1.2/{26.1.2.json,client.jar,server.jar}` | Configuration serverbound keep-alive packet id/body, keep-alive framed dispatch/decode, and finish_configuration framed dispatch/decode plus official terminal flags match regenerated official jar answers; exact reset-proof Rust oracle tests execute against the current Leafish checkout | full login/configuration runtime behavior, keep-alive response loop, runtime Configuration-to-Play transition, play transition |
+| `network_login_configuration` | `partial` | `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `configuration_keepalive_clientbound_framed_dispatch`; `configuration_finish_framed_terminal`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 after restoring JDK 25 and `_analysis/minecraft-26.1.2/{26.1.2.json,client.jar,server.jar}` | Configuration serverbound keep-alive packet id/body, serverbound/clientbound keep-alive framed dispatch/decode, and finish_configuration framed dispatch/decode plus official terminal flags match regenerated official jar answers; exact reset-proof Rust oracle tests execute against the current Leafish checkout | full login/configuration runtime behavior, keep-alive response loop, runtime Configuration-to-Play transition, play transition |
 | `registry_hydration` | `unproven` | none | nothing yet | registry/dimension/known-pack/feature state |
 | `play_entry` | `unproven` | none | nothing yet | successful entry into Play |
 | `world_hydration` | `unproven` | none | nothing yet | chunks, light, block states, biomes, world time |
@@ -30,7 +30,8 @@ from structural observation for client-load and playability claims.
 ## Snapshot Note
 
 At this snapshot, the proven compatibility is only
-`configuration_keepalive_codec`, `configuration_keepalive_framed_dispatch`, and
+`configuration_keepalive_codec`, `configuration_keepalive_framed_dispatch`,
+`configuration_keepalive_clientbound_framed_dispatch`, and
 `configuration_finish_framed_terminal`, jar-backed, regenerated in the current
 run, and checked by exact reset-proof Rust oracle tests against the current
 Leafish checkout.

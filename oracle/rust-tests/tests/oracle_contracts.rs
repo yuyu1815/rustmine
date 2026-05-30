@@ -17,8 +17,7 @@ const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
 const CONFIGURATION_KEEPALIVE_FRAMED_MANIFEST: &str =
     "oracle/test-manifests/775/configuration_keepalive_framed_dispatch.test-manifest.json";
-const CONFIGURATION_KEEPALIVE_FRAMED_CASE_ID: &str =
-    "configuration_keepalive_framed_dispatch";
+const CONFIGURATION_KEEPALIVE_FRAMED_CASE_ID: &str = "configuration_keepalive_framed_dispatch";
 const CONFIGURATION_KEEPALIVE_FRAMED_CONTRACT: &str =
     "oracle/contracts/775/configuration_keepalive_framed_dispatch.contract.json";
 const CONFIGURATION_KEEPALIVE_FRAMED_ANSWER: &str =
@@ -26,6 +25,18 @@ const CONFIGURATION_KEEPALIVE_FRAMED_ANSWER: &str =
 const CONFIGURATION_KEEPALIVE_FRAMED_TEST_NAME: &str =
     "configuration_keepalive_framed_dispatch_decodes_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_FRAMED_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_MANIFEST: &str =
+    "oracle/test-manifests/775/configuration_keepalive_clientbound_framed_dispatch.test-manifest.json";
+const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CASE_ID: &str =
+    "configuration_keepalive_clientbound_framed_dispatch";
+const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CONTRACT: &str =
+    "oracle/contracts/775/configuration_keepalive_clientbound_framed_dispatch.contract.json";
+const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_ANSWER: &str =
+    "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl";
+const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_TEST_NAME: &str =
+    "configuration_keepalive_clientbound_framed_dispatch_decodes_official_oracle_answer";
+const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_COMPARISON_SURFACE: &str =
+    "framed_dispatch_decode";
 const CONFIGURATION_FINISH_MANIFEST: &str =
     "oracle/test-manifests/775/configuration_finish_framed_terminal.test-manifest.json";
 const CONFIGURATION_FINISH_CASE_ID: &str = "configuration_finish_framed_terminal";
@@ -69,6 +80,8 @@ struct ConfigurationOracleAnswer {
     clientbound: Option<FinishDirectionAnswer>,
     #[serde(default)]
     configuration_serverbound_packet_table: Vec<PacketTableRow>,
+    #[serde(default)]
+    configuration_clientbound_packet_table: Vec<PacketTableRow>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,10 +215,7 @@ fn configuration_keepalive_matches_official_oracle_answer() {
     assert_eq!(manifest.case_id, CONFIGURATION_KEEPALIVE_CASE_ID);
     assert_eq!(manifest.contract_path, CONFIGURATION_KEEPALIVE_CONTRACT);
     assert_eq!(manifest.answer_path, CONFIGURATION_KEEPALIVE_ANSWER);
-    assert_eq!(
-        manifest.rust_test_target,
-        ORACLE_CONTRACTS_RUST_TARGET
-    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
     assert_eq!(manifest.rust_test_name, CONFIGURATION_KEEPALIVE_TEST_NAME);
     assert_eq!(
         manifest.comparison_surface,
@@ -236,12 +246,12 @@ fn configuration_keepalive_matches_official_oracle_answer() {
 fn configuration_keepalive_framed_dispatch_decodes_official_oracle_answer() {
     let manifest: TestManifest = read_json(CONFIGURATION_KEEPALIVE_FRAMED_MANIFEST);
     assert_eq!(manifest.case_id, CONFIGURATION_KEEPALIVE_FRAMED_CASE_ID);
-    assert_eq!(manifest.contract_path, CONFIGURATION_KEEPALIVE_FRAMED_CONTRACT);
-    assert_eq!(manifest.answer_path, CONFIGURATION_KEEPALIVE_FRAMED_ANSWER);
     assert_eq!(
-        manifest.rust_test_target,
-        ORACLE_CONTRACTS_RUST_TARGET
+        manifest.contract_path,
+        CONFIGURATION_KEEPALIVE_FRAMED_CONTRACT
     );
+    assert_eq!(manifest.answer_path, CONFIGURATION_KEEPALIVE_FRAMED_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
     assert_eq!(
         manifest.rust_test_name,
         CONFIGURATION_KEEPALIVE_FRAMED_TEST_NAME
@@ -305,15 +315,108 @@ fn configuration_keepalive_framed_dispatch_decodes_official_oracle_answer() {
 }
 
 #[test]
+fn configuration_keepalive_clientbound_framed_dispatch_decodes_official_oracle_answer() {
+    let manifest: TestManifest = read_json(CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_MANIFEST);
+    assert_eq!(
+        manifest.case_id,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CASE_ID
+    );
+    assert_eq!(
+        manifest.contract_path,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CONTRACT
+    );
+    assert_eq!(
+        manifest.answer_path,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_ANSWER
+    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_COMPARISON_SURFACE
+    );
+    assert_runner_scope(
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_MANIFEST,
+        &manifest,
+    );
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(oracle.answer.decoded_id, Some(oracle.answer.input_id));
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:keep_alive")
+    );
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ClientboundKeepAlivePacket")
+    );
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.configuration_clientbound_packet_table,
+        "minecraft:keep_alive",
+    );
+    let framed_hex = oracle
+        .answer
+        .encoded_framed_hex
+        .as_deref()
+        .expect("clientbound framed dispatch answer missing encoded_framed_hex");
+    let framed = decode_hex(framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Configuration,
+            Direction::Clientbound,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Configuration clientbound keep_alive packet id {}",
+            framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| panic!("Stevenarella errored while decoding clientbound keep_alive: {err}"))
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Configuration clientbound keep_alive packet id {}",
+                framed_packet_id
+            )
+        });
+
+    match decoded {
+        packet::Packet::KeepAliveClientbound_i64(packet) => {
+            assert_eq!(packet.id, oracle.answer.input_id);
+        }
+        other => panic!("expected clientbound keep_alive dispatch, got {other:?}"),
+    }
+    assert!(
+        body_slice.is_empty(),
+        "decoded clientbound keep_alive did not consume the official body bytes"
+    );
+}
+
+#[test]
 fn configuration_finish_framed_terminal_matches_official_oracle_answer() {
     let manifest: TestManifest = read_json(CONFIGURATION_FINISH_MANIFEST);
     assert_eq!(manifest.case_id, CONFIGURATION_FINISH_CASE_ID);
     assert_eq!(manifest.contract_path, CONFIGURATION_FINISH_CONTRACT);
     assert_eq!(manifest.answer_path, CONFIGURATION_FINISH_ANSWER);
-    assert_eq!(
-        manifest.rust_test_target,
-        ORACLE_CONTRACTS_RUST_TARGET
-    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
     assert_eq!(manifest.rust_test_name, CONFIGURATION_FINISH_TEST_NAME);
     assert_eq!(
         manifest.comparison_surface,
@@ -353,7 +456,9 @@ fn assert_finish_direction_matches_official_frame(
     assert_eq!(official.decoded_packet_type, official.packet_type);
     let official_name_fragment = rust_name_fragment_from_packet_type(&official.packet_type);
     assert!(
-        official.decoded_packet_class.contains(&official_name_fragment),
+        official
+            .decoded_packet_class
+            .contains(&official_name_fragment),
         "official decoded packet class did not preserve packet identity: {}",
         official.decoded_packet_class
     );
@@ -364,7 +469,8 @@ fn assert_finish_direction_matches_official_frame(
         official.flow
     );
 
-    let expected_packet_id = packet_id_for(&official.configuration_packet_table, &official.packet_type);
+    let expected_packet_id =
+        packet_id_for(&official.configuration_packet_table, &official.packet_type);
     let framed = decode_hex(&official.encoded_framed_hex, "encoded_framed_hex");
     let body = decode_hex(&official.encoded_body_hex, "encoded_body_hex");
     let (framed_packet_id, body_offset) = read_varint_prefix(&framed);

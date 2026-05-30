@@ -6,6 +6,7 @@ protocol_packet_ids!(
         }
         clientbound Clientbound {
             0x03 => ConfigurationFinishConfigurationClientbound
+            0x04 => ConfigurationKeepAliveClientbound_i64
         }
     }
 );

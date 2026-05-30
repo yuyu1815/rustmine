@@ -186,6 +186,11 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationKeepAliveClientbound_i64 => {
+                        let mut packet = packet::play::clientbound::KeepAliveClientbound_i64::default();
+                        packet.id = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::KeepAliveClientbound_i64(packet)));
+                    }
                     _ => return Ok(Option::None),
                 }
             }

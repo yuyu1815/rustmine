@@ -2315,6 +2315,7 @@ pub mod configuration {
         #[allow(non_upper_case_globals)]
         pub mod internal_ids {
             pub const ConfigurationFinishConfigurationClientbound: i32 = 0;
+            pub const ConfigurationKeepAliveClientbound_i64: i32 = 1;
         }
 
         #[derive(Default, Debug)]
@@ -2335,6 +2336,28 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.empty.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationKeepAliveClientbound_i64 {
+            pub id: i64,
+        }
+
+        impl PacketType for ConfigurationKeepAliveClientbound_i64 {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationKeepAliveClientbound_i64,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id.write_to(buf)?;
                 Ok(())
             }
         }
