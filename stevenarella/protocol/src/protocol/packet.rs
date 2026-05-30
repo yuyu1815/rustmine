@@ -2262,6 +2262,45 @@ pub mod configuration {
             pub const ConfigurationFinishConfigurationServerbound: i32 = 0;
             pub const ConfigurationKeepAliveServerbound_i64: i32 = 1;
             pub const ConfigurationPongServerbound_i32: i32 = 2;
+            pub const ConfigurationClientInformationServerbound: i32 = 3;
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationClientInformationServerbound {
+            pub language: String,
+            pub view_distance: u8,
+            pub chat_visibility: VarInt,
+            pub chat_colors: bool,
+            pub model_customisation: u8,
+            pub main_hand: VarInt,
+            pub text_filtering_enabled: bool,
+            pub allows_listing: bool,
+            pub particle_status: VarInt,
+        }
+
+        impl PacketType for ConfigurationClientInformationServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationClientInformationServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.language.write_to(buf)?;
+                self.view_distance.write_to(buf)?;
+                self.chat_visibility.write_to(buf)?;
+                self.chat_colors.write_to(buf)?;
+                self.model_customisation.write_to(buf)?;
+                self.main_hand.write_to(buf)?;
+                self.text_filtering_enabled.write_to(buf)?;
+                self.allows_listing.write_to(buf)?;
+                self.particle_status.write_to(buf)?;
+                Ok(())
+            }
         }
 
         #[derive(Default, Debug)]

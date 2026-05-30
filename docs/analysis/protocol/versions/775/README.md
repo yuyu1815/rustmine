@@ -22,6 +22,7 @@ official jar function
 | Need | Location |
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
+| `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_keepalive_codec` case note | [cases/configuration-keepalive-codec.md](cases/configuration-keepalive-codec.md) |
 | `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
 | `configuration_keepalive_clientbound_framed_dispatch` case note | [cases/configuration-keepalive-clientbound-framed-dispatch.md](cases/configuration-keepalive-clientbound-framed-dispatch.md) |
@@ -33,7 +34,8 @@ official jar function
 
 ## Evidence Snapshot
 
-At this snapshot, `configuration_keepalive_codec`,
+At this snapshot, `configuration_client_information_framed_dispatch`,
+`configuration_keepalive_codec`,
 `configuration_keepalive_framed_dispatch`,
 `configuration_keepalive_clientbound_framed_dispatch`,
 `configuration_ping_pong_framed_dispatch`, and

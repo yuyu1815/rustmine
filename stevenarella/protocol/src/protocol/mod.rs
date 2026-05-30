@@ -154,6 +154,23 @@ macro_rules! state_packets {
                     version, state, dir, id, true,
                 );
                 match internal_id {
+                    packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
+                        let _language: String = Serializable::read_from(buf)?;
+                        let _view_distance: u8 = Serializable::read_from(buf)?;
+                        let _chat_visibility: VarInt = Serializable::read_from(buf)?;
+                        let _chat_colors: bool = Serializable::read_from(buf)?;
+                        let _model_customisation: u8 = Serializable::read_from(buf)?;
+                        let _main_hand: VarInt = Serializable::read_from(buf)?;
+                        let _text_filtering_enabled: bool = Serializable::read_from(buf)?;
+                        let _allows_listing: bool = Serializable::read_from(buf)?;
+                        let _particle_status: VarInt = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::PluginMessageServerbound(
+                            packet::play::serverbound::PluginMessageServerbound {
+                                channel: "ClientInformation".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::serverbound::internal_ids::ConfigurationKeepAliveServerbound_i64 => {
                         let mut packet = packet::play::serverbound::KeepAliveServerbound_i64::default();
                         packet.id = Serializable::read_from(buf)?;
