@@ -1,10 +1,11 @@
 use serde::Deserialize;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use std::{env, fs};
+use steven_protocol::protocol::mapped_packet::MappablePacket;
 use steven_protocol::protocol::packet;
 use steven_protocol::protocol::{Conn, Direction, PacketType, State};
 
@@ -38,6 +39,16 @@ const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_CONTRACT: &str =
 const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_TEST_NAME: &str =
     "configuration_keepalive_runtime_send_helper_sends_official_configuration_frame";
 const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_COMPARISON_SURFACE: &str = "runtime_send_helper_frame";
+const CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_MANIFEST: &str =
+    "oracle/test-manifests/775/runtime/configuration_keepalive_runtime_protocol_echo.test-manifest.json";
+const CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_CASE_ID: &str =
+    "configuration_keepalive_runtime_protocol_echo";
+const CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_CONTRACT: &str =
+    "oracle/contracts/775/runtime/configuration_keepalive_runtime_protocol_echo.contract.json";
+const CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_TEST_NAME: &str =
+    "configuration_keepalive_runtime_protocol_echo_reads_maps_and_sends_official_frame";
+const CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_COMPARISON_SURFACE: &str =
+    "runtime_protocol_echo_frame";
 const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_MANIFEST: &str =
     "oracle/test-manifests/775/configuration_keepalive_clientbound_framed_dispatch.test-manifest.json";
 const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CASE_ID: &str =
@@ -69,6 +80,8 @@ struct TestManifest {
     rust_test_target: String,
     rust_test_name: String,
     comparison_surface: String,
+    #[serde(default)]
+    response_answer_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -248,6 +261,18 @@ fn try_read_varint_from_reader<R: Read>(reader: &mut R) -> Result<i32, String> {
     }
 
     Err("network VarInt exceeded Minecraft's 5-byte limit".to_owned())
+}
+
+fn read_network_frame_from_reader<R: Read>(reader: &mut R, label: &str) -> Result<Vec<u8>, String> {
+    let packet_len = try_read_varint_from_reader(reader)? as usize;
+    let mut body = vec![0; packet_len];
+    reader
+        .read_exact(&mut body)
+        .map_err(|err| format!("read {label} packet body: {err}"))?;
+
+    let mut frame = encode_varint(packet_len as i32);
+    frame.extend_from_slice(&body);
+    Ok(frame)
 }
 
 fn official_network_frame_from_framed_payload(framed: &[u8]) -> Vec<u8> {
@@ -464,6 +489,150 @@ fn configuration_keepalive_runtime_send_helper_sends_official_configuration_fram
         hex::encode(&observed_network_frame),
         hex::encode(&expected_network_frame),
         "packet::send_keep_alive in Configuration state must send the official Protocol 775 Configuration serverbound keep_alive framed packet with the outer network length prefix"
+    );
+}
+
+#[test]
+fn configuration_keepalive_runtime_protocol_echo_reads_maps_and_sends_official_frame() {
+    let manifest: TestManifest = read_json(CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_MANIFEST);
+    assert_eq!(
+        manifest.case_id,
+        CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_CASE_ID
+    );
+    assert_eq!(
+        manifest.contract_path,
+        CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_CONTRACT
+    );
+    assert_eq!(
+        manifest.answer_path,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_ANSWER
+    );
+    assert_eq!(
+        manifest.response_answer_path.as_deref(),
+        Some(CONFIGURATION_KEEPALIVE_FRAMED_ANSWER)
+    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_COMPARISON_SURFACE
+    );
+    assert_runner_scope(
+        CONFIGURATION_KEEPALIVE_RUNTIME_PROTOCOL_ECHO_MANIFEST,
+        &manifest,
+    );
+
+    let inbound_oracle = read_answer(
+        &manifest.answer_path,
+        CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CASE_ID,
+    );
+    let outbound_answer_path = manifest
+        .response_answer_path
+        .as_deref()
+        .expect("runtime protocol echo manifest missing response_answer_path");
+    let outbound_oracle = read_answer(outbound_answer_path, CONFIGURATION_KEEPALIVE_FRAMED_CASE_ID);
+
+    assert_eq!(
+        inbound_oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:keep_alive")
+    );
+    assert_eq!(
+        inbound_oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ClientboundKeepAlivePacket")
+    );
+    assert_eq!(
+        inbound_oracle.answer.remaining_after_official_decode,
+        Some(0)
+    );
+    assert_eq!(
+        outbound_oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:keep_alive")
+    );
+    assert_eq!(
+        outbound_oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ServerboundKeepAlivePacket")
+    );
+    assert_eq!(
+        outbound_oracle.answer.remaining_after_official_decode,
+        Some(0)
+    );
+    assert_eq!(
+        inbound_oracle.answer.input_id, outbound_oracle.answer.input_id,
+        "runtime echo fixture requires the inbound and outbound official answers to use the same keep_alive id"
+    );
+
+    let inbound_framed = decode_hex(
+        inbound_oracle
+            .answer
+            .encoded_framed_hex
+            .as_deref()
+            .expect("clientbound framed dispatch answer missing encoded_framed_hex"),
+        "configuration_keepalive_clientbound_framed_dispatch.encoded_framed_hex",
+    );
+    let outbound_framed = decode_hex(
+        outbound_oracle
+            .answer
+            .encoded_framed_hex
+            .as_deref()
+            .expect("serverbound framed dispatch answer missing encoded_framed_hex"),
+        "configuration_keepalive_framed_dispatch.encoded_framed_hex",
+    );
+    let inbound_network_frame = official_network_frame_from_framed_payload(&inbound_framed);
+    let expected_outbound_network_frame =
+        official_network_frame_from_framed_payload(&outbound_framed);
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind localhost echo probe server");
+    let server_addr = listener
+        .local_addr()
+        .expect("read localhost echo probe addr");
+    let mut server = Some(thread::spawn(move || -> Result<Vec<u8>, String> {
+        let (mut stream, _) = listener
+            .accept()
+            .map_err(|err| format!("accept runtime protocol echo probe client: {err}"))?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|err| format!("set runtime protocol echo probe read timeout: {err}"))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|err| format!("set runtime protocol echo probe write timeout: {err}"))?;
+        stream
+            .write_all(&inbound_network_frame)
+            .map_err(|err| format!("write official clientbound keep_alive frame: {err}"))?;
+
+        read_network_frame_from_reader(&mut stream, "runtime protocol echo response")
+    }));
+
+    let mut conn = Conn::new(&server_addr.to_string(), 775).expect("connect protocol echo probe");
+    conn.state = State::Configuration;
+    let mapped = conn
+        .read_packet()
+        .expect("read official Configuration clientbound keep_alive frame")
+        .map();
+    let keep_alive_id = match mapped {
+        steven_protocol::protocol::mapped_packet::MappedPacket::KeepAliveClientbound(
+            keep_alive,
+        ) => keep_alive.id,
+        other => panic!("expected mapped clientbound keep_alive packet, got {other:?}"),
+    };
+    assert_eq!(keep_alive_id, inbound_oracle.answer.input_id);
+
+    packet::send_keep_alive(&mut conn, keep_alive_id)
+        .expect("send official Configuration serverbound keep_alive response");
+
+    let observed_outbound_network_frame = server
+        .take()
+        .expect("runtime protocol echo probe server was already joined")
+        .join()
+        .expect("runtime protocol echo probe server thread panicked")
+        .expect("runtime protocol echo probe server did not observe a complete response packet");
+
+    assert_eq!(
+        hex::encode(&observed_outbound_network_frame),
+        hex::encode(&expected_outbound_network_frame),
+        "runtime protocol echo path must map the official Configuration clientbound keep_alive id and send the official Configuration serverbound keep_alive framed packet with the outer network length prefix"
     );
 }
 

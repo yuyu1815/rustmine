@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_keepalive_runtime_send_helper` runtime-send probe and Rust fix are in place; all five current Rust oracle tests pass |
+| Current location | Protocol 775 `configuration_keepalive_runtime_protocol_echo` root-owned socket probe is in place; all six current Rust oracle tests pass |
 | Last touched area | `_analysis/minecraft-26.1.2/`, `_tools/java/jdk-25-full`, `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/harness/java/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | The new proof covers the outgoing `send_keep_alive` helper frame only. It does not prove full `spawn_reader` keep-alive echo behavior, runtime Configuration-to-Play transition, Play readiness, registry hydration, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
+| Explicit uncertainty | The new proof covers the protocol-crate read/map/send echo path only. It does not prove the full `spawn_reader` thread path, runtime Configuration-to-Play transition, Play readiness, registry hydration, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
 
 ## Recovery Flow
 

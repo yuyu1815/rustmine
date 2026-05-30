@@ -19,7 +19,7 @@ from structural observation for client-load and playability claims.
 | Load phase | Proof state | Evidence | What this proves | What it does not prove |
 |---|---|---|---|---|
 | `local_boot_resources` | `unproven` | none | nothing yet | startup, resources, assets, render setup |
-| `network_login_configuration` | `partial` | `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `configuration_keepalive_clientbound_framed_dispatch`; `configuration_finish_framed_terminal`; `configuration_keepalive_runtime_send_helper`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 after restoring JDK 25 and `_analysis/minecraft-26.1.2/{26.1.2.json,client.jar,server.jar}`; full `cargo test --manifest-path oracle/rust-tests/Cargo.toml --test oracle_contracts` passed with 5 tests | Configuration serverbound keep-alive packet id/body, serverbound/clientbound keep-alive framed dispatch/decode, finish_configuration framed dispatch/decode plus official terminal flags, and outgoing helper send of the official Configuration serverbound keep_alive frame match reset-proof evidence against the current Leafish checkout | full login/configuration runtime behavior, full keep-alive response loop through `spawn_reader`, runtime Configuration-to-Play transition, play transition |
+| `network_login_configuration` | `partial` | `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `configuration_keepalive_clientbound_framed_dispatch`; `configuration_finish_framed_terminal`; `configuration_keepalive_runtime_send_helper`; `configuration_keepalive_runtime_protocol_echo`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 after restoring JDK 25 and `_analysis/minecraft-26.1.2/{26.1.2.json,client.jar,server.jar}`; full `cargo test --manifest-path oracle/rust-tests/Cargo.toml --test oracle_contracts` passed with 6 tests | Configuration serverbound keep-alive packet id/body, serverbound/clientbound keep-alive framed dispatch/decode, finish_configuration framed dispatch/decode plus official terminal flags, outgoing helper send of the official Configuration serverbound keep_alive frame, and protocol-crate socket echo from official Configuration clientbound keep_alive to official Configuration serverbound keep_alive match reset-proof evidence against the current Leafish checkout | full login/configuration runtime behavior, full keep-alive response loop through `spawn_reader`, runtime Configuration-to-Play transition, play transition |
 | `registry_hydration` | `unproven` | none | nothing yet | registry/dimension/known-pack/feature state |
 | `play_entry` | `unproven` | none | nothing yet | successful entry into Play |
 | `world_hydration` | `unproven` | none | nothing yet | chunks, light, block states, biomes, world time |
@@ -34,7 +34,8 @@ At this snapshot, the proven compatibility is only
 `configuration_keepalive_clientbound_framed_dispatch`, and
 `configuration_finish_framed_terminal`, jar-backed, regenerated in the current
 run, and checked by exact reset-proof Rust oracle tests against the current
-Leafish checkout. `configuration_keepalive_runtime_send_helper` is a
-root-owned runtime-send probe that now passes against the current Leafish
-checkout; it proves the outgoing helper frame only, not the full reader echo
-loop.
+Leafish checkout. `configuration_keepalive_runtime_send_helper` and
+`configuration_keepalive_runtime_protocol_echo` are root-owned runtime socket
+probes that now pass against the current Leafish checkout; they prove the
+outgoing helper frame and the protocol-crate read/map/send echo path, not the
+full `spawn_reader` loop.

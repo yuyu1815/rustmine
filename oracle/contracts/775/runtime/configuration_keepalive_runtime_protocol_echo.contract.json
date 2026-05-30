@@ -1,0 +1,34 @@
+{
+  "contract_id": "configuration_keepalive_runtime_protocol_echo_contract",
+  "case_id": "configuration_keepalive_runtime_protocol_echo",
+  "scope": "runtime_protocol_echo_probe",
+  "source_case_ids": [
+    "configuration_keepalive_clientbound_framed_dispatch",
+    "configuration_keepalive_framed_dispatch"
+  ],
+  "official_functions": [
+    {
+      "path": "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+      "function_or_member": "ConfigurationProtocols.CLIENTBOUND.codec().encode(...), ConfigurationProtocols.CLIENTBOUND.codec().decode(...), ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundKeepAlivePacket.getId()",
+      "role": "Provide the official Protocol 775 Configuration clientbound keep_alive input id, framed payload, packet table id, and body bytes."
+    },
+    {
+      "path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+      "function_or_member": "ConfigurationProtocols.SERVERBOUND.codec().encode(...), ConfigurationProtocols.SERVERBOUND.codec().decode(...), ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...), ServerboundKeepAlivePacket.getId()",
+      "role": "Provide the official Protocol 775 Configuration serverbound keep_alive response frame for the mapped input id."
+    }
+  ],
+  "invariants": [
+    "The inbound network frame is derived from the existing official Configuration clientbound keep_alive framed answer artifact.",
+    "Conn::read_packet() must decode the inbound official network frame while Conn is in State::Configuration.",
+    "Packet::map() must produce MappedPacket::KeepAliveClientbound with the official input id.",
+    "packet::send_keep_alive(&mut Conn, id) must use that mapped id.",
+    "With compression threshold disabled, the observed response bytes must be VarInt(length of official serverbound framed payload) followed by the official serverbound framed payload.",
+    "This contract is limited to protocol-crate socket echo behavior and does not claim the full spawn_reader thread path."
+  ],
+  "answer_path": "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+  "response_answer_path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "test_topology_note": "This runtime metadata is stored below oracle/*/775/runtime and is not currently discovered by the jar-backed direct-file runner.",
+  "stop_boundary": "Do not use this protocol echo probe to infer full login/configuration runtime behavior, spawn_reader scheduling behavior, Configuration completion, or Play readiness."
+}

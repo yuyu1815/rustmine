@@ -26,6 +26,7 @@ official jar function
 | `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
 | `configuration_keepalive_clientbound_framed_dispatch` case note | [cases/configuration-keepalive-clientbound-framed-dispatch.md](cases/configuration-keepalive-clientbound-framed-dispatch.md) |
 | `configuration_keepalive_runtime_send_helper` case note | [cases/configuration-keepalive-runtime-send-helper.md](cases/configuration-keepalive-runtime-send-helper.md) |
+| `configuration_keepalive_runtime_protocol_echo` case note | [cases/configuration-keepalive-runtime-protocol-echo.md](cases/configuration-keepalive-runtime-protocol-echo.md) |
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
@@ -39,5 +40,7 @@ this 775 shard. In the current run, their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout. `configuration_keepalive_runtime_send_helper` is
 also passing as a root-owned runtime-send probe that reuses the official
-serverbound keep_alive answer. No broader Protocol 775 or client-load phase is
-complete from those proofs.
+serverbound keep_alive answer, and
+`configuration_keepalive_runtime_protocol_echo` is passing as a root-owned
+protocol-crate socket echo probe. No broader Protocol 775 or client-load phase
+is complete from those proofs.
