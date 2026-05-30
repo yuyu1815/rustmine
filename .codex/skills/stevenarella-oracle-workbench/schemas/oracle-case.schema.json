@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rustmine.local/schemas/oracle-case.schema.json",
+  "title": "Versioned Oracle Case",
+  "$comment": "Closed enums list currently known values. Extend this schema when new valid domains appear rather than forcing them into the closest existing value.",
+  "type": "object",
+  "required": [
+    "case_id",
+    "protocol_version",
+    "minecraft_version",
+    "corridor",
+    "oracle_kind",
+    "official_sources",
+    "question",
+    "answer_path"
+  ],
+  "properties": {
+    "case_id": { "type": "string", "pattern": "^[a-z0-9_\\-]+$" },
+    "protocol_version": { "type": "integer" },
+    "minecraft_version": { "type": "string" },
+    "corridor": { "type": "string" },
+    "oracle_kind": {
+      "type": "string",
+      "description": "Currently known oracle kinds; extend this enum for new valid oracle domains instead of forcing a mismatch.",
+      "enum": ["codec", "state_transition", "runtime_reaction", "corridor"]
+    },
+    "official_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "path", "function_or_member"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Currently known source roles; add new roles when a new valid source class is introduced.",
+            "enum": ["client_jar", "server_jar", "decompiled_source", "reference_witness"]
+          },
+          "path": { "type": "string" },
+          "function_or_member": { "type": "string" },
+          "authority_note": {
+            "type": "string",
+            "description": "Clarifies whether this source is the authority, a decompiled witness, or another bounded evidence role."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "question": { "type": "object" },
+    "answer_path": { "type": "string" },
+    "stop_boundary": { "type": "string" }
+  },
+  "additionalProperties": false
+}

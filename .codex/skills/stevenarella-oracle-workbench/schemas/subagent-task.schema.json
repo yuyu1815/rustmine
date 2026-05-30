@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rustmine.local/schemas/subagent-task.schema.json",
+  "title": "Bounded Agent Task Packet",
+  "$comment": "Closed enums list currently known values. Extend this schema when new valid task modes appear rather than forcing them into the closest existing value.",
+  "type": "object",
+  "required": [
+    "mode",
+    "main_owned_decision",
+    "write_contract",
+    "carried_context",
+    "prerequisite_knowledge",
+    "required_evidence",
+    "do_not_claim",
+    "stop_condition"
+  ],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "description": "Currently known task modes; extend this enum for new valid modes.",
+      "enum": ["read", "update", "review"]
+    },
+    "main_owned_decision": { "type": "string" },
+    "write_contract": { "type": "string" },
+    "carried_context": { "type": "string" },
+    "prerequisite_knowledge": { "type": "string" },
+    "required_evidence": { "type": "string" },
+    "do_not_claim": { "type": "string" },
+    "stop_condition": { "type": "string" }
+  },
+  "additionalProperties": false
+}

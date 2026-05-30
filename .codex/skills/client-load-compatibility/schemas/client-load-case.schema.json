@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rustmine.local/schemas/client-load-case.schema.json",
+  "title": "Client Load Compatibility Case",
+  "$comment": "Closed enums list currently known values. Extend this schema when new valid phases or evidence surfaces appear rather than forcing them into the closest existing value.",
+  "type": "object",
+  "required": [
+    "case_id",
+    "load_phase",
+    "claim",
+    "evidence_surface",
+    "test_surface",
+    "done_condition",
+    "stop_boundary"
+  ],
+  "properties": {
+    "case_id": { "type": "string", "pattern": "^[a-z0-9_\\-]+$" },
+    "load_phase": {
+      "type": "string",
+      "description": "Currently known load phases; extend this enum for new valid phases instead of mislabeling later or cross-phase work.",
+      "enum": [
+        "local_boot_resources",
+        "network_login_configuration",
+        "registry_hydration",
+        "play_entry",
+        "world_hydration",
+        "entity_player_hydration",
+        "render_ready",
+        "control_interact_ready"
+      ]
+    },
+    "claim": { "type": "string" },
+    "evidence_surface": {
+      "type": "string",
+      "description": "Currently known evidence surfaces; extend this enum when a new valid proof surface appears.",
+      "enum": [
+        "official_codec",
+        "official_state_transition",
+        "initialized_official_harness",
+        "reference_witness",
+        "project_runtime_probe",
+        "project_smoke",
+        "visual_render_probe"
+      ]
+    },
+    "test_surface": { "type": "string" },
+    "oracle_case_path": { "type": "string" },
+    "oracle_answer_path": { "type": "string" },
+    "test_manifest_path": { "type": "string" },
+    "traceability_path": { "type": "string" },
+    "done_condition": { "type": "string" },
+    "stop_boundary": { "type": "string" }
+  },
+  "additionalProperties": false
+}

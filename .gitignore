@@ -1,0 +1,5 @@
+oracle/harness/java/build/
+oracle/rust-tests/target/
+_tools/java/jdk-25-full/
+_tools/java/jdk-*-jre/
+_tools/java/*.tar.gz

@@ -1,0 +1,58 @@
+[version]
+minecraft = "26.1.2"
+protocol = 775
+java_major = 25
+metadata_path = "_analysis/minecraft-26.1.2/26.1.2.json"
+
+[client_jar]
+path = "_analysis/minecraft-26.1.2/client.jar"
+url = "https://piston-data.mojang.com/v1/objects/4e618f09a0c649dde3fdf829df443ce0b8831e65/client.jar"
+sha1 = "4e618f09a0c649dde3fdf829df443ce0b8831e65"
+status = "present"
+
+[server_jar]
+path = "_analysis/minecraft-26.1.2/server.jar"
+url = "https://piston-data.mojang.com/v1/objects/97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51/server.jar"
+sha1 = "97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51"
+status = "present"
+
+[decompiled_protocol]
+path = "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol"
+
+[decompiled_selected]
+path = "_analysis/minecraft-26.1.2/decompiled-selected"
+
+[runtime]
+bundled_java = "_tools/java/jdk-25-full/Contents/Home/bin/java"
+bundled_javac = "_tools/java/jdk-25-full/Contents/Home/bin/javac"
+required_compiler = "JDK 25 javac"
+
+# Known oracle modes used by this 26.1.2 manifest.
+# This table is not a complete taxonomy of client-load evidence.
+# Mode names here map to schema names as follows:
+# - codec -> oracle_kind/scope "codec"
+# - runtime -> oracle_kind/scope "runtime_reaction"
+[oracle_modes]
+codec = "Direct official STREAM_CODEC and ProtocolInfo calls for codec-surface questions; maps to schema kind/scope codec"
+runtime = "Fabric Loader JUnit or GameTest with initialized Minecraft for runtime-surface questions; maps to schema kind/scope runtime_reaction"
+
+# Local witness checkouts for protocol 775; not official answer sources.
+[[reference_repositories]]
+name = "MCProtocolLib"
+path = "_research/protocol/versions/775/witnesses/MCProtocolLib"
+role = "Java witness"
+
+[[reference_repositories]]
+name = "Azalea"
+path = "_research/protocol/versions/775/witnesses/azalea"
+role = "Rust witness"
+
+[[reference_repositories]]
+name = "minecraft-data"
+path = "_research/protocol/versions/775/witnesses/minecraft-data"
+role = "Data/schema witness"
+
+[[reference_repositories]]
+name = "node-minecraft-protocol"
+path = "_research/protocol/versions/775/witnesses/node-minecraft-protocol"
+role = "JavaScript data-driven witness"

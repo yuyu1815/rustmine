@@ -1,0 +1,41 @@
+{
+  "case_id": "configuration_keepalive_codec",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ServerboundKeepAlivePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the codec answer."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/common/ServerboundKeepAlivePacket.java",
+      "function_or_member": "STREAM_CODEC, write(FriendlyByteBuf), getId()",
+      "authority_note": "Decompiled witness of the official jar, not an independent source of truth."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/configuration/ConfigurationProtocols.java",
+      "function_or_member": "ConfigurationProtocols.SERVERBOUND.details().listPackets(...)",
+      "authority_note": "Decompiled witness for the packet table entry generated from the official jar."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Serverbound",
+    "packet_type": "minecraft:keep_alive",
+    "packet_class": "ServerboundKeepAlivePacket",
+    "input_fields": {
+      "id": 12345
+    },
+    "field_notes": {
+      "id": "Keep-alive payload id encoded in the packet body; this is not the Configuration serverbound packet table id."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_keepalive_codec.answer.jsonl",
+  "stop_boundary": "Do not infer runtime keepalive response behavior from this codec-only case."
+}

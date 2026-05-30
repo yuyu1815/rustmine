@@ -1,0 +1,69 @@
+[meta]
+status = "local_preference_snapshot"
+note = "Model names record current local lane preferences only. They are not protocol facts, product truth, or evidence requirements; update them when local model availability or task fit changes."
+
+[lanes.direction]
+preferred_model = "gpt-5.5"
+owns = [
+  "product route",
+  "responsibility boundary",
+  "oracle work package",
+  "client/server jar source decision",
+  "reference conflict resolution",
+  "final evidence review",
+]
+forbidden = [
+  "bulk file extraction",
+  "unbounded repository exploration",
+]
+
+[lanes.oracle_extraction]
+preferred_model = "gpt-5.4-mini"
+owns = [
+  "bounded jar/decompiled-source fact extraction",
+  "single case source table",
+  "reference witness comparison",
+]
+forbidden = [
+  "choosing the next milestone",
+  "inventing packet meaning",
+  "editing Rust implementation",
+  "creating expected values without an official function or source path",
+]
+
+[lanes.oracle_workbench]
+preferred_model = "gpt-5.5"
+owns = [
+  "oracle case design",
+  "contract artifact",
+  "official answer artifact",
+  "why/what/answer failure packet",
+  "oracle test shape",
+]
+forbidden = [
+  "editing Stevenarella Rust implementation",
+]
+
+[lanes.rust_worker]
+preferred_model = "gpt-5.3-codex"
+owns = [
+  "bounded Rust implementation",
+  "targeted Rust test execution",
+  "integration with existing code style",
+]
+forbidden = [
+  "reading official jars",
+  "editing oracle answers",
+  "choosing protocol facts",
+]
+
+[lanes.review]
+preferred_model = "gpt-5.5"
+owns = [
+  "checking evidence chain",
+  "checking agent boundary",
+  "checking expected values came from oracle artifacts",
+]
+forbidden = [
+  "rewriting scope without a new work package",
+]

@@ -1,0 +1,26 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Setup Gradle
+              uses: GeyserMC/actions/setup-gradle-composite@master
+              with:
+                  setup-java_java-version: 17
+
+            - name: Build MCPL
+              run: ./gradlew build
+
+            - name: Publish to Maven Repository
+              if: ${{ success() && github.repository == 'GeyserMC/MCProtocolLib' && (github.ref_name == 'master' || startsWith(github.ref_name, 'feature/')) }}
+              uses: gradle/gradle-build-action@3bfe3a46584a206fb8361cdedd0647b0c4204232
+              env:
+                  ORG_GRADLE_PROJECT_geysermcUsername: ${{ vars.DEPLOY_USER }}
+                  ORG_GRADLE_PROJECT_geysermcPassword: ${{ secrets.DEPLOY_PASS }}
+              with:
+                  arguments: publish

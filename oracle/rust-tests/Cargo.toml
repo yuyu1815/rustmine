@@ -1,0 +1,11 @@
+[package]
+name = "rustmine_oracle_tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+hex = "0.4.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+steven_protocol = { path = "../../stevenarella/protocol" }
