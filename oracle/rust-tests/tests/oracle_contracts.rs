@@ -71,6 +71,16 @@ const CONFIGURATION_FINISH_ANSWER: &str =
 const CONFIGURATION_FINISH_TEST_NAME: &str =
     "configuration_finish_framed_terminal_matches_official_oracle_answer";
 const CONFIGURATION_FINISH_COMPARISON_SURFACE: &str = "decoded_fields";
+const CONFIGURATION_PING_PONG_MANIFEST: &str =
+    "oracle/test-manifests/775/configuration_ping_pong_framed_dispatch.test-manifest.json";
+const CONFIGURATION_PING_PONG_CASE_ID: &str = "configuration_ping_pong_framed_dispatch";
+const CONFIGURATION_PING_PONG_CONTRACT: &str =
+    "oracle/contracts/775/configuration_ping_pong_framed_dispatch.contract.json";
+const CONFIGURATION_PING_PONG_ANSWER: &str =
+    "oracle/answers/775/configuration_ping_pong_framed_dispatch.answer.jsonl";
+const CONFIGURATION_PING_PONG_TEST_NAME: &str =
+    "configuration_ping_pong_framed_dispatch_matches_official_oracle_answer";
+const CONFIGURATION_PING_PONG_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 
 #[derive(Debug, Deserialize)]
 struct TestManifest {
@@ -104,6 +114,8 @@ struct ConfigurationOracleAnswer {
     packet_type: Option<String>,
     serverbound: Option<FinishDirectionAnswer>,
     clientbound: Option<FinishDirectionAnswer>,
+    clientbound_ping: Option<FramedDirectionAnswer>,
+    serverbound_pong: Option<FramedDirectionAnswer>,
     #[serde(default)]
     configuration_serverbound_packet_table: Vec<PacketTableRow>,
     #[serde(default)]
@@ -126,6 +138,20 @@ struct FinishDirectionAnswer {
     decoded_is_terminal: bool,
     encoded_framed_hex: String,
     encoded_body_hex: String,
+    remaining_after_official_decode: i32,
+    configuration_packet_table: Vec<PacketTableRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FramedDirectionAnswer {
+    flow: String,
+    packet_type: String,
+    decoded_packet_type: String,
+    decoded_packet_class: String,
+    input_id: i32,
+    encoded_framed_hex: String,
+    encoded_body_hex: String,
+    decoded_id: i32,
     remaining_after_official_decode: i32,
     configuration_packet_table: Vec<PacketTableRow>,
 }
@@ -771,6 +797,38 @@ fn configuration_finish_framed_terminal_matches_official_oracle_answer() {
     assert_finish_direction_matches_official_frame(clientbound, Direction::Clientbound);
 }
 
+#[test]
+fn configuration_ping_pong_framed_dispatch_matches_official_oracle_answer() {
+    let manifest: TestManifest = read_json(CONFIGURATION_PING_PONG_MANIFEST);
+    assert_eq!(manifest.case_id, CONFIGURATION_PING_PONG_CASE_ID);
+    assert_eq!(manifest.contract_path, CONFIGURATION_PING_PONG_CONTRACT);
+    assert_eq!(manifest.answer_path, CONFIGURATION_PING_PONG_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(manifest.rust_test_name, CONFIGURATION_PING_PONG_TEST_NAME);
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_PING_PONG_COMPARISON_SURFACE
+    );
+    assert_runner_scope(CONFIGURATION_PING_PONG_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+
+    let clientbound_ping = oracle
+        .answer
+        .clientbound_ping
+        .as_ref()
+        .expect("ping/pong answer missing clientbound_ping direction");
+    assert_ping_pong_direction_matches_official_frame(clientbound_ping, Direction::Clientbound);
+
+    let serverbound_pong = oracle
+        .answer
+        .serverbound_pong
+        .as_ref()
+        .expect("ping/pong answer missing serverbound_pong direction");
+    assert_ping_pong_direction_matches_official_frame(serverbound_pong, Direction::Serverbound);
+}
+
 fn assert_finish_direction_matches_official_frame(
     official: &FinishDirectionAnswer,
     direction: Direction,
@@ -832,6 +890,77 @@ fn assert_finish_direction_matches_official_frame(
     assert!(
         body_slice.is_empty(),
         "decoded finish_configuration did not consume the official body bytes"
+    );
+}
+
+fn assert_ping_pong_direction_matches_official_frame(
+    official: &FramedDirectionAnswer,
+    direction: Direction,
+) {
+    assert_eq!(official.decoded_packet_type, official.packet_type);
+    assert_eq!(
+        official.decoded_id, official.input_id,
+        "official decoded payload id differs from input id for {}",
+        official.flow
+    );
+    assert_eq!(official.remaining_after_official_decode, 0);
+
+    let official_name_fragment = rust_name_fragment_from_packet_type(&official.packet_type);
+    assert!(
+        official
+            .decoded_packet_class
+            .contains(&official_name_fragment),
+        "official decoded packet class did not preserve packet identity: {}",
+        official.decoded_packet_class
+    );
+
+    let expected_packet_id =
+        packet_id_for(&official.configuration_packet_table, &official.packet_type);
+    let framed = decode_hex(&official.encoded_framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&official.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Configuration,
+            direction,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Configuration {} {} packet id {}",
+            official.flow, official.packet_type, framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| panic!("Stevenarella errored while decoding ping/pong packet: {err}"))
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Configuration {} {} packet id {}",
+                official.flow, official.packet_type, framed_packet_id
+            )
+        });
+    let decoded_debug = format!("{decoded:?}");
+    assert!(
+        decoded_debug.contains(&official_name_fragment),
+        "decoded packet did not preserve ping/pong identity: {decoded_debug}"
+    );
+    assert!(
+        decoded_debug.contains(&official.input_id.to_string()),
+        "decoded packet did not expose the official ping/pong payload id {}: {decoded_debug}",
+        official.input_id
+    );
+    assert!(
+        body_slice.is_empty(),
+        "decoded ping/pong packet did not consume the official body bytes"
     );
 }
 

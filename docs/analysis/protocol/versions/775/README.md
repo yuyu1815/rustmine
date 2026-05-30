@@ -25,6 +25,7 @@ official jar function
 | `configuration_keepalive_codec` case note | [cases/configuration-keepalive-codec.md](cases/configuration-keepalive-codec.md) |
 | `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
 | `configuration_keepalive_clientbound_framed_dispatch` case note | [cases/configuration-keepalive-clientbound-framed-dispatch.md](cases/configuration-keepalive-clientbound-framed-dispatch.md) |
+| `configuration_ping_pong_framed_dispatch` case note | [cases/configuration-ping-pong-framed-dispatch.md](cases/configuration-ping-pong-framed-dispatch.md) |
 | `configuration_keepalive_runtime_send_helper` case note | [cases/configuration-keepalive-runtime-send-helper.md](cases/configuration-keepalive-runtime-send-helper.md) |
 | `configuration_keepalive_runtime_protocol_echo` case note | [cases/configuration-keepalive-runtime-protocol-echo.md](cases/configuration-keepalive-runtime-protocol-echo.md) |
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
@@ -34,7 +35,8 @@ official jar function
 
 At this snapshot, `configuration_keepalive_codec`,
 `configuration_keepalive_framed_dispatch`,
-`configuration_keepalive_clientbound_framed_dispatch`, and
+`configuration_keepalive_clientbound_framed_dispatch`,
+`configuration_ping_pong_framed_dispatch`, and
 `configuration_finish_framed_terminal` are the proven jar-backed answer rows in
 this 775 shard. In the current run, their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against

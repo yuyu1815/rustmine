@@ -2261,6 +2261,7 @@ pub mod configuration {
         pub mod internal_ids {
             pub const ConfigurationFinishConfigurationServerbound: i32 = 0;
             pub const ConfigurationKeepAliveServerbound_i64: i32 = 1;
+            pub const ConfigurationPongServerbound_i32: i32 = 2;
         }
 
         #[derive(Default, Debug)]
@@ -2306,6 +2307,28 @@ pub mod configuration {
                 Ok(())
             }
         }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationPongServerbound_i32 {
+            pub id: i32,
+        }
+
+        impl PacketType for ConfigurationPongServerbound_i32 {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationPongServerbound_i32,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id.write_to(buf)?;
+                Ok(())
+            }
+        }
     }
 
     pub mod clientbound {
@@ -2316,6 +2339,7 @@ pub mod configuration {
         pub mod internal_ids {
             pub const ConfigurationFinishConfigurationClientbound: i32 = 0;
             pub const ConfigurationKeepAliveClientbound_i64: i32 = 1;
+            pub const ConfigurationPingClientbound_i32: i32 = 2;
         }
 
         #[derive(Default, Debug)]
@@ -2352,6 +2376,28 @@ pub mod configuration {
                     State::Configuration,
                     Direction::Clientbound,
                     internal_ids::ConfigurationKeepAliveClientbound_i64,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationPingClientbound_i32 {
+            pub id: i32,
+        }
+
+        impl PacketType for ConfigurationPingClientbound_i32 {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationPingClientbound_i32,
                     false,
                 )
             }

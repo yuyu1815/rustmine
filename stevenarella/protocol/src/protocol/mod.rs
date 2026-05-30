@@ -159,6 +159,12 @@ macro_rules! state_packets {
                         packet.id = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::KeepAliveServerbound_i64(packet)));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationPongServerbound_i32 => {
+                        let id: i32 = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::StatusPong(
+                            packet::status::clientbound::StatusPong { ping: id.into() },
+                        )));
+                    }
                     packet::configuration::serverbound::internal_ids::ConfigurationFinishConfigurationServerbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageServerbound(
@@ -190,6 +196,12 @@ macro_rules! state_packets {
                         let mut packet = packet::play::clientbound::KeepAliveClientbound_i64::default();
                         packet.id = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::KeepAliveClientbound_i64(packet)));
+                    }
+                    packet::configuration::clientbound::internal_ids::ConfigurationPingClientbound_i32 => {
+                        let id: i32 = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::StatusPing(
+                            packet::status::serverbound::StatusPing { ping: id.into() },
+                        )));
                     }
                     _ => return Ok(Option::None),
                 }
