@@ -1465,11 +1465,21 @@ fn configuration_accept_code_of_conduct_framed_dispatch_matches_official_oracle_
                 framed_packet_id
             )
         });
-    let decoded_debug = format!("{decoded:?}");
-    assert!(
-        decoded_debug.contains("AcceptCodeOfConduct"),
-        "decoded packet did not preserve accept_code_of_conduct identity: {decoded_debug}"
-    );
+    match decoded {
+        packet::Packet::PluginMessageServerbound(packet) => {
+            assert_eq!(
+                packet.channel, "AcceptCodeOfConduct",
+                "decoded packet did not preserve accept_code_of_conduct compatibility channel"
+            );
+            assert!(
+                packet.data.is_empty(),
+                "decoded accept_code_of_conduct compatibility packet carried unexpected data"
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve accept_code_of_conduct identity: {other:?}")
+        }
+    }
     assert!(
         body_slice.is_empty(),
         "decoded accept_code_of_conduct packet did not consume the official body bytes"

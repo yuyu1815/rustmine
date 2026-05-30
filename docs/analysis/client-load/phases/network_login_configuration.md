@@ -147,7 +147,7 @@ configuration_accept_code_of_conduct_framed_dispatch
   -> official Configuration serverbound minecraft:accept_code_of_conduct frame
     from oracle/answers/775/configuration_accept_code_of_conduct_framed_dispatch.answer.jsonl
   -> packet::packet_by_id(775, State::Configuration, Direction::Serverbound, official id, body)
-    -> current result: matching accept_code_of_conduct identity and consumed empty body
+    -> current result: current public Packet alias channel AcceptCodeOfConduct and consumed empty body
 ```
 
 This slice is packet framing/dispatch/decode only. It stops before UI consent

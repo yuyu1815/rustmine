@@ -50,8 +50,9 @@ decode byte count.
 The manifest-declared Rust oracle test reads the generated answer and calls
 Stevenarella `packet::packet_by_id` with the official packet id and body. In
 the current checkout, that test passes: Protocol 775 Configuration serverbound
-id `0x09` dispatches to an accept-code-of-conduct packet and consumes the
-official empty body.
+id `0x09` dispatches to the current public `Packet::PluginMessageServerbound`
+compatibility alias with channel `AcceptCodeOfConduct`, carries no alias data,
+and consumes the official empty body.
 
 ## Does Not Prove
 
