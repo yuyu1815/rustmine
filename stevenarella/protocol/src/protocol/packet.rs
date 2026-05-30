@@ -2560,6 +2560,7 @@ pub mod configuration {
         #[allow(non_upper_case_globals)]
         pub mod internal_ids {
             pub const ConfigurationCookieRequestClientbound: i32 = 3;
+            pub const ConfigurationCustomPayloadClientbound: i32 = 4;
             pub const ConfigurationFinishConfigurationClientbound: i32 = 0;
             pub const ConfigurationKeepAliveClientbound_i64: i32 = 1;
             pub const ConfigurationPingClientbound_i32: i32 = 2;
@@ -2583,6 +2584,30 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.key.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCustomPayloadClientbound {
+            pub channel: String,
+            pub data: Vec<u8>,
+        }
+
+        impl PacketType for ConfigurationCustomPayloadClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationCustomPayloadClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.channel.write_to(buf)?;
+                self.data.write_to(buf)?;
                 Ok(())
             }
         }

@@ -14,6 +14,7 @@ protocol_packet_ids!(
         }
         clientbound Clientbound {
             0x00 => ConfigurationCookieRequestClientbound
+            0x01 => ConfigurationCustomPayloadClientbound
             0x03 => ConfigurationFinishConfigurationClientbound
             0x04 => ConfigurationKeepAliveClientbound_i64
             0x05 => ConfigurationPingClientbound_i32

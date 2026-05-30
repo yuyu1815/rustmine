@@ -295,6 +295,18 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationCustomPayloadClientbound => {
+                        let packet = packet::configuration::clientbound::ConfigurationCustomPayloadClientbound {
+                            channel: Serializable::read_from(buf)?,
+                            data: Serializable::read_from(buf)?,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: packet.channel,
+                                data: packet.data,
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(
