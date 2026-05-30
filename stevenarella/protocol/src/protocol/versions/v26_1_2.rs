@@ -8,6 +8,7 @@ protocol_packet_ids!(
             0x06 => ConfigurationResourcePackServerbound
             0x07 => ConfigurationSelectKnownPacksServerbound
             0x08 => ConfigurationCustomClickActionServerbound
+            0x09 => ConfigurationAcceptCodeOfConductServerbound
         }
         clientbound Clientbound {
             0x03 => ConfigurationFinishConfigurationClientbound

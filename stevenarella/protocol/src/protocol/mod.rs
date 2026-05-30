@@ -235,6 +235,15 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationAcceptCodeOfConductServerbound => {
+                        let _: () = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::PluginMessageServerbound(
+                            packet::play::serverbound::PluginMessageServerbound {
+                                channel: "AcceptCodeOfConduct".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     _ => return Ok(Option::None),
                 }
             }

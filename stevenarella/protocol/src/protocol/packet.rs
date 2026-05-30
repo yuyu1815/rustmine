@@ -2267,6 +2267,7 @@ pub mod configuration {
             pub const ConfigurationResourcePackServerbound: i32 = 4;
             pub const ConfigurationSelectKnownPacksServerbound: i32 = 5;
             pub const ConfigurationCustomClickActionServerbound: i32 = 6;
+            pub const ConfigurationAcceptCodeOfConductServerbound: i32 = 7;
         }
 
         #[derive(Default, Debug)]
@@ -2472,6 +2473,28 @@ pub mod configuration {
                     }
                     None => VarInt(0).write_to(buf)?,
                 }
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationAcceptCodeOfConductServerbound {
+            pub empty: (),
+        }
+
+        impl PacketType for ConfigurationAcceptCodeOfConductServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationAcceptCodeOfConductServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.empty.write_to(buf)?;
                 Ok(())
             }
         }

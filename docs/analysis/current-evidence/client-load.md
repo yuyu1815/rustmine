@@ -19,7 +19,7 @@ from structural observation for client-load and playability claims.
 | Load phase | Proof state | Evidence | What this proves | What it does not prove |
 |---|---|---|---|---|
 | `local_boot_resources` | `unproven` | none | nothing yet | startup, resources, assets, render setup |
-| `network_login_configuration` | `partial` | `configuration_client_information_framed_dispatch`; `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `configuration_keepalive_clientbound_framed_dispatch`; `configuration_ping_pong_framed_dispatch`; `configuration_finish_framed_terminal`; `configuration_resource_pack_response_framed_dispatch`; `configuration_select_known_packs_framed_dispatch`; `configuration_custom_click_action_framed_dispatch`; `configuration_keepalive_runtime_send_helper`; `configuration_keepalive_runtime_protocol_echo`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 | Configuration serverbound client_information framed dispatch/decode, serverbound keep-alive packet id/body, serverbound/clientbound keep-alive framed dispatch/decode, clientbound ping/serverbound pong framed dispatch/decode, finish_configuration framed dispatch/decode plus official terminal flags, serverbound resource_pack response frame dispatch/decode with UUID/action body consumption, serverbound select_known_packs known-pack list dispatch/decode with full body consumption, serverbound custom_click_action identifier/optional-payload dispatch/decode with full body consumption, outgoing helper send of the official Configuration serverbound keep_alive frame, and protocol-crate socket echo from official Configuration clientbound keep_alive to official Configuration serverbound keep_alive match reset-proof evidence against the current Leafish checkout | runtime custom-click UI behavior, command execution, interaction readiness, runtime known-pack negotiation completion, registry hydration, runtime resource pack UI/accept/reject behavior, runtime client settings send behavior, runtime ping response behavior, full login/configuration runtime behavior, full keep-alive response loop through `spawn_reader`, runtime Configuration-to-Play transition, play transition |
+| `network_login_configuration` | `partial` | `configuration_client_information_framed_dispatch`; `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `configuration_keepalive_clientbound_framed_dispatch`; `configuration_ping_pong_framed_dispatch`; `configuration_finish_framed_terminal`; `configuration_resource_pack_response_framed_dispatch`; `configuration_select_known_packs_framed_dispatch`; `configuration_custom_click_action_framed_dispatch`; `configuration_accept_code_of_conduct_framed_dispatch`; `configuration_keepalive_runtime_send_helper`; `configuration_keepalive_runtime_protocol_echo`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 | Configuration serverbound client_information framed dispatch/decode, serverbound keep-alive packet id/body, serverbound/clientbound keep-alive framed dispatch/decode, clientbound ping/serverbound pong framed dispatch/decode, finish_configuration framed dispatch/decode plus official terminal flags, serverbound resource_pack response frame dispatch/decode with UUID/action body consumption, serverbound select_known_packs known-pack list dispatch/decode with full body consumption, serverbound custom_click_action identifier/optional-payload dispatch/decode with full body consumption, serverbound accept_code_of_conduct empty-body dispatch/decode with full body consumption, outgoing helper send of the official Configuration serverbound keep_alive frame, and protocol-crate socket echo from official Configuration clientbound keep_alive to official Configuration serverbound keep_alive match reset-proof evidence against the current Leafish checkout | UI consent flow, legal acceptance semantics, runtime custom-click UI behavior, command execution, interaction readiness, runtime known-pack negotiation completion, registry hydration, runtime resource pack UI/accept/reject behavior, runtime client settings send behavior, runtime ping response behavior, full login/configuration runtime behavior, full keep-alive response loop through `spawn_reader`, runtime Configuration-to-Play transition, play transition |
 | `registry_hydration` | `unproven` | none | nothing yet | registry/dimension/known-pack/feature state |
 | `play_entry` | `unproven` | none | nothing yet | successful entry into Play |
 | `world_hydration` | `unproven` | none | nothing yet | chunks, light, block states, biomes, world time |
@@ -34,8 +34,11 @@ At this snapshot, the proven compatibility is only
 `configuration_keepalive_codec`, `configuration_keepalive_framed_dispatch`,
 `configuration_keepalive_clientbound_framed_dispatch`,
 `configuration_ping_pong_framed_dispatch`,
-`configuration_finish_framed_terminal`, and
-`configuration_resource_pack_response_framed_dispatch`, jar-backed,
+`configuration_finish_framed_terminal`,
+`configuration_resource_pack_response_framed_dispatch`,
+`configuration_select_known_packs_framed_dispatch`,
+`configuration_custom_click_action_framed_dispatch`, and
+`configuration_accept_code_of_conduct_framed_dispatch`, jar-backed,
 regenerated in the current run, and checked by exact reset-proof Rust oracle
 tests against the current Leafish checkout. `configuration_keepalive_runtime_send_helper` and
 `configuration_keepalive_runtime_protocol_echo` are root-owned runtime socket
@@ -49,6 +52,10 @@ Configuration completion, or Play entry.
 
 `configuration_custom_click_action_framed_dispatch` is packet-support evidence
 only. It does not prove UI behavior, command execution, interaction readiness,
+Configuration completion, or Play entry.
+
+`configuration_accept_code_of_conduct_framed_dispatch` is packet-support
+evidence only. It does not prove UI consent flow, legal acceptance semantics,
 Configuration completion, or Play entry.
 
 `configuration_resource_pack_response_framed_dispatch` is packet-support
