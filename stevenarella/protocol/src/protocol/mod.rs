@@ -171,6 +171,25 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationCookieResponseServerbound => {
+                        let packet = packet::configuration::serverbound::ConfigurationCookieResponseServerbound {
+                            key: Serializable::read_from(buf)?,
+                            payload: if bool::read_from(buf)? {
+                                Some(Serializable::read_from(buf)?)
+                            } else {
+                                None
+                            },
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageServerbound(
+                            packet::play::serverbound::PluginMessageServerbound {
+                                channel: "CookieResponse".to_owned(),
+                                data: packet
+                                    .payload
+                                    .map(|payload| payload.data)
+                                    .unwrap_or_else(Vec::new),
+                            },
+                        )));
+                    }
                     packet::configuration::serverbound::internal_ids::ConfigurationKeepAliveServerbound_i64 => {
                         let mut packet = packet::play::serverbound::KeepAliveServerbound_i64::default();
                         packet.id = Serializable::read_from(buf)?;

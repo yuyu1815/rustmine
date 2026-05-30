@@ -2268,6 +2268,7 @@ pub mod configuration {
             pub const ConfigurationSelectKnownPacksServerbound: i32 = 5;
             pub const ConfigurationCustomClickActionServerbound: i32 = 6;
             pub const ConfigurationAcceptCodeOfConductServerbound: i32 = 7;
+            pub const ConfigurationCookieResponseServerbound: i32 = 8;
         }
 
         #[derive(Default, Debug)]
@@ -2328,6 +2329,33 @@ pub mod configuration {
                 self.text_filtering_enabled.write_to(buf)?;
                 self.allows_listing.write_to(buf)?;
                 self.particle_status.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCookieResponseServerbound {
+            pub key: String,
+            pub payload: Option<LenPrefixedBytes<VarInt>>,
+        }
+
+        impl PacketType for ConfigurationCookieResponseServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationCookieResponseServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.key.write_to(buf)?;
+                self.payload.is_some().write_to(buf)?;
+                if let Some(ref payload) = self.payload {
+                    payload.write_to(buf)?;
+                }
                 Ok(())
             }
         }

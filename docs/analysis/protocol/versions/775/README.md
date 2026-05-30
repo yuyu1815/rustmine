@@ -23,6 +23,7 @@ official jar function
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
+| `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
 | `configuration_resource_pack_response_framed_dispatch` case note | [cases/configuration-resource-pack-response-framed-dispatch.md](cases/configuration-resource-pack-response-framed-dispatch.md) |
 | `configuration_select_known_packs_framed_dispatch` case note | [cases/configuration-select-known-packs-framed-dispatch.md](cases/configuration-select-known-packs-framed-dispatch.md) |
 | `configuration_custom_click_action_framed_dispatch` case note | [cases/configuration-custom-click-action-framed-dispatch.md](cases/configuration-custom-click-action-framed-dispatch.md) |
@@ -39,6 +40,7 @@ official jar function
 ## Evidence Snapshot
 
 At this snapshot, `configuration_client_information_framed_dispatch`,
+`configuration_cookie_response_framed_dispatch`,
 `configuration_keepalive_codec`,
 `configuration_keepalive_framed_dispatch`,
 `configuration_keepalive_clientbound_framed_dispatch`,
@@ -47,10 +49,17 @@ At this snapshot, `configuration_client_information_framed_dispatch`,
 `configuration_select_known_packs_framed_dispatch`,
 `configuration_custom_click_action_framed_dispatch`,
 `configuration_accept_code_of_conduct_framed_dispatch`, and
-`configuration_finish_framed_terminal` are the proven jar-backed answer rows in
-this 775 shard. In the current run, their answers were regenerated from the
-official client jar and the manifest-declared Rust oracle tests passed against
-the current Leafish checkout. `configuration_keepalive_runtime_send_helper` is
+`configuration_finish_framed_terminal` are the passing jar-backed answer rows
+in this 775 shard. Their answers were regenerated from the official client jar
+and the manifest-declared Rust oracle tests passed against the current Leafish
+checkout.
+
+`configuration_cookie_response_framed_dispatch` is packet-support evidence for
+one non-null payload fixture only. It does not prove cookie storage policy,
+cookie request/response runtime behavior, Configuration completion, or Play
+entry.
+
+`configuration_keepalive_runtime_send_helper` is
 also passing as a root-owned runtime-send probe that reuses the official
 serverbound keep_alive answer, and
 `configuration_keepalive_runtime_protocol_echo` is passing as a root-owned
