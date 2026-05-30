@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_custom_payload_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Configuration clientbound `minecraft:custom_payload` BrandPayload answer and decodes it through `packet::packet_by_id(775, State::Configuration, Direction::Clientbound, official id, body)` |
+| Current location | Protocol 775 `configuration_disconnect_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Configuration clientbound `minecraft:disconnect` empty literal Component reason answer and decodes it through `packet::packet_by_id(775, State::Configuration, Direction::Clientbound, official id, body)` |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{mod.rs,packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `configuration_custom_payload_clientbound_framed_dispatch` proves only one Configuration clientbound custom_payload BrandPayload fixture and current compatibility alias decode. It does not prove arbitrary plugin-channel handling, payload routing policy, Configuration completion, runtime Configuration-to-Play transition, registry hydration, Play readiness, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `configuration_disconnect_clientbound_framed_dispatch` proves only one Configuration clientbound disconnect empty literal Component reason fixture and current decode into `Packet::Disconnect`. It does not prove UI disconnect handling, screen flow, Configuration completion, runtime Configuration-to-Play transition, registry hydration, Play readiness, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -37,7 +37,7 @@ For future work:
              network_login_configuration
             -> next likely target: ask an oracle subagent to create the next
                missing Configuration clientbound packet proof,
-               likely minecraft:disconnect / 0x02; keep runtime
+               likely minecraft:reset_chat / 0x06; keep runtime
                Configuration-to-Play, registry, Play, world, render, and
                interaction readiness as later phases
 ```

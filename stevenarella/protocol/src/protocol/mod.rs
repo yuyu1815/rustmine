@@ -71,6 +71,25 @@ pub fn is_network_debug() -> bool {
     NETWORK_DEBUG.load(Ordering::Relaxed)
 }
 
+pub(crate) fn read_nbt_string_component<R: io::Read>(
+    buf: &mut R,
+) -> Result<format::Component, Error> {
+    let tag_id = buf.read_u8()?;
+    if tag_id != 8 {
+        return Err(Error::Err(format!(
+            "unsupported component root tag id {}",
+            tag_id
+        )));
+    }
+
+    let len = buf.read_u16::<BigEndian>()?;
+    let mut bytes = vec![0; len as usize];
+    buf.read_exact(&mut bytes)?;
+    let text = String::from_utf8(bytes)
+        .map_err(|err| Error::Err(format!("invalid component string utf8: {}", err)))?;
+    Ok(format::Component::from_str(&text))
+}
+
 /// Helper macro for defining packets
 #[macro_export]
 macro_rules! state_packets {
@@ -304,6 +323,16 @@ macro_rules! state_packets {
                             packet::play::clientbound::PluginMessageClientbound {
                                 channel: packet.channel,
                                 data: packet.data,
+                            },
+                        )));
+                    }
+                    packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
+                        let packet = packet::configuration::clientbound::ConfigurationDisconnectClientbound {
+                            reason: read_nbt_string_component(buf)?,
+                        };
+                        return Ok(Option::Some(Packet::Disconnect(
+                            packet::play::clientbound::Disconnect {
+                                reason: packet.reason,
                             },
                         )));
                     }

@@ -2561,6 +2561,7 @@ pub mod configuration {
         pub mod internal_ids {
             pub const ConfigurationCookieRequestClientbound: i32 = 3;
             pub const ConfigurationCustomPayloadClientbound: i32 = 4;
+            pub const ConfigurationDisconnectClientbound: i32 = 5;
             pub const ConfigurationFinishConfigurationClientbound: i32 = 0;
             pub const ConfigurationKeepAliveClientbound_i64: i32 = 1;
             pub const ConfigurationPingClientbound_i32: i32 = 2;
@@ -2608,6 +2609,28 @@ pub mod configuration {
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.channel.write_to(buf)?;
                 self.data.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationDisconnectClientbound {
+            pub reason: format::Component,
+        }
+
+        impl PacketType for ConfigurationDisconnectClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationDisconnectClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.reason.write_to(buf)?;
                 Ok(())
             }
         }
