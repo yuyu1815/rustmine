@@ -159,6 +159,33 @@ macro_rules! state_packets {
                         packet.id = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::KeepAliveServerbound_i64(packet)));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationFinishConfigurationServerbound => {
+                        let _: () = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::PluginMessageServerbound(
+                            packet::play::serverbound::PluginMessageServerbound {
+                                channel: "FinishConfiguration".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
+                    _ => return Ok(Option::None),
+                }
+            }
+
+            if let (State::Configuration, Direction::Clientbound) = (state, dir) {
+                let internal_id = packet::versions::translate_internal_packet_id_for_version(
+                    version, state, dir, id, true,
+                );
+                match internal_id {
+                    packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
+                        let _: () = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "FinishConfiguration".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     _ => return Ok(Option::None),
                 }
             }

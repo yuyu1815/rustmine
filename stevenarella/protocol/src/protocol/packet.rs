@@ -2259,7 +2259,30 @@ pub mod configuration {
 
         #[allow(non_upper_case_globals)]
         pub mod internal_ids {
-            pub const ConfigurationKeepAliveServerbound_i64: i32 = 0;
+            pub const ConfigurationFinishConfigurationServerbound: i32 = 0;
+            pub const ConfigurationKeepAliveServerbound_i64: i32 = 1;
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationFinishConfigurationServerbound {
+            pub empty: (),
+        }
+
+        impl PacketType for ConfigurationFinishConfigurationServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationFinishConfigurationServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.empty.write_to(buf)?;
+                Ok(())
+            }
         }
 
         #[derive(Default, Debug)]
@@ -2280,6 +2303,38 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.id.write_to(buf)?;
+                Ok(())
+            }
+        }
+    }
+
+    pub mod clientbound {
+        use crate::protocol::*;
+        use std::io;
+
+        #[allow(non_upper_case_globals)]
+        pub mod internal_ids {
+            pub const ConfigurationFinishConfigurationClientbound: i32 = 0;
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationFinishConfigurationClientbound {
+            pub empty: (),
+        }
+
+        impl PacketType for ConfigurationFinishConfigurationClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationFinishConfigurationClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.empty.write_to(buf)?;
                 Ok(())
             }
         }

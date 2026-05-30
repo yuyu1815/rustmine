@@ -1,0 +1,78 @@
+{
+  "case_id": "configuration_finish_framed_terminal",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND.codec().encode(ServerboundFinishConfigurationPacket.INSTANCE)",
+      "authority_note": "Official binary source for Configuration serverbound finish_configuration framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration serverbound finish_configuration framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(ClientboundFinishConfigurationPacket.INSTANCE)",
+      "authority_note": "Official binary source for Configuration clientbound finish_configuration framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound finish_configuration framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ServerboundFinishConfigurationPacket.INSTANCE.isTerminal()",
+      "authority_note": "Official binary source for serverbound finish_configuration terminal flag."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundFinishConfigurationPacket.INSTANCE.isTerminal()",
+      "authority_note": "Official binary source for clientbound finish_configuration terminal flag."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/configuration/ConfigurationProtocols.java",
+      "function_or_member": "SERVERBOUND, CLIENTBOUND",
+      "authority_note": "Decompiled witness path for the official jar calls when restored; the jar remains authoritative."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/configuration/ServerboundFinishConfigurationPacket.java",
+      "function_or_member": "INSTANCE, isTerminal()",
+      "authority_note": "Decompiled witness path for the packet class when restored; the jar remains authoritative."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/configuration/ClientboundFinishConfigurationPacket.java",
+      "function_or_member": "INSTANCE, isTerminal()",
+      "authority_note": "Decompiled witness path for the packet class when restored; the jar remains authoritative."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flows": ["Serverbound", "Clientbound"],
+    "packet_type": "minecraft:finish_configuration",
+    "packet_classes": {
+      "serverbound": "ServerboundFinishConfigurationPacket",
+      "clientbound": "ClientboundFinishConfigurationPacket"
+    },
+    "field_notes": {
+      "body": "finish_configuration has no payload fields after the Configuration packet table id on the official framed codec surface.",
+      "terminal": "Terminal status is read from each official packet INSTANCE through isTerminal()."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_finish_framed_terminal.answer.jsonl",
+  "stop_boundary": "Proves Configuration finish_configuration packet framing, dispatch/decode, and terminal flags only; do not infer Configuration-to-Play runtime readiness, registry hydration, or client load completion."
+}

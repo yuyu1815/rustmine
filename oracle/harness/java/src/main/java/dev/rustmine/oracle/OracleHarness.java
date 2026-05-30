@@ -15,8 +15,11 @@ import java.util.Map;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.SharedConstants;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.configuration.ClientConfigurationPacketListener;
+import net.minecraft.network.protocol.configuration.ClientboundFinishConfigurationPacket;
 import net.minecraft.network.protocol.configuration.ConfigurationProtocols;
 import net.minecraft.network.protocol.configuration.ServerConfigurationPacketListener;
+import net.minecraft.network.protocol.configuration.ServerboundFinishConfigurationPacket;
 import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
 import net.minecraft.server.Bootstrap;
 
@@ -42,6 +45,10 @@ public final class OracleHarness {
         }
         if ("configuration_keepalive_framed_dispatch".equals(caseId)) {
             writeAnswer(input, configurationKeepAliveFramedDispatch(input));
+            return;
+        }
+        if ("configuration_finish_framed_terminal".equals(caseId)) {
+            writeAnswer(input, configurationFinishFramedTerminal(input));
             return;
         }
 
@@ -175,5 +182,148 @@ public final class OracleHarness {
         answerBody.put("configuration_serverbound_packet_table", configurationServerboundPackets);
         answer.put("answer", answerBody);
         return answer;
+    }
+
+    private static Map<String, Object> configurationFinishFramedTerminal(JsonObject input) {
+        FriendlyByteBuf serverboundOut = new FriendlyByteBuf(Unpooled.buffer());
+        ConfigurationProtocols.SERVERBOUND
+            .codec()
+            .encode(serverboundOut, ServerboundFinishConfigurationPacket.INSTANCE);
+        byte[] serverboundFramed = readableBytes(serverboundOut);
+
+        FriendlyByteBuf serverboundIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(serverboundFramed));
+        Packet<? super ServerConfigurationPacketListener> serverboundDecoded =
+            ConfigurationProtocols.SERVERBOUND.codec().decode(serverboundIn);
+        if (!(serverboundDecoded instanceof ServerboundFinishConfigurationPacket)) {
+            throw new IllegalStateException(
+                "expected ServerboundFinishConfigurationPacket, got " + serverboundDecoded.getClass().getName()
+            );
+        }
+
+        FriendlyByteBuf clientboundOut = new FriendlyByteBuf(Unpooled.buffer());
+        ConfigurationProtocols.CLIENTBOUND
+            .codec()
+            .encode(clientboundOut, ClientboundFinishConfigurationPacket.INSTANCE);
+        byte[] clientboundFramed = readableBytes(clientboundOut);
+
+        FriendlyByteBuf clientboundIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(clientboundFramed));
+        Packet<? super ClientConfigurationPacketListener> clientboundDecoded =
+            ConfigurationProtocols.CLIENTBOUND.codec().decode(clientboundIn);
+        if (!(clientboundDecoded instanceof ClientboundFinishConfigurationPacket)) {
+            throw new IllegalStateException(
+                "expected ClientboundFinishConfigurationPacket, got " + clientboundDecoded.getClass().getName()
+            );
+        }
+
+        List<Map<String, Object>> configurationServerboundPackets = new ArrayList<>();
+        ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets((type, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", type.id().toString());
+            row.put("flow", type.flow().id());
+            configurationServerboundPackets.add(row);
+        });
+
+        List<Map<String, Object>> configurationClientboundPackets = new ArrayList<>();
+        ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((type, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", type.id().toString());
+            row.put("flow", type.flow().id());
+            configurationClientboundPackets.add(row);
+        });
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "ConfigurationProtocols.SERVERBOUND.codec().encode/decode(ServerboundFinishConfigurationPacket.INSTANCE), ConfigurationProtocols.CLIENTBOUND.codec().encode/decode(ClientboundFinishConfigurationPacket.INSTANCE), ServerboundFinishConfigurationPacket.INSTANCE.isTerminal(), ClientboundFinishConfigurationPacket.INSTANCE.isTerminal()",
+            "decompiled_source_path", "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/configuration/ConfigurationProtocols.java"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Configuration");
+        answerBody.put("packet_type", "minecraft:finish_configuration");
+        answerBody.put(
+            "serverbound",
+            finishDirectionAnswer(
+                "Serverbound",
+                "minecraft:finish_configuration",
+                serverboundDecoded,
+                ServerboundFinishConfigurationPacket.INSTANCE.isTerminal(),
+                serverboundDecoded.isTerminal(),
+                serverboundFramed,
+                serverboundIn.readableBytes(),
+                configurationServerboundPackets
+            )
+        );
+        answerBody.put(
+            "clientbound",
+            finishDirectionAnswer(
+                "Clientbound",
+                "minecraft:finish_configuration",
+                clientboundDecoded,
+                ClientboundFinishConfigurationPacket.INSTANCE.isTerminal(),
+                clientboundDecoded.isTerminal(),
+                clientboundFramed,
+                clientboundIn.readableBytes(),
+                configurationClientboundPackets
+            )
+        );
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static byte[] readableBytes(FriendlyByteBuf buffer) {
+        byte[] bytes = new byte[buffer.readableBytes()];
+        buffer.getBytes(buffer.readerIndex(), bytes);
+        return bytes;
+    }
+
+    private static byte[] bytesAfterVarIntPrefix(byte[] framed) {
+        int offset = 0;
+        for (; offset < framed.length && offset < 5; offset += 1) {
+            if ((framed[offset] & 0x80) == 0) {
+                offset += 1;
+                break;
+            }
+        }
+        if (offset == 0 || offset > framed.length || offset > 5) {
+            throw new IllegalStateException("missing complete VarInt packet id prefix");
+        }
+        byte[] body = new byte[framed.length - offset];
+        System.arraycopy(framed, offset, body, 0, body.length);
+        return body;
+    }
+
+    private static Map<String, Object> finishDirectionAnswer(
+        String flow,
+        String packetType,
+        Packet<?> decodedPacket,
+        boolean instanceTerminal,
+        boolean decodedTerminal,
+        byte[] framed,
+        int remainingAfterDecode,
+        List<Map<String, Object>> packetTable
+    ) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("flow", flow);
+        row.put("packet_type", packetType);
+        row.put("decoded_packet_type", decodedPacket.type().id().toString());
+        row.put("decoded_packet_class", decodedPacket.getClass().getName());
+        row.put("instance_is_terminal", instanceTerminal);
+        row.put("decoded_is_terminal", decodedTerminal);
+        row.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        row.put("encoded_body_hex", HexFormat.of().formatHex(bytesAfterVarIntPrefix(framed)));
+        row.put("remaining_after_official_decode", remainingAfterDecode);
+        row.put("configuration_packet_table", packetTable);
+        return row;
     }
 }

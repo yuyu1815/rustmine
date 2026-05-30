@@ -11,7 +11,7 @@ const CONFIGURATION_KEEPALIVE_CONTRACT: &str =
     "oracle/contracts/775/configuration_keepalive_codec.contract.json";
 const CONFIGURATION_KEEPALIVE_ANSWER: &str =
     "oracle/answers/775/configuration_keepalive_codec.answer.jsonl";
-const CONFIGURATION_KEEPALIVE_RUST_TARGET: &str = "oracle/rust-tests/tests/oracle_contracts.rs";
+const ORACLE_CONTRACTS_RUST_TARGET: &str = "oracle/rust-tests/tests/oracle_contracts.rs";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -26,6 +26,16 @@ const CONFIGURATION_KEEPALIVE_FRAMED_ANSWER: &str =
 const CONFIGURATION_KEEPALIVE_FRAMED_TEST_NAME: &str =
     "configuration_keepalive_framed_dispatch_decodes_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_FRAMED_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const CONFIGURATION_FINISH_MANIFEST: &str =
+    "oracle/test-manifests/775/configuration_finish_framed_terminal.test-manifest.json";
+const CONFIGURATION_FINISH_CASE_ID: &str = "configuration_finish_framed_terminal";
+const CONFIGURATION_FINISH_CONTRACT: &str =
+    "oracle/contracts/775/configuration_finish_framed_terminal.contract.json";
+const CONFIGURATION_FINISH_ANSWER: &str =
+    "oracle/answers/775/configuration_finish_framed_terminal.answer.jsonl";
+const CONFIGURATION_FINISH_TEST_NAME: &str =
+    "configuration_finish_framed_terminal_matches_official_oracle_answer";
+const CONFIGURATION_FINISH_COMPARISON_SURFACE: &str = "decoded_fields";
 
 #[derive(Debug, Deserialize)]
 struct TestManifest {
@@ -40,18 +50,24 @@ struct TestManifest {
 #[derive(Debug, Deserialize)]
 struct OracleAnswer {
     case_id: String,
-    answer: ConfigurationKeepAliveAnswer,
+    answer: ConfigurationOracleAnswer,
 }
 
 #[derive(Debug, Deserialize)]
-struct ConfigurationKeepAliveAnswer {
+struct ConfigurationOracleAnswer {
+    #[serde(default)]
     input_id: i64,
+    #[serde(default)]
     encoded_body_hex: String,
     encoded_framed_hex: Option<String>,
     decoded_id: Option<i64>,
     decoded_packet_type: Option<String>,
     decoded_packet_class: Option<String>,
     remaining_after_official_decode: Option<i32>,
+    packet_type: Option<String>,
+    serverbound: Option<FinishDirectionAnswer>,
+    clientbound: Option<FinishDirectionAnswer>,
+    #[serde(default)]
     configuration_serverbound_packet_table: Vec<PacketTableRow>,
 }
 
@@ -59,6 +75,20 @@ struct ConfigurationKeepAliveAnswer {
 struct PacketTableRow {
     packet_id: i32,
     packet_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FinishDirectionAnswer {
+    flow: String,
+    packet_type: String,
+    decoded_packet_type: String,
+    decoded_packet_class: String,
+    instance_is_terminal: bool,
+    decoded_is_terminal: bool,
+    encoded_framed_hex: String,
+    encoded_body_hex: String,
+    remaining_after_official_decode: i32,
+    configuration_packet_table: Vec<PacketTableRow>,
 }
 
 fn project_root() -> PathBuf {
@@ -114,9 +144,8 @@ fn read_answer(relative_path: &str, expected_case_id: &str) -> OracleAnswer {
     answers.pop().unwrap()
 }
 
-fn packet_id_for(answer: &ConfigurationKeepAliveAnswer, packet_type: &str) -> i32 {
-    answer
-        .configuration_serverbound_packet_table
+fn packet_id_for(table: &[PacketTableRow], packet_type: &str) -> i32 {
+    table
         .iter()
         .find(|row| row.packet_type == packet_type)
         .unwrap_or_else(|| panic!("missing packet id for {packet_type}"))
@@ -175,7 +204,7 @@ fn configuration_keepalive_matches_official_oracle_answer() {
     assert_eq!(manifest.answer_path, CONFIGURATION_KEEPALIVE_ANSWER);
     assert_eq!(
         manifest.rust_test_target,
-        CONFIGURATION_KEEPALIVE_RUST_TARGET
+        ORACLE_CONTRACTS_RUST_TARGET
     );
     assert_eq!(manifest.rust_test_name, CONFIGURATION_KEEPALIVE_TEST_NAME);
     assert_eq!(
@@ -187,7 +216,10 @@ fn configuration_keepalive_matches_official_oracle_answer() {
     let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
     assert_eq!(oracle.case_id, manifest.case_id);
 
-    let expected_packet_id = packet_id_for(&oracle.answer, "minecraft:keep_alive");
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.configuration_serverbound_packet_table,
+        "minecraft:keep_alive",
+    );
     let packet = packet::configuration::serverbound::ConfigurationKeepAliveServerbound_i64 {
         id: oracle.answer.input_id,
     };
@@ -208,7 +240,7 @@ fn configuration_keepalive_framed_dispatch_decodes_official_oracle_answer() {
     assert_eq!(manifest.answer_path, CONFIGURATION_KEEPALIVE_FRAMED_ANSWER);
     assert_eq!(
         manifest.rust_test_target,
-        CONFIGURATION_KEEPALIVE_RUST_TARGET
+        ORACLE_CONTRACTS_RUST_TARGET
     );
     assert_eq!(
         manifest.rust_test_name,
@@ -233,7 +265,10 @@ fn configuration_keepalive_framed_dispatch_decodes_official_oracle_answer() {
         Some("net.minecraft.network.protocol.common.ServerboundKeepAlivePacket")
     );
 
-    let expected_packet_id = packet_id_for(&oracle.answer, "minecraft:keep_alive");
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.configuration_serverbound_packet_table,
+        "minecraft:keep_alive",
+    );
     let framed_hex = oracle
         .answer
         .encoded_framed_hex
@@ -267,4 +302,124 @@ fn configuration_keepalive_framed_dispatch_decodes_official_oracle_answer() {
         body_slice.is_empty(),
         "decoded packet did not consume the official body bytes"
     );
+}
+
+#[test]
+fn configuration_finish_framed_terminal_matches_official_oracle_answer() {
+    let manifest: TestManifest = read_json(CONFIGURATION_FINISH_MANIFEST);
+    assert_eq!(manifest.case_id, CONFIGURATION_FINISH_CASE_ID);
+    assert_eq!(manifest.contract_path, CONFIGURATION_FINISH_CONTRACT);
+    assert_eq!(manifest.answer_path, CONFIGURATION_FINISH_ANSWER);
+    assert_eq!(
+        manifest.rust_test_target,
+        ORACLE_CONTRACTS_RUST_TARGET
+    );
+    assert_eq!(manifest.rust_test_name, CONFIGURATION_FINISH_TEST_NAME);
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_FINISH_COMPARISON_SURFACE
+    );
+    assert_runner_scope(CONFIGURATION_FINISH_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    let packet_type = oracle
+        .answer
+        .packet_type
+        .as_deref()
+        .expect("finish_configuration answer missing packet_type");
+
+    let serverbound = oracle
+        .answer
+        .serverbound
+        .as_ref()
+        .expect("finish_configuration answer missing serverbound direction");
+    assert_eq!(serverbound.packet_type, packet_type);
+    assert_finish_direction_matches_official_frame(serverbound, Direction::Serverbound);
+
+    let clientbound = oracle
+        .answer
+        .clientbound
+        .as_ref()
+        .expect("finish_configuration answer missing clientbound direction");
+    assert_eq!(clientbound.packet_type, packet_type);
+    assert_finish_direction_matches_official_frame(clientbound, Direction::Clientbound);
+}
+
+fn assert_finish_direction_matches_official_frame(
+    official: &FinishDirectionAnswer,
+    direction: Direction,
+) {
+    assert_eq!(official.decoded_packet_type, official.packet_type);
+    let official_name_fragment = rust_name_fragment_from_packet_type(&official.packet_type);
+    assert!(
+        official.decoded_packet_class.contains(&official_name_fragment),
+        "official decoded packet class did not preserve packet identity: {}",
+        official.decoded_packet_class
+    );
+    assert_eq!(official.remaining_after_official_decode, 0);
+    assert_eq!(
+        official.instance_is_terminal, official.decoded_is_terminal,
+        "official INSTANCE and decoded packet terminal flags differ for {}",
+        official.flow
+    );
+
+    let expected_packet_id = packet_id_for(&official.configuration_packet_table, &official.packet_type);
+    let framed = decode_hex(&official.encoded_framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&official.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Configuration,
+            direction,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Configuration {} finish_configuration packet id {}",
+            official.flow, framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| panic!("Stevenarella errored while decoding finish_configuration: {err}"))
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Configuration {} finish_configuration packet id {}",
+                official.flow, framed_packet_id
+            )
+        });
+    assert!(
+        format!("{decoded:?}").contains(&official_name_fragment),
+        "decoded packet did not preserve finish_configuration identity: {decoded:?}"
+    );
+    assert!(
+        body_slice.is_empty(),
+        "decoded finish_configuration did not consume the official body bytes"
+    );
+}
+
+fn rust_name_fragment_from_packet_type(packet_type: &str) -> String {
+    packet_type
+        .rsplit(':')
+        .next()
+        .unwrap_or(packet_type)
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<String>()
 }
