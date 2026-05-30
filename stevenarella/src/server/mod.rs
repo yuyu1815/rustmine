@@ -426,14 +426,20 @@ impl Server {
                     Ok(pck) => {
                         let pck = pck.map();
 
-                        match pck {
-                            MappedPacket::KeepAliveClientbound(keep_alive) => {
-                                packet::send_keep_alive(
-                                    server.conn.write().as_mut().unwrap(),
-                                    keep_alive.id,
-                                )
-                                .map_err(|_| server.disconnect_closed(None));
+                        match Self::handle_reader_keep_alive(
+                            &pck,
+                            server.conn.write().as_mut().unwrap(),
+                        ) {
+                            Ok(true) => continue,
+                            Ok(false) => {}
+                            Err(_) => {
+                                server.disconnect_closed(None);
+                                continue;
                             }
+                        }
+
+                        match pck {
+                            MappedPacket::KeepAliveClientbound(_) => {}
                             MappedPacket::ChunkData_NoEntities(chunk_data) => {
                                 let sky_light = server.world.dimension.load().has_sky_light();
                                 server.on_chunk_data_no_entities(chunk_data, sky_light);
@@ -839,6 +845,27 @@ impl Server {
                 }
             }
         });
+    }
+
+    pub fn handle_next_reader_packet_for_oracle(
+        read: &mut protocol::Conn,
+        write: &mut protocol::Conn,
+    ) -> Result<bool, protocol::Error> {
+        let pck = read.read_packet()?.map();
+        Self::handle_reader_keep_alive(&pck, write)
+    }
+
+    fn handle_reader_keep_alive(
+        pck: &MappedPacket,
+        write: &mut protocol::Conn,
+    ) -> Result<bool, protocol::Error> {
+        match pck {
+            MappedPacket::KeepAliveClientbound(keep_alive) => {
+                packet::send_keep_alive(write, keep_alive.id)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn spawn_light_updater(_server: Arc<Mutex<Option<Arc<Server>>>>) -> Sender<LightUpdate> {
@@ -2684,4 +2711,151 @@ fn add_systems(sched: &mut Schedule) {
         .add_systems(tick_sun.in_set(SystemExecStage::Render))
         .add_systems(tick_world.in_set(SystemExecStage::Normal))
         .add_systems(tick_time.in_set(SystemExecStage::Normal));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::Serializable;
+    use serde_json::Value;
+    use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::Path;
+    use std::time::Duration;
+
+    fn project_root() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    }
+
+    fn read_answer(relative_path: &str, expected_case_id: &str) -> Value {
+        let path = project_root().join(relative_path);
+        let contents = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let rows: Vec<Value> = contents
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                serde_json::from_str(line)
+                    .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
+            })
+            .collect();
+
+        assert_eq!(
+            rows.len(),
+            1,
+            "expected exactly one oracle answer row in {}",
+            path.display()
+        );
+        assert_eq!(rows[0]["case_id"], expected_case_id);
+        rows.into_iter().next().unwrap()
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        assert!(
+            value.len() % 2 == 0,
+            "hex value must have an even number of digits"
+        );
+        (0..value.len())
+            .step_by(2)
+            .map(|index| {
+                u8::from_str_radix(&value[index..index + 2], 16)
+                    .unwrap_or_else(|err| panic!("invalid hex at byte {}: {}", index, err))
+            })
+            .collect()
+    }
+
+    fn official_network_frame_from_framed_payload(framed: &[u8]) -> Vec<u8> {
+        let mut frame = Vec::new();
+        protocol::VarInt(framed.len() as i32)
+            .write_to(&mut frame)
+            .expect("encode network packet length");
+        frame.extend_from_slice(framed);
+        frame
+    }
+
+    fn read_network_frame_from_reader<R: Read>(reader: &mut R) -> Vec<u8> {
+        let len = protocol::VarInt::read_from(reader)
+            .expect("read response network length")
+            .0 as usize;
+        let mut body = vec![0; len];
+        reader
+            .read_exact(&mut body)
+            .expect("read response network body");
+
+        let mut frame = Vec::new();
+        protocol::VarInt(len as i32)
+            .write_to(&mut frame)
+            .expect("encode observed network packet length");
+        frame.extend_from_slice(&body);
+        frame
+    }
+
+    fn answer_framed_hex(answer: &Value) -> &str {
+        answer["answer"]["encoded_framed_hex"]
+            .as_str()
+            .expect("oracle answer missing answer.encoded_framed_hex")
+    }
+
+    #[test]
+    fn configuration_keepalive_runtime_spawn_reader_reaction_echoes_official_frame() {
+        let inbound_answer = read_answer(
+            "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+            "configuration_keepalive_clientbound_framed_dispatch",
+        );
+        let outbound_answer = read_answer(
+            "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+            "configuration_keepalive_framed_dispatch",
+        );
+
+        assert_eq!(
+            inbound_answer["answer"]["input_id"], outbound_answer["answer"]["input_id"],
+            "spawn_reader fixture requires matching inbound/outbound keep_alive ids"
+        );
+
+        let inbound_network_frame = official_network_frame_from_framed_payload(&decode_hex(
+            answer_framed_hex(&inbound_answer),
+        ));
+        let expected_outbound_network_frame = official_network_frame_from_framed_payload(
+            &decode_hex(answer_framed_hex(&outbound_answer)),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind spawn_reader probe server");
+        let server_addr = listener
+            .local_addr()
+            .expect("read spawn_reader probe server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener
+                .accept()
+                .expect("accept spawn_reader probe connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set spawn_reader probe read timeout");
+            stream
+                .write_all(&inbound_network_frame)
+                .expect("write official clientbound keep_alive frame");
+            read_network_frame_from_reader(&mut stream)
+        });
+
+        let mut read =
+            Conn::new(&server_addr.to_string(), 775).expect("connect spawn_reader oracle probe");
+        read.state = protocol::State::Configuration;
+        let mut write = read.clone();
+        write.state = protocol::State::Configuration;
+
+        let handled = Server::handle_next_reader_packet_for_oracle(&mut read, &mut write)
+            .expect("handle official Configuration clientbound keep_alive through reader branch");
+        assert!(
+            handled,
+            "reader branch must report that it handled clientbound keep_alive"
+        );
+
+        let observed_outbound_network_frame = server
+            .join()
+            .expect("spawn_reader probe server thread panicked");
+        assert_eq!(
+            observed_outbound_network_frame, expected_outbound_network_frame,
+            "spawn_reader keep_alive branch must send the official Configuration serverbound keep_alive network frame"
+        );
+    }
 }

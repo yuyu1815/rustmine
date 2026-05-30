@@ -6,10 +6,10 @@
 | Load claim | Client can satisfy official login/configuration wire contracts. |
 | Evidence surface | Official jar codec/state evidence |
 | Proof label | `partial` |
-| Current proof | `configuration_client_information_framed_dispatch`, `configuration_cookie_response_framed_dispatch`, `configuration_custom_payload_framed_dispatch`, `configuration_keepalive_codec`, `configuration_keepalive_framed_dispatch`, `configuration_keepalive_clientbound_framed_dispatch`, `configuration_ping_pong_framed_dispatch`, `configuration_finish_framed_terminal`, `configuration_resource_pack_response_framed_dispatch`, `configuration_select_known_packs_framed_dispatch`, `configuration_custom_click_action_framed_dispatch`, and `configuration_accept_code_of_conduct_framed_dispatch` have regenerated jar-backed answers for Configuration client_information, cookie_response key/nullable-payload, custom_payload BrandPayload, keep-alive body/table-id, serverbound/clientbound keep_alive framed dispatch/decode, clientbound ping/serverbound pong framed dispatch/decode, finish_configuration framed/terminal fields, serverbound resource_pack UUID/action response dispatch/decode, serverbound select_known_packs known-pack list dispatch/decode, serverbound custom_click_action identifier/optional-payload dispatch/decode, and serverbound accept_code_of_conduct empty-body dispatch/decode. Those exact reset-proof Rust oracle tests pass against the current Leafish checkout. `configuration_keepalive_runtime_send_helper` proves `packet::send_keep_alive` writes the official Configuration serverbound keep_alive frame in Configuration state; `configuration_keepalive_runtime_protocol_echo` proves the protocol crate can read an official Configuration clientbound keep_alive frame, map it to `MappedPacket::KeepAliveClientbound(id)`, and send the official Configuration serverbound keep_alive response. |
+| Current proof | `configuration_client_information_framed_dispatch`, `configuration_cookie_response_framed_dispatch`, `configuration_custom_payload_framed_dispatch`, `configuration_keepalive_codec`, `configuration_keepalive_framed_dispatch`, `configuration_keepalive_clientbound_framed_dispatch`, `configuration_ping_pong_framed_dispatch`, `configuration_finish_framed_terminal`, `configuration_resource_pack_response_framed_dispatch`, `configuration_select_known_packs_framed_dispatch`, `configuration_custom_click_action_framed_dispatch`, and `configuration_accept_code_of_conduct_framed_dispatch` have regenerated jar-backed answers for Configuration client_information, cookie_response key/nullable-payload, custom_payload BrandPayload, keep-alive body/table-id, serverbound/clientbound keep_alive framed dispatch/decode, clientbound ping/serverbound pong framed dispatch/decode, finish_configuration framed/terminal fields, serverbound resource_pack UUID/action response dispatch/decode, serverbound select_known_packs known-pack list dispatch/decode, serverbound custom_click_action identifier/optional-payload dispatch/decode, and serverbound accept_code_of_conduct empty-body dispatch/decode. Those exact reset-proof Rust oracle tests pass against the current Leafish checkout. `configuration_keepalive_runtime_send_helper` proves `packet::send_keep_alive` writes the official Configuration serverbound keep_alive frame in Configuration state; `configuration_keepalive_runtime_protocol_echo` proves the protocol crate can read an official Configuration clientbound keep_alive frame, map it to `MappedPacket::KeepAliveClientbound(id)`, and send the official Configuration serverbound keep_alive response. `configuration_keepalive_runtime_spawn_reader_reaction` proves the same official clientbound keep_alive frame drives the factored `Server::spawn_reader` keep_alive branch and observes the official Configuration serverbound keep_alive response frame. |
 | Project-level test/probe | `oracle/rust-tests/tests/oracle_contracts.rs` |
 | Candidate checkout owner under test | `stevenarella/protocol/src/protocol/packet.rs` |
-| Candidate evidence gap | Add full `spawn_reader` keep-alive reaction, runtime Configuration-to-Play transition proof, or another phase-owned runtime proof. |
+| Candidate evidence gap | Choose the next missing runtime proof after keep_alive reader-loop reaction, likely Configuration-to-Play transition / finish path; registry hydration and Play readiness remain later gaps. |
 
 ## Proven Slice
 
@@ -222,8 +222,7 @@ configuration_ping_pong_framed_dispatch
 
 This phase is still not complete. The proven slice does not prove full
 login/configuration runtime behavior, runtime ping response behavior,
-keep-alive response loop behavior, runtime Configuration-to-Play transition
-behavior, or Play readiness.
+runtime Configuration-to-Play transition behavior, or Play readiness.
 
 ## Current Runtime-Send Probe
 
@@ -257,3 +256,37 @@ configuration_keepalive_runtime_protocol_echo
 ```
 
 This still stops before the full `spawn_reader` thread path.
+
+## Current Spawn Reader Reaction Probe
+
+```text
+configuration_keepalive_runtime_spawn_reader_reaction
+  -> official Configuration clientbound keep_alive network frame
+    from oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl
+  -> runtime owner:
+    stevenarella/src/server/mod.rs Server::spawn_reader keep_alive branch
+      -> Conn::read_packet()
+        -> Packet::map()
+          -> MappedPacket::KeepAliveClientbound(id)
+            -> packet::send_keep_alive(server.conn.write().as_mut().unwrap(), id)
+              -> expected: VarInt(length) + official Configuration serverbound keep_alive frame
+                from oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl
+              -> observed: matching response frame on localhost listener
+```
+
+Current result: the exact Rust oracle test validates both official answer
+artifacts, then runs a crate-local probe through
+`Server::handle_next_reader_packet_for_oracle`, the same factored keep_alive
+branch used by `Server::spawn_reader`, and observes the official Configuration
+serverbound keep_alive network frame.
+
+Regression packets kept for traceability:
+
+```text
+oracle/failures/775/configuration_keepalive_runtime_spawn_reader_reaction.why-what-answer.jsonl
+oracle/failures/775/configuration_keepalive_runtime_spawn_reader_reaction.rust-fix-task.json
+```
+
+This still stops before Configuration completion, runtime Configuration-to-Play
+transition behavior, registry hydration, Play entry, world load, or render
+readiness.

@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_custom_payload_framed_dispatch` oracle package and Rust fix are in place; direct jar-backed runner passes and all current Rust oracle tests pass |
-| Last touched area | `_analysis/minecraft-26.1.2/`, `_tools/java/jdk-25-full`, `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/harness/java/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
+| Current location | Protocol 775 `configuration_keepalive_runtime_spawn_reader_reaction` root-owned runtime package now passes: the exact oracle test validates official inbound/outbound keep_alive answers and executes the same factored reader-loop keep_alive branch used by `Server::spawn_reader` |
+| Last touched area | `oracle/cases/775/runtime/`, `oracle/contracts/775/runtime/`, `oracle/test-manifests/775/runtime/`, `oracle/failures/775/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | The new custom_payload proof is packet framing and dispatch/decode for one BrandPayload fixture only. The current public Packet compatibility alias exposes channel `minecraft:brand` and payload bytes, not arbitrary payload routing policy. It does not prove arbitrary plugin-channel handling, payload routing policy, Configuration completion, Play readiness, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
+| Explicit uncertainty | `configuration_keepalive_runtime_spawn_reader_reaction` proves only one Configuration keep_alive reaction through the factored reader-loop branch. It does not prove Configuration completion, runtime Configuration-to-Play transition, Play readiness, registry hydration, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -35,11 +35,10 @@ For future work:
            implementation work packages
           -> for client-load/playability, continue from
              network_login_configuration
-            -> next likely target: choose the next network_login_configuration
-               runtime gap, such as full spawn_reader keep-alive reaction or
-               runtime Configuration-to-Play transition, because the current
-               Protocol 775 Configuration serverbound packet table is now
-               covered by jar-backed packet-support proofs
+            -> next likely target: choose the next missing runtime proof
+               after keep_alive reader-loop reaction, likely the
+               Configuration-to-Play transition / finish path; keep registry,
+               Play, world, render, and interaction readiness as later phases
 ```
 
 ## Stop Boundary

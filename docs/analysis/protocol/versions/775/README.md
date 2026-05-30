@@ -35,6 +35,7 @@ official jar function
 | `configuration_ping_pong_framed_dispatch` case note | [cases/configuration-ping-pong-framed-dispatch.md](cases/configuration-ping-pong-framed-dispatch.md) |
 | `configuration_keepalive_runtime_send_helper` case note | [cases/configuration-keepalive-runtime-send-helper.md](cases/configuration-keepalive-runtime-send-helper.md) |
 | `configuration_keepalive_runtime_protocol_echo` case note | [cases/configuration-keepalive-runtime-protocol-echo.md](cases/configuration-keepalive-runtime-protocol-echo.md) |
+| `configuration_keepalive_runtime_spawn_reader_reaction` case note | [cases/configuration-keepalive-runtime-spawn-reader-reaction.md](cases/configuration-keepalive-runtime-spawn-reader-reaction.md) |
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
@@ -70,8 +71,14 @@ entry.
 also passing as a root-owned runtime-send probe that reuses the official
 serverbound keep_alive answer, and
 `configuration_keepalive_runtime_protocol_echo` is passing as a root-owned
-protocol-crate socket echo probe. No broader Protocol 775 or client-load phase
-is complete from those proofs.
+protocol-crate socket echo probe. `configuration_keepalive_runtime_spawn_reader_reaction`
+is passing as a root-owned runtime probe for the same factored keep_alive branch
+used by `Server::spawn_reader`. No broader Protocol 775 or client-load phase is
+complete from those proofs.
+
+The next runtime gap remains outside keep_alive: Configuration completion /
+Configuration-to-Play transition and later registry, Play, world, render, and
+interaction readiness are still unproven.
 
 `configuration_accept_code_of_conduct_framed_dispatch` is packet-support
 evidence only. It does not prove UI consent flow, legal acceptance semantics,

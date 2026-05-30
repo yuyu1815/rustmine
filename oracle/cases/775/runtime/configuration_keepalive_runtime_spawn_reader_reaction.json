@@ -1,0 +1,48 @@
+{
+  "case_id": "configuration_keepalive_runtime_spawn_reader_reaction",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "runtime_spawn_reader_reaction_probe",
+  "source_case_ids": [
+    "configuration_keepalive_clientbound_framed_dispatch",
+    "configuration_keepalive_framed_dispatch"
+  ],
+  "official_sources": [
+    {
+      "role": "generated_official_answer_inbound",
+      "path": "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+      "function_or_member": "ConfigurationProtocols.CLIENTBOUND.codec().encode(...), ConfigurationProtocols.CLIENTBOUND.codec().decode(...), ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundKeepAlivePacket.getId()",
+      "authority_note": "Existing generated official answer owns the Protocol 775 Configuration clientbound keep_alive framed payload and input id."
+    },
+    {
+      "role": "generated_official_answer_outbound",
+      "path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+      "function_or_member": "ConfigurationProtocols.SERVERBOUND.codec().encode(...), ConfigurationProtocols.SERVERBOUND.codec().decode(...), ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...), ServerboundKeepAlivePacket.getId()",
+      "authority_note": "Existing generated official answer owns the Protocol 775 Configuration serverbound keep_alive framed response payload for the same input id."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "inbound_flow": "Clientbound",
+    "outbound_flow": "Serverbound",
+    "packet_type": "minecraft:keep_alive",
+    "runtime_path": [
+      "official Configuration clientbound keep_alive network frame",
+      "stevenarella/src/server/mod.rs Server::spawn_reader keep_alive branch",
+      "Server::handle_next_reader_packet_for_oracle test surface",
+      "Conn::read_packet()",
+      "Packet::map()",
+      "MappedPacket::KeepAliveClientbound(id)",
+      "packet::send_keep_alive(server.conn.write().as_mut().unwrap(), id)",
+      "official Configuration serverbound keep_alive network frame"
+    ],
+    "inbound_frame_source": "configuration_keepalive_clientbound_framed_dispatch.answer.encoded_framed_hex",
+    "outbound_frame_source": "configuration_keepalive_framed_dispatch.answer.encoded_framed_hex",
+    "network_framing": "With compression threshold disabled, each Conn network packet is VarInt(length of official framed payload) followed by the official framed payload.",
+    "current_harness_access": "The reset-proof oracle test loads and validates the official inbound/outbound answer artifacts, then executes a crate-local probe through Server::handle_next_reader_packet_for_oracle, the same factored keep_alive branch used by Server::spawn_reader."
+  },
+  "answer_path": "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+  "response_answer_path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+  "stop_boundary": "This runtime probe targets only the factored Server::spawn_reader keep_alive branch for one official Protocol 775 Configuration keep_alive frame; it must not claim Configuration completion, Play entry, registry hydration, world load, render readiness, or client-load completion."
+}

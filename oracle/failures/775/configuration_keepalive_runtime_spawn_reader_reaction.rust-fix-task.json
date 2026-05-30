@@ -1,0 +1,21 @@
+{
+  "task_id": "fix_configuration_keepalive_runtime_spawn_reader_reaction_775",
+  "case_id": "configuration_keepalive_runtime_spawn_reader_reaction",
+  "why": "Protocol 775 Configuration keep_alive runtime reaction must be proven through Stevenarella's actual reader-loop path. The official inbound and outbound expected frames are already generated in oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl and oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl.",
+  "what": "The root-owned oracle probe cannot currently execute Server::spawn_reader in Configuration state because spawn_reader is private and Server::connect sets Conn state to Play before connect0/spawn_reader. The existing passing protocol echo probe only covers Conn::read_packet -> Packet::map -> packet::send_keep_alive, not the server reader-loop branch.",
+  "answer_path": "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+  "contract_path": "oracle/contracts/775/runtime/configuration_keepalive_runtime_spawn_reader_reaction.contract.json",
+  "failing_test": "cargo test --manifest-path oracle/rust-tests/Cargo.toml --test oracle_contracts configuration_keepalive_runtime_spawn_reader_reaction_echoes_official_frame -- --exact",
+  "allowed_write_scope": [
+    "stevenarella/src/server/mod.rs"
+  ],
+  "forbidden_paths": [
+    "oracle/cases/775/runtime/configuration_keepalive_runtime_spawn_reader_reaction.json",
+    "oracle/contracts/775/runtime/configuration_keepalive_runtime_spawn_reader_reaction.contract.json",
+    "oracle/answers/775/configuration_keepalive_clientbound_framed_dispatch.answer.jsonl",
+    "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+    "oracle/test-manifests/775/runtime/configuration_keepalive_runtime_spawn_reader_reaction.test-manifest.json",
+    "oracle/failures/775/configuration_keepalive_runtime_spawn_reader_reaction.why-what-answer.jsonl"
+  ],
+  "stop_condition": "Provide a narrow, reset-proof-testable reader-loop surface or factorization in stevenarella/src/server/mod.rs that lets the oracle feed a Conn in State::Configuration with the official clientbound keep_alive frame and observe packet::send_keep_alive through the same branch used by Server::spawn_reader, without editing oracle expected-answer artifacts or claiming Configuration completion/Play entry."
+}
