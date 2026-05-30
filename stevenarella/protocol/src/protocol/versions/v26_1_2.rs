@@ -6,6 +6,7 @@ protocol_packet_ids!(
             0x04 => ConfigurationKeepAliveServerbound_i64
             0x05 => ConfigurationPongServerbound_i32
             0x06 => ConfigurationResourcePackServerbound
+            0x07 => ConfigurationSelectKnownPacksServerbound
         }
         clientbound Clientbound {
             0x03 => ConfigurationFinishConfigurationClientbound

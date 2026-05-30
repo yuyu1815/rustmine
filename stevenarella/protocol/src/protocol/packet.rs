@@ -2264,6 +2264,31 @@ pub mod configuration {
             pub const ConfigurationPongServerbound_i32: i32 = 2;
             pub const ConfigurationClientInformationServerbound: i32 = 3;
             pub const ConfigurationResourcePackServerbound: i32 = 4;
+            pub const ConfigurationSelectKnownPacksServerbound: i32 = 5;
+        }
+
+        #[derive(Default, Debug)]
+        pub struct KnownPack {
+            pub namespace: String,
+            pub id: String,
+            pub version: String,
+        }
+
+        impl Serializable for KnownPack {
+            fn read_from<R: io::Read>(buf: &mut R) -> Result<KnownPack, Error> {
+                Ok(KnownPack {
+                    namespace: Serializable::read_from(buf)?,
+                    id: Serializable::read_from(buf)?,
+                    version: Serializable::read_from(buf)?,
+                })
+            }
+
+            fn write_to<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.namespace.write_to(buf)?;
+                self.id.write_to(buf)?;
+                self.version.write_to(buf)?;
+                Ok(())
+            }
         }
 
         #[derive(Default, Debug)]
@@ -2390,6 +2415,28 @@ pub mod configuration {
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.id.write_to(buf)?;
                 self.action.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationSelectKnownPacksServerbound {
+            pub known_packs: LenPrefixed<VarInt, KnownPack>,
+        }
+
+        impl PacketType for ConfigurationSelectKnownPacksServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationSelectKnownPacksServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.known_packs.write_to(buf)?;
                 Ok(())
             }
         }

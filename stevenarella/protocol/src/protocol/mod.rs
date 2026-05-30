@@ -198,6 +198,17 @@ macro_rules! state_packets {
                             packet::play::serverbound::ResourcePackStatus { result: action },
                         )));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationSelectKnownPacksServerbound => {
+                        let _packet = packet::configuration::serverbound::ConfigurationSelectKnownPacksServerbound {
+                            known_packs: Serializable::read_from(buf)?,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageServerbound(
+                            packet::play::serverbound::PluginMessageServerbound {
+                                channel: "SelectKnownPacks".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     _ => return Ok(Option::None),
                 }
             }
