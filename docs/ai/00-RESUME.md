@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_select_known_packs_framed_dispatch` oracle package and Rust fix are in place; direct jar-backed runner passes and all current Rust oracle tests pass |
-| Last touched area | `_analysis/minecraft-26.1.2/`, `_tools/java/jdk-25-full`, `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/harness/java/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/ai/00-RESUME.md` |
+| Current location | Protocol 775 `configuration_custom_click_action_framed_dispatch` oracle package and Rust fix are in place; direct jar-backed runner passes and all current Rust oracle tests pass |
+| Last touched area | `_analysis/minecraft-26.1.2/`, `_tools/java/jdk-25-full`, `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/harness/java/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | The new proof is select_known_packs packet framing and dispatch/decode only. It does not prove registry hydration, known-pack negotiation completion, runtime client settings send behavior, runtime ping response behavior, the full `spawn_reader` thread path, runtime Configuration-to-Play transition, Play readiness, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
+| Explicit uncertainty | The new proof is custom_click_action packet framing and dispatch/decode only. It does not prove UI behavior, command execution, interaction readiness, Configuration completion, Play readiness, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
 
 ## Recovery Flow
 
@@ -36,8 +36,9 @@ For future work:
           -> for client-load/playability, continue from
              network_login_configuration
             -> next likely target: add the next Configuration packet-support
-               proof, while keeping registry hydration and Configuration-to-Play
-               transition as separate later proofs
+               proof, while keeping UI behavior, interaction readiness,
+               registry hydration, and Configuration-to-Play transition as
+               separate later proofs
 ```
 
 ## Stop Boundary

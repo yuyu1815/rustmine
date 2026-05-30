@@ -2254,6 +2254,7 @@ state_packets!(
 
 pub mod configuration {
     pub mod serverbound {
+        use crate::nbt;
         use crate::protocol::*;
         use std::io;
 
@@ -2265,6 +2266,7 @@ pub mod configuration {
             pub const ConfigurationClientInformationServerbound: i32 = 3;
             pub const ConfigurationResourcePackServerbound: i32 = 4;
             pub const ConfigurationSelectKnownPacksServerbound: i32 = 5;
+            pub const ConfigurationCustomClickActionServerbound: i32 = 6;
         }
 
         #[derive(Default, Debug)]
@@ -2437,6 +2439,39 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.known_packs.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCustomClickActionServerbound {
+            pub id: String,
+            pub payload: Option<nbt::NamedTag>,
+        }
+
+        impl PacketType for ConfigurationCustomClickActionServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationCustomClickActionServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id.write_to(buf)?;
+                match self.payload {
+                    Some(ref payload) => {
+                        let mut payload_bytes = Vec::new();
+                        10u8.write_to(&mut payload_bytes)?;
+                        payload.1.write_to(&mut payload_bytes)?;
+                        VarInt(payload_bytes.len() as i32).write_to(buf)?;
+                        buf.write_all(&payload_bytes)?;
+                    }
+                    None => VarInt(0).write_to(buf)?,
+                }
                 Ok(())
             }
         }

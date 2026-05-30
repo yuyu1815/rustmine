@@ -7,6 +7,7 @@ protocol_packet_ids!(
             0x05 => ConfigurationPongServerbound_i32
             0x06 => ConfigurationResourcePackServerbound
             0x07 => ConfigurationSelectKnownPacksServerbound
+            0x08 => ConfigurationCustomClickActionServerbound
         }
         clientbound Clientbound {
             0x03 => ConfigurationFinishConfigurationClientbound
