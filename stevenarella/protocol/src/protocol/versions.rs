@@ -16,6 +16,7 @@ mod v1_7_10;
 mod v1_8_9;
 mod v1_9;
 mod v1_9_2;
+mod v26_1_2;
 
 // https://wiki.vg/Protocol_History
 // https://wiki.vg/Protocol_version_numbers#Versions_after_the_Netty_rewrite
@@ -63,6 +64,7 @@ pub fn translate_internal_packet_id_for_version(
     to_internal: bool,
 ) -> i32 {
     match version {
+        775 => v26_1_2::translate_internal_packet_id(state, dir, id, to_internal),
         754 | 753 | 751 => v1_16_4::translate_internal_packet_id(state, dir, id, to_internal),
         736 => v1_16_1::translate_internal_packet_id(state, dir, id, to_internal),
         735 => v1_16_1::translate_internal_packet_id(state, dir, id, to_internal),

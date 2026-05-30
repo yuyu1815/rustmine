@@ -1,3 +1,5 @@
+_analysis/
+_tools/java/
 oracle/harness/java/build/
 oracle/rust-tests/target/
 _tools/java/jdk-25-full/

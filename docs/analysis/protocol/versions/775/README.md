@@ -27,7 +27,8 @@ official jar function
 
 ## Evidence Snapshot
 
-At this snapshot, `configuration_keepalive_codec` is the only proven row in this
-775 shard. It is jar-backed and validated through root-owned oracle
-artifacts/tests outside `stevenarella/`. No broader Protocol 775 or client-load
-phase is complete from that proof.
+At this snapshot, `configuration_keepalive_codec` is the only jar-backed answer
+row in this 775 shard. In the current run, the answer was regenerated from the
+official client jar and the manifest-declared Rust oracle test passed against
+the current Leafish checkout. No broader Protocol 775 or client-load phase is
+complete from that proof.

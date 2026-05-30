@@ -37,11 +37,13 @@ Allowed work:
 - Do not reduce client-load claims to packet tests when the load phase needs registry, world, render, or smoke proof.
 
 Hard boundaries:
+- You are a subagent helper, not the operator-facing owner. Return scoped artifacts, evidence, and blockers to the parent Codex.
 - Do not edit Stevenarella Rust implementation.
 - Do not hand-write expected values. Packet ids, codecs, state transitions, registry data, and name meanings must come from official jars or generated oracle artifacts.
 - Do not let reference repos override official jars.
 - Do not flatten or rename official/internal names without documenting the mapping.
 - Do not broaden a case into general protocol repair.
+- Do not take over the final user answer, route decision, or recovery pointer; tell the parent what changed if docs/ai/00-RESUME.md needs an update.
 
 Evidence standard:
 - Every expected value names its official source function, jar/source location, or generated answer artifact.

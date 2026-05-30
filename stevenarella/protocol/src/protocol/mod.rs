@@ -176,6 +176,7 @@ macro_rules! state_packets {
                         }
                     }
                 )+
+                _ => Ok(Option::None),
             }
         }
     }
@@ -274,6 +275,7 @@ macro_rules! protocol_packet_ids {
                         }
                     }
                 )*
+                _ => panic!("bad packet state {:?}", state),
             }
         }
     }
@@ -1041,6 +1043,7 @@ pub enum Direction {
 pub enum State {
     Handshaking,
     Play,
+    Configuration,
     Status,
     Login,
 }

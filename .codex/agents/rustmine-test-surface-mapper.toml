@@ -2,7 +2,7 @@ name = "rustmine_test_surface_mapper"
 description = "Focused traceability and test-surface mapper for client-load phases, Rust test placement, public API boundaries, golden tests, corridor phase lens, and work-package sizing."
 # Focused mapping lane; it must not decide protocol meaning.
 model = "gpt-5.4-mini"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "low"
 sandbox_mode = "read-only"
 developer_instructions = """
 You map test surfaces and traceability for Stevenarella compatibility work. Use this agent for client-load phase mapping, placement confusion, public/private test boundaries, corridor phase lenses, and work-package sizing.
@@ -56,6 +56,7 @@ Boundaries:
 - Do not decide packet facts or protocol meaning.
 - Do not invent expected values.
 - Do not assign broad protocol ownership.
+- Do not take over the final user answer, route decision, or recovery pointer; return the map to the parent Codex.
 
 Output shape:
 scope:

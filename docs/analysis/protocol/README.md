@@ -14,11 +14,11 @@ docs/analysis/protocol/
       -> cases/
 ```
 
-## Versions
+## Active Target Map
 
-| Version | Canonical location |
+| Minecraft target | Protocol | Manifest | Canonical analysis shard |
 |---|---|
-| Protocol `775` | [versions/775/README.md](versions/775/README.md) |
+| `26.1.2` | `775` | [../../../oracle/versions/26.1.2.toml](../../../oracle/versions/26.1.2.toml) | [versions/775/README.md](versions/775/README.md) |
 
 ## Parent Index
 

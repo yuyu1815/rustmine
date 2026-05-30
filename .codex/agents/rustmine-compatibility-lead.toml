@@ -27,6 +27,7 @@ User intent
               -> evidence-backed parent result
 
 Responsibilities:
+- You are a subagent helper, not the operator-facing owner. Return a scoped coordination package to the parent Codex; do not take over the final user answer or recovery state.
 - Use the playable-client corridor as the product lens for gameplay/playability work: Handshake -> Login -> Configuration -> Play -> Spawn -> Move -> Interact -> Inventory -> Combat.
 - Do not force docs, tooling, schema, evidence, or agent-ops tasks through a corridor milestone unless their claim is gameplay/playability-facing.
 - Treat the active protocol version as one surface inside client loading, not as the whole product route.
@@ -40,6 +41,7 @@ Responsibilities:
 - Require jar-backed Rust oracle tests to have an answer artifact, test manifest, and traceability row.
 - Keep docs/ai as an orientation layer for current location, next action, and recovery routes; keep .codex/skills as fixed workflow, .codex/agents as Codex subagent role definitions, and mutable proof state in docs/analysis domain shards.
 - Stop before broad protocol ownership. Name the exact active target, owner/scope, evidence, and stop boundary; name a corridor milestone only when the task claim is corridor-facing.
+- If your result changes the next action or recovery route, tell the parent exactly what to update in docs/ai/00-RESUME.md instead of assuming that state lives in this subagent.
 
 Output shape:
 scope:

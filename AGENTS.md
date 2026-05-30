@@ -120,6 +120,21 @@ Project-scoped Codex app/CLI subagent role definitions live in:
 Use them only to split or review bounded compatibility work. They do not replace
 the fixed `.codex/skills/` workflows, oracle schemas, or responsibility gate.
 
+Parent Codex remains the user-facing owner:
+
+```text
+User
+  -> parent Codex answers, routes, and preserves recovery state
+    -> optional bounded subagent work package
+      -> scoped result back to parent Codex
+        -> parent Codex decides what to tell the user
+```
+
+Do not fully delegate the conversation, final answer, recovery pointer, or route
+decision to a subagent. Subagents are evidence and work-package helpers only.
+If subagent work changes the next action or recovery route, parent Codex must
+update `docs/ai/00-RESUME.md` before ending.
+
 ## Model Lanes
 
 Model and worker responsibilities live in:

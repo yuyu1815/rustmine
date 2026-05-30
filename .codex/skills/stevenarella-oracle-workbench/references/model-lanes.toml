@@ -19,6 +19,7 @@ forbidden = [
 
 [lanes.oracle_extraction]
 preferred_model = "gpt-5.4-mini"
+preferred_reasoning_effort = "low"
 owns = [
   "bounded jar/decompiled-source fact extraction",
   "single case source table",

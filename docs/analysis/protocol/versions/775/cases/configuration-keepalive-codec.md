@@ -29,9 +29,12 @@ client.jar ServerboundKeepAlivePacket.STREAM_CODEC
 ## Proves
 
 One Configuration serverbound keep-alive packet id/body matches the generated
-official jar answer.
+official jar answer. In the current run, `bash
+oracle/scripts/run_jar_backed_oracle_tests.sh` regenerated the answer and
+executed the manifest-declared Rust oracle test exactly.
 
 ## Does Not Prove
 
 This does not prove full login/configuration runtime behavior, keep-alive echo
-behavior, Configuration completion, Play entry, or any later client-load phase.
+behavior, Configuration packet dispatch/decode, Configuration completion, Play
+entry, or any later client-load phase.

@@ -2252,6 +2252,40 @@ state_packets!(
     }
 );
 
+pub mod configuration {
+    pub mod serverbound {
+        use crate::protocol::*;
+        use std::io;
+
+        #[allow(non_upper_case_globals)]
+        pub mod internal_ids {
+            pub const ConfigurationKeepAliveServerbound_i64: i32 = 0;
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationKeepAliveServerbound_i64 {
+            pub id: i64,
+        }
+
+        impl PacketType for ConfigurationKeepAliveServerbound_i64 {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationKeepAliveServerbound_i64,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id.write_to(buf)?;
+                Ok(())
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct SpawnProperty {
     pub name: String,

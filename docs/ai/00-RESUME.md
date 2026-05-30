@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Repository root is staged for the first snapshot commit; `stevenarella/` is Leafish source imported as normal files |
-| Last touched area | `stevenarella/`, `.gitignore`, `_research/protocol/versions/775/witnesses/`, `_tools/java/`, `docs/ai/00-RESUME.md` |
+| Current location | Protocol 775 `configuration_keepalive_codec` oracle surface is reattached to the current Leafish checkout; official answer regeneration and exact Rust oracle test now pass |
+| Last touched area | `_analysis/minecraft-26.1.2/`, `_tools/java/jdk-25-full`, `oracle/answers/775/configuration_keepalive_codec.answer.jsonl`, `oracle/rust-tests/`, `stevenarella/protocol/src/protocol/`, `docs/analysis/client-load/`, `docs/analysis/protocol/versions/775/`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | No build or compatibility test has been run after replacing `stevenarella/` with Leafish |
+| Explicit uncertainty | The passing proof is codec/body/table-id only. It does not prove Configuration packet dispatch/decode, runtime keep-alive echo behavior, Configuration completion, Play entry, registry hydration, or client load completion. Decompiled source paths referenced by the case are not restored in this run, but the official jar-backed answer was regenerated from the client jar. |
 
 ## Recovery Flow
 
@@ -29,9 +29,15 @@ Read AGENTS.md
 For future work:
   start from docs/ai/README.md
     -> choose the owning responsibility shard for the active task
-      -> if working on the client checkout, inspect stevenarella/ as Leafish
-         source imported into the parent repository, not as an embedded Git repo
-        -> run build or compatibility proof before claiming playability status
+      -> keep parent Codex responsible for user answers, route decisions,
+         final summaries, and recovery pointer updates
+        -> use subagents only for bounded evidence, mapping, review, or
+           implementation work packages
+          -> for client-load/playability, continue from
+             network_login_configuration
+            -> next likely target: Configuration packet dispatch/decode or
+               runtime reaction/finish-configuration proof
+              -> then registry hydration and play entry
 ```
 
 ## Stop Boundary

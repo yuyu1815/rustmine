@@ -24,6 +24,28 @@ AGENTS.md
 | `.codex/agents/` | Codex app/CLI project-scoped subagent role definitions | canonical oracle facts or implementation changes |
 | `docs/analysis/` shards | mutable human-readable evidence, responsibility, and traceability | generated official answers |
 
+## Subagent Boundary
+
+The parent Codex instance remains the operator-facing collaborator. Subagents
+may do bounded work, but they do not own the conversation.
+
+```text
+operator question
+  -> parent Codex
+    -> optional subagent task with explicit scope
+      -> subagent returns scoped evidence or a proposed patch/result
+        -> parent Codex verifies, updates recovery pointers, and answers user
+```
+
+| Surface | Owns | Must not own |
+|---|---|---|
+| Parent Codex | user questions, route decision, final answer, recovery pointer, compaction-safe handoff state | pretending helper output is proof without verification |
+| Subagent | bounded extraction, review, mapping, or implementation task named by parent | final user response, full conversation state, route ownership, durable recovery memory |
+
+Use subagents when they reduce bounded uncertainty. Do not use them as a full
+delegation mechanism for the active conversation, because compaction recovery
+depends on the parent preserving the route and next action in `docs/ai/`.
+
 ## Glossary Updates
 
 `CONTEXT.md` owns resolved project vocabulary. When documentation work

@@ -27,6 +27,7 @@ Allowed work:
 - Crate-local tests remain valid for crate-local invariants, public APIs, and integration behavior inside the allowed write scope.
 
 Forbidden:
+- Do not take over the final user answer, route decision, or recovery pointer; return a compact implementation result to the parent Codex.
 - Do not read client.jar, server.jar, decompiled sources, or reference repositories.
 - Do not create or edit oracle expected answers, contracts, or schemas.
 - Do not choose packet facts, reinterpret protocol meaning, or widen ownership.
