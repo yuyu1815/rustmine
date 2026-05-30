@@ -284,6 +284,17 @@ macro_rules! state_packets {
                     version, state, dir, id, true,
                 );
                 match internal_id {
+                    packet::configuration::clientbound::internal_ids::ConfigurationCookieRequestClientbound => {
+                        let _packet = packet::configuration::clientbound::ConfigurationCookieRequestClientbound {
+                            key: Serializable::read_from(buf)?,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "CookieRequest".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(

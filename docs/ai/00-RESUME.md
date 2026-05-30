@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_keepalive_runtime_spawn_reader_reaction` root-owned runtime package now passes: the exact oracle test validates official inbound/outbound keep_alive answers and executes the same factored reader-loop keep_alive branch used by `Server::spawn_reader` |
-| Last touched area | `oracle/cases/775/runtime/`, `oracle/contracts/775/runtime/`, `oracle/test-manifests/775/runtime/`, `oracle/failures/775/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
+| Current location | Protocol 775 `configuration_cookie_request_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Configuration clientbound `minecraft:cookie_request` answer and decodes it through `packet::packet_by_id(775, State::Configuration, Direction::Clientbound, official id, body)` |
+| Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{mod.rs,packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `configuration_keepalive_runtime_spawn_reader_reaction` proves only one Configuration keep_alive reaction through the factored reader-loop branch. It does not prove Configuration completion, runtime Configuration-to-Play transition, Play readiness, registry hydration, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `configuration_cookie_request_framed_dispatch` proves only one Configuration clientbound cookie_request packet fixture and current compatibility alias decode. It does not prove cookie storage policy, cookie request/response runtime behavior, Configuration completion, runtime Configuration-to-Play transition, Play readiness, registry hydration, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -33,12 +33,13 @@ For future work:
          final summaries, and recovery pointer updates
         -> use subagents only for bounded evidence, mapping, review, or
            implementation work packages
-          -> for client-load/playability, continue from
+          -> for packet-support loop, continue from
              network_login_configuration
-            -> next likely target: choose the next missing runtime proof
-               after keep_alive reader-loop reaction, likely the
-               Configuration-to-Play transition / finish path; keep registry,
-               Play, world, render, and interaction readiness as later phases
+            -> next likely target: ask an oracle subagent to create the next
+               missing Configuration clientbound packet proof,
+               likely minecraft:custom_payload / 0x01; keep runtime
+               Configuration-to-Play, registry, Play, world, render, and
+               interaction readiness as later phases
 ```
 
 ## Stop Boundary

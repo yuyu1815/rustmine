@@ -13,6 +13,7 @@ protocol_packet_ids!(
             0x09 => ConfigurationAcceptCodeOfConductServerbound
         }
         clientbound Clientbound {
+            0x00 => ConfigurationCookieRequestClientbound
             0x03 => ConfigurationFinishConfigurationClientbound
             0x04 => ConfigurationKeepAliveClientbound_i64
             0x05 => ConfigurationPingClientbound_i32

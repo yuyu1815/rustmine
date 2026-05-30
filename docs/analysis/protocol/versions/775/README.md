@@ -23,6 +23,7 @@ official jar function
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
+| `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
 | `configuration_custom_payload_framed_dispatch` case note | [cases/configuration-custom-payload-framed-dispatch.md](cases/configuration-custom-payload-framed-dispatch.md) |
 | `configuration_resource_pack_response_framed_dispatch` case note | [cases/configuration-resource-pack-response-framed-dispatch.md](cases/configuration-resource-pack-response-framed-dispatch.md) |
@@ -42,6 +43,7 @@ official jar function
 ## Evidence Snapshot
 
 At this snapshot, `configuration_client_information_framed_dispatch`,
+`configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
 `configuration_custom_payload_framed_dispatch`,
 `configuration_keepalive_codec`,
@@ -64,6 +66,11 @@ Play entry.
 
 `configuration_cookie_response_framed_dispatch` is packet-support evidence for
 one non-null payload fixture only. It does not prove cookie storage policy,
+cookie request/response runtime behavior, Configuration completion, or Play
+entry.
+
+`configuration_cookie_request_framed_dispatch` is packet-support evidence for
+one Identifier key fixture only. It does not prove cookie storage policy,
 cookie request/response runtime behavior, Configuration completion, or Play
 entry.
 

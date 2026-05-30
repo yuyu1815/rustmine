@@ -2559,9 +2559,32 @@ pub mod configuration {
 
         #[allow(non_upper_case_globals)]
         pub mod internal_ids {
+            pub const ConfigurationCookieRequestClientbound: i32 = 3;
             pub const ConfigurationFinishConfigurationClientbound: i32 = 0;
             pub const ConfigurationKeepAliveClientbound_i64: i32 = 1;
             pub const ConfigurationPingClientbound_i32: i32 = 2;
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCookieRequestClientbound {
+            pub key: String,
+        }
+
+        impl PacketType for ConfigurationCookieRequestClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationCookieRequestClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.key.write_to(buf)?;
+                Ok(())
+            }
         }
 
         #[derive(Default, Debug)]
