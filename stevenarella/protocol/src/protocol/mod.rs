@@ -191,6 +191,13 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationResourcePackServerbound => {
+                        let _id: UUID = Serializable::read_from(buf)?;
+                        let action: VarInt = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::ResourcePackStatus(
+                            packet::play::serverbound::ResourcePackStatus { result: action },
+                        )));
+                    }
                     _ => return Ok(Option::None),
                 }
             }

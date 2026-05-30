@@ -2263,6 +2263,7 @@ pub mod configuration {
             pub const ConfigurationKeepAliveServerbound_i64: i32 = 1;
             pub const ConfigurationPongServerbound_i32: i32 = 2;
             pub const ConfigurationClientInformationServerbound: i32 = 3;
+            pub const ConfigurationResourcePackServerbound: i32 = 4;
         }
 
         #[derive(Default, Debug)]
@@ -2365,6 +2366,30 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.id.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationResourcePackServerbound {
+            pub id: UUID,
+            pub action: VarInt,
+        }
+
+        impl PacketType for ConfigurationResourcePackServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationResourcePackServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id.write_to(buf)?;
+                self.action.write_to(buf)?;
                 Ok(())
             }
         }

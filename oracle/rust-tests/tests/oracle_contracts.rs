@@ -92,6 +92,17 @@ const CONFIGURATION_CLIENT_INFORMATION_ANSWER: &str =
 const CONFIGURATION_CLIENT_INFORMATION_TEST_NAME: &str =
     "configuration_client_information_framed_dispatch_matches_official_oracle_answer";
 const CONFIGURATION_CLIENT_INFORMATION_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const CONFIGURATION_RESOURCE_PACK_RESPONSE_MANIFEST: &str =
+    "oracle/test-manifests/775/configuration_resource_pack_response_framed_dispatch.test-manifest.json";
+const CONFIGURATION_RESOURCE_PACK_RESPONSE_CASE_ID: &str =
+    "configuration_resource_pack_response_framed_dispatch";
+const CONFIGURATION_RESOURCE_PACK_RESPONSE_CONTRACT: &str =
+    "oracle/contracts/775/configuration_resource_pack_response_framed_dispatch.contract.json";
+const CONFIGURATION_RESOURCE_PACK_RESPONSE_ANSWER: &str =
+    "oracle/answers/775/configuration_resource_pack_response_framed_dispatch.answer.jsonl";
+const CONFIGURATION_RESOURCE_PACK_RESPONSE_TEST_NAME: &str =
+    "configuration_resource_pack_response_framed_dispatch_matches_official_oracle_answer";
+const CONFIGURATION_RESOURCE_PACK_RESPONSE_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 
 #[derive(Debug, Deserialize)]
 struct TestManifest {
@@ -129,16 +140,30 @@ struct ConfigurationOracleAnswer {
     serverbound_pong: Option<FramedDirectionAnswer>,
     input_information: Option<ClientInformationRecord>,
     decoded_information: Option<ClientInformationRecord>,
+    input_uuid: Option<String>,
+    decoded_uuid: Option<String>,
+    input_action: Option<String>,
+    decoded_action: Option<String>,
+    input_action_is_terminal: Option<bool>,
+    decoded_action_is_terminal: Option<bool>,
     #[serde(default)]
     configuration_serverbound_packet_table: Vec<PacketTableRow>,
     #[serde(default)]
     configuration_clientbound_packet_table: Vec<PacketTableRow>,
+    #[serde(default)]
+    resource_pack_action_table: Vec<ResourcePackActionRow>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PacketTableRow {
     packet_id: i32,
     packet_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResourcePackActionRow {
+    name: String,
+    is_terminal: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -949,6 +974,133 @@ fn configuration_client_information_framed_dispatch_matches_official_oracle_answ
     assert!(
         body_slice.is_empty(),
         "decoded client_information packet did not consume the official body bytes"
+    );
+}
+
+#[test]
+fn configuration_resource_pack_response_framed_dispatch_matches_official_oracle_answer() {
+    let manifest: TestManifest = read_json(CONFIGURATION_RESOURCE_PACK_RESPONSE_MANIFEST);
+    assert_eq!(
+        manifest.case_id,
+        CONFIGURATION_RESOURCE_PACK_RESPONSE_CASE_ID
+    );
+    assert_eq!(
+        manifest.contract_path,
+        CONFIGURATION_RESOURCE_PACK_RESPONSE_CONTRACT
+    );
+    assert_eq!(
+        manifest.answer_path,
+        CONFIGURATION_RESOURCE_PACK_RESPONSE_ANSWER
+    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        CONFIGURATION_RESOURCE_PACK_RESPONSE_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_RESOURCE_PACK_RESPONSE_COMPARISON_SURFACE
+    );
+    assert_runner_scope(CONFIGURATION_RESOURCE_PACK_RESPONSE_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:resource_pack")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:resource_pack")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ServerboundResourcePackPacket")
+    );
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+    assert_eq!(
+        oracle.answer.input_uuid, oracle.answer.decoded_uuid,
+        "official decoded resource_pack UUID differs from the official input UUID"
+    );
+    assert_eq!(
+        oracle.answer.input_action, oracle.answer.decoded_action,
+        "official decoded resource_pack action differs from the official input action"
+    );
+    assert_eq!(
+        oracle.answer.input_action_is_terminal, oracle.answer.decoded_action_is_terminal,
+        "official decoded resource_pack action terminal flag differs from the official input action"
+    );
+    let official_action = oracle
+        .answer
+        .decoded_action
+        .as_deref()
+        .expect("resource_pack answer missing decoded_action");
+    let official_action_terminal = oracle
+        .answer
+        .decoded_action_is_terminal
+        .expect("resource_pack answer missing decoded_action_is_terminal");
+    let action_row = oracle
+        .answer
+        .resource_pack_action_table
+        .iter()
+        .find(|row| row.name == official_action)
+        .unwrap_or_else(|| panic!("resource_pack action table missing {official_action}"));
+    assert_eq!(
+        action_row.is_terminal, official_action_terminal,
+        "official resource_pack action table terminal flag differs from decoded action"
+    );
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.configuration_serverbound_packet_table,
+        "minecraft:resource_pack",
+    );
+    let framed_hex = oracle
+        .answer
+        .encoded_framed_hex
+        .as_deref()
+        .expect("resource_pack answer missing encoded_framed_hex");
+    let framed = decode_hex(framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Configuration,
+            Direction::Serverbound,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Configuration serverbound resource_pack packet id {}",
+            framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| {
+            panic!("Stevenarella errored while decoding resource_pack packet: {err}")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Configuration serverbound resource_pack packet id {}",
+                framed_packet_id
+            )
+        });
+    let decoded_debug = format!("{decoded:?}");
+    assert!(
+        decoded_debug.contains("ResourcePack"),
+        "decoded packet did not preserve resource_pack identity: {decoded_debug}"
+    );
+    assert!(
+        body_slice.is_empty(),
+        "decoded resource_pack packet did not consume the official body bytes"
     );
 }
 

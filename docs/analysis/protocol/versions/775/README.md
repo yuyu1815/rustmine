@@ -23,6 +23,7 @@ official jar function
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
+| `configuration_resource_pack_response_framed_dispatch` case note | [cases/configuration-resource-pack-response-framed-dispatch.md](cases/configuration-resource-pack-response-framed-dispatch.md) |
 | `configuration_keepalive_codec` case note | [cases/configuration-keepalive-codec.md](cases/configuration-keepalive-codec.md) |
 | `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
 | `configuration_keepalive_clientbound_framed_dispatch` case note | [cases/configuration-keepalive-clientbound-framed-dispatch.md](cases/configuration-keepalive-clientbound-framed-dispatch.md) |
@@ -38,7 +39,8 @@ At this snapshot, `configuration_client_information_framed_dispatch`,
 `configuration_keepalive_codec`,
 `configuration_keepalive_framed_dispatch`,
 `configuration_keepalive_clientbound_framed_dispatch`,
-`configuration_ping_pong_framed_dispatch`, and
+`configuration_ping_pong_framed_dispatch`,
+`configuration_resource_pack_response_framed_dispatch`, and
 `configuration_finish_framed_terminal` are the proven jar-backed answer rows in
 this 775 shard. In the current run, their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
