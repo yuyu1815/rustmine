@@ -190,6 +190,18 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::serverbound::internal_ids::ConfigurationCustomPayloadServerbound => {
+                        let packet = packet::configuration::serverbound::ConfigurationCustomPayloadServerbound {
+                            channel: Serializable::read_from(buf)?,
+                            data: Serializable::read_from(buf)?,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageServerbound(
+                            packet::play::serverbound::PluginMessageServerbound {
+                                channel: packet.channel,
+                                data: packet.data,
+                            },
+                        )));
+                    }
                     packet::configuration::serverbound::internal_ids::ConfigurationKeepAliveServerbound_i64 => {
                         let mut packet = packet::play::serverbound::KeepAliveServerbound_i64::default();
                         packet.id = Serializable::read_from(buf)?;

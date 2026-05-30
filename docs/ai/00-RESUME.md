@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_cookie_response_framed_dispatch` oracle package and Rust fix are in place; direct jar-backed runner passes and all current Rust oracle tests pass |
+| Current location | Protocol 775 `configuration_custom_payload_framed_dispatch` oracle package and Rust fix are in place; direct jar-backed runner passes and all current Rust oracle tests pass |
 | Last touched area | `_analysis/minecraft-26.1.2/`, `_tools/java/jdk-25-full`, `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/harness/java/`, `oracle/rust-tests/`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | The new cookie_response proof is packet framing and dispatch/decode for one non-null payload fixture only. The current public Packet compatibility alias exposes channel `CookieResponse` and payload bytes, not a full cookie-response domain object. This does not prove cookie storage policy, request/response runtime behavior, Configuration completion, Play readiness, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
+| Explicit uncertainty | The new custom_payload proof is packet framing and dispatch/decode for one BrandPayload fixture only. The current public Packet compatibility alias exposes channel `minecraft:brand` and payload bytes, not arbitrary payload routing policy. It does not prove arbitrary plugin-channel handling, payload routing policy, Configuration completion, Play readiness, world hydration, or client load completion. Decompiled source paths referenced by the cases are not restored in this checkout, but the official jar-backed answers are generated from the client jar. |
 
 ## Recovery Flow
 
@@ -35,11 +35,11 @@ For future work:
            implementation work packages
           -> for client-load/playability, continue from
              network_login_configuration
-            -> next likely target: add the next Configuration packet-support
-               proof or move to the next runtime gap, while keeping cookie
-               storage policy, cookie request/response runtime behavior,
-               registry hydration, and Configuration-to-Play transition as
-               separate later proofs
+            -> next likely target: choose the next network_login_configuration
+               runtime gap, such as full spawn_reader keep-alive reaction or
+               runtime Configuration-to-Play transition, because the current
+               Protocol 775 Configuration serverbound packet table is now
+               covered by jar-backed packet-support proofs
 ```
 
 ## Stop Boundary

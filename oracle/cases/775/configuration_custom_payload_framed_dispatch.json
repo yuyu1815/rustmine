@@ -1,0 +1,84 @@
+{
+  "case_id": "configuration_custom_payload_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.custom.BrandPayload(String)",
+      "authority_note": "Official binary source for constructing a known CustomPacketPayload fixture for Configuration serverbound custom_payload."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.custom.BrandPayload.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for the minecraft:brand custom payload body bytes inside custom_payload."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket(CustomPacketPayload)",
+      "authority_note": "Official binary source for constructing a Configuration serverbound custom_payload packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for Configuration serverbound custom_payload body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND.codec().encode(ServerboundCustomPayloadPacket)",
+      "authority_note": "Official binary source for Configuration serverbound custom_payload framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration serverbound custom_payload framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration serverbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ServerboundCustomPayloadPacket.payload(), BrandPayload.type(), BrandPayload.brand()",
+      "authority_note": "Official binary source for reading decoded custom_payload fields."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/common/ServerboundCustomPayloadPacket.java",
+      "function_or_member": "ServerboundCustomPayloadPacket(CustomPacketPayload), STREAM_CODEC, payload()",
+      "authority_note": "Decompiled witness path when restored; the jar remains authoritative."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/common/custom/BrandPayload.java",
+      "function_or_member": "BrandPayload(String), STREAM_CODEC, TYPE, brand()",
+      "authority_note": "Decompiled witness path when restored; the jar remains authoritative."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Serverbound",
+    "packet_type": "minecraft:custom_payload",
+    "packet_class": "ServerboundCustomPayloadPacket",
+    "payload_class": "BrandPayload",
+    "input_fields": {
+      "brand": "rustmine-oracle-brand"
+    },
+    "field_notes": {
+      "brand": "The official packet uses BrandPayload as a known CustomPacketPayload; the generated answer owns the resulting payload id and bytes."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_custom_payload_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration serverbound custom_payload packet framing and dispatch/decode for one official BrandPayload fixture only; do not infer arbitrary plugin-channel handling, payload routing policy, Configuration completion, or Play readiness."
+}

@@ -2269,6 +2269,7 @@ pub mod configuration {
             pub const ConfigurationCustomClickActionServerbound: i32 = 6;
             pub const ConfigurationAcceptCodeOfConductServerbound: i32 = 7;
             pub const ConfigurationCookieResponseServerbound: i32 = 8;
+            pub const ConfigurationCustomPayloadServerbound: i32 = 9;
         }
 
         #[derive(Default, Debug)]
@@ -2356,6 +2357,30 @@ pub mod configuration {
                 if let Some(ref payload) = self.payload {
                     payload.write_to(buf)?;
                 }
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCustomPayloadServerbound {
+            pub channel: String,
+            pub data: Vec<u8>,
+        }
+
+        impl PacketType for ConfigurationCustomPayloadServerbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Serverbound,
+                    internal_ids::ConfigurationCustomPayloadServerbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.channel.write_to(buf)?;
+                self.data.write_to(buf)?;
                 Ok(())
             }
         }

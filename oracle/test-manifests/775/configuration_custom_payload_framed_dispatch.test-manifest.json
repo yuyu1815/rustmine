@@ -1,0 +1,26 @@
+{
+  "manifest_id": "configuration_custom_payload_framed_dispatch_test",
+  "case_id": "configuration_custom_payload_framed_dispatch",
+  "contract_path": "oracle/contracts/775/configuration_custom_payload_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/configuration_custom_payload_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "configuration_custom_payload_framed_dispatch_matches_official_oracle_answer",
+  "comparison_surface": "framed_dispatch_decode",
+  "comparison_surface_note": "Compares official Configuration serverbound custom_payload framed packet id and BrandPayload body by splitting the generated frame and dispatching the official body bytes through Stevenarella packet_by_id.",
+  "test_topology_note": "The target file and test name are this manifest's current adapter, not the universal runner topology for all oracle cases.",
+  "official_source": {
+    "jar_role": "client",
+    "jar_path": "_analysis/minecraft-26.1.2/client.jar",
+    "function_or_member": "BrandPayload(String), BrandPayload.STREAM_CODEC, ServerboundCustomPayloadPacket(CustomPacketPayload), ServerboundCustomPayloadPacket.STREAM_CODEC, ConfigurationProtocols.SERVERBOUND.codec().encode/decode(ServerboundCustomPayloadPacket), ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...), ServerboundCustomPayloadPacket.payload(), BrandPayload.type(), BrandPayload.brand()",
+    "decompiled_source_path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/common/ServerboundCustomPayloadPacket.java"
+  },
+  "internal_owner": {
+    "domain": "wire_protocol",
+    "path": "stevenarella/protocol/src/protocol/mod.rs",
+    "symbol_or_test_surface": "packet::packet_by_id(775, State::Configuration, Direction::Serverbound, official packet id, official body)",
+    "scope_note": "Current implementation witness for Configuration serverbound custom_payload framed dispatch/decode; not arbitrary plugin-channel handling, payload routing policy, Configuration completion, or Play readiness."
+  },
+  "corridor": "Login -> Configuration -> Play",
+  "traceability_path": "docs/analysis/protocol/versions/775/traceability.md",
+  "stop_boundary": "This manifest proves Configuration serverbound custom_payload packet framing and dispatch/decode for one official BrandPayload fixture only; it does not prove arbitrary plugin-channel handling, payload routing policy, Configuration completion, or Play readiness."
+}
