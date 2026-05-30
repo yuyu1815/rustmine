@@ -1,8 +1,12 @@
 use serde::Deserialize;
+use std::io::Read;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 use std::{env, fs};
 use steven_protocol::protocol::packet;
-use steven_protocol::protocol::{Direction, PacketType, State};
+use steven_protocol::protocol::{Conn, Direction, PacketType, State};
 
 const CONFIGURATION_KEEPALIVE_MANIFEST: &str =
     "oracle/test-manifests/775/configuration_keepalive_codec.test-manifest.json";
@@ -25,6 +29,15 @@ const CONFIGURATION_KEEPALIVE_FRAMED_ANSWER: &str =
 const CONFIGURATION_KEEPALIVE_FRAMED_TEST_NAME: &str =
     "configuration_keepalive_framed_dispatch_decodes_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_FRAMED_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_MANIFEST: &str =
+    "oracle/test-manifests/775/runtime/configuration_keepalive_runtime_send_helper.test-manifest.json";
+const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_CASE_ID: &str =
+    "configuration_keepalive_runtime_send_helper";
+const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_CONTRACT: &str =
+    "oracle/contracts/775/runtime/configuration_keepalive_runtime_send_helper.contract.json";
+const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_TEST_NAME: &str =
+    "configuration_keepalive_runtime_send_helper_sends_official_configuration_frame";
+const CONFIGURATION_KEEPALIVE_RUNTIME_SEND_COMPARISON_SURFACE: &str = "runtime_send_helper_frame";
 const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_MANIFEST: &str =
     "oracle/test-manifests/775/configuration_keepalive_clientbound_framed_dispatch.test-manifest.json";
 const CONFIGURATION_KEEPALIVE_CLIENTBOUND_FRAMED_CASE_ID: &str =
@@ -189,6 +202,19 @@ fn decode_hex(value: &str, label: &str) -> Vec<u8> {
     hex::decode(value).unwrap_or_else(|err| panic!("invalid hex for {label}: {err}"))
 }
 
+fn encode_varint(mut value: i32) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        if (value & !0x7f) == 0 {
+            out.push(value as u8);
+            return out;
+        }
+
+        out.push(((value & 0x7f) | 0x80) as u8);
+        value = ((value as u32) >> 7) as i32;
+    }
+}
+
 fn read_varint_prefix(bytes: &[u8]) -> (i32, usize) {
     let mut value = 0i32;
 
@@ -205,6 +231,29 @@ fn read_varint_prefix(bytes: &[u8]) -> (i32, usize) {
     }
 
     panic!("missing complete VarInt prefix in framed packet")
+}
+
+fn try_read_varint_from_reader<R: Read>(reader: &mut R) -> Result<i32, String> {
+    let mut value = 0i32;
+
+    for index in 0..5 {
+        let mut byte = [0u8; 1];
+        reader
+            .read_exact(&mut byte)
+            .map_err(|err| format!("failed to read network VarInt byte {index}: {err}"))?;
+        value |= ((byte[0] & 0x7f) as i32) << (7 * index);
+        if byte[0] & 0x80 == 0 {
+            return Ok(value);
+        }
+    }
+
+    Err("network VarInt exceeded Minecraft's 5-byte limit".to_owned())
+}
+
+fn official_network_frame_from_framed_payload(framed: &[u8]) -> Vec<u8> {
+    let mut expected = encode_varint(framed.len() as i32);
+    expected.extend_from_slice(framed);
+    expected
 }
 
 #[test]
@@ -311,6 +360,110 @@ fn configuration_keepalive_framed_dispatch_decodes_official_oracle_answer() {
     assert!(
         body_slice.is_empty(),
         "decoded packet did not consume the official body bytes"
+    );
+}
+
+#[test]
+fn configuration_keepalive_runtime_send_helper_sends_official_configuration_frame() {
+    let manifest: TestManifest = read_json(CONFIGURATION_KEEPALIVE_RUNTIME_SEND_MANIFEST);
+    assert_eq!(
+        manifest.case_id,
+        CONFIGURATION_KEEPALIVE_RUNTIME_SEND_CASE_ID
+    );
+    assert_eq!(
+        manifest.contract_path,
+        CONFIGURATION_KEEPALIVE_RUNTIME_SEND_CONTRACT
+    );
+    assert_eq!(manifest.answer_path, CONFIGURATION_KEEPALIVE_FRAMED_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        CONFIGURATION_KEEPALIVE_RUNTIME_SEND_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_KEEPALIVE_RUNTIME_SEND_COMPARISON_SURFACE
+    );
+    assert_runner_scope(CONFIGURATION_KEEPALIVE_RUNTIME_SEND_MANIFEST, &manifest);
+
+    let oracle = read_answer(
+        &manifest.answer_path,
+        CONFIGURATION_KEEPALIVE_FRAMED_CASE_ID,
+    );
+    assert_eq!(oracle.case_id, CONFIGURATION_KEEPALIVE_FRAMED_CASE_ID);
+    assert_eq!(oracle.answer.decoded_id, Some(oracle.answer.input_id));
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:keep_alive")
+    );
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let official_framed = decode_hex(
+        oracle
+            .answer
+            .encoded_framed_hex
+            .as_deref()
+            .expect("framed dispatch answer missing encoded_framed_hex"),
+        "configuration_keepalive_framed_dispatch.encoded_framed_hex",
+    );
+    let expected_network_frame = official_network_frame_from_framed_payload(&official_framed);
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind localhost probe server");
+    let server_addr = listener.local_addr().expect("read localhost probe addr");
+    let mut server = Some(thread::spawn(move || -> Result<Vec<u8>, String> {
+        let (mut stream, _) = listener
+            .accept()
+            .map_err(|err| format!("accept runtime send probe client: {err}"))?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|err| format!("set runtime send probe read timeout: {err}"))?;
+        let packet_len = try_read_varint_from_reader(&mut stream)? as usize;
+        let mut body = vec![0; packet_len];
+        stream
+            .read_exact(&mut body)
+            .map_err(|err| format!("read runtime send probe packet body: {err}"))?;
+
+        let mut observed = encode_varint(packet_len as i32);
+        observed.extend_from_slice(&body);
+        Ok(observed)
+    }));
+
+    let mut conn = Conn::new(&server_addr.to_string(), 775).expect("connect runtime send probe");
+    conn.state = State::Configuration;
+    let send_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::send_keep_alive(&mut conn, oracle.answer.input_id)
+    }));
+    match send_result {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            drop(conn);
+            if let Some(server) = server.take() {
+                let _ = server.join();
+            }
+            panic!("packet::send_keep_alive returned an error in Configuration state: {err}");
+        }
+        Err(_) => {
+            drop(conn);
+            if let Some(server) = server.take() {
+                let _ = server.join();
+            }
+            panic!(
+                "packet::send_keep_alive panicked in Configuration state before sending the official Protocol 775 Configuration serverbound keep_alive frame"
+            );
+        }
+    }
+
+    let observed_network_frame = server
+        .take()
+        .expect("runtime send probe server was already joined")
+        .join()
+        .expect("runtime send probe server thread panicked")
+        .expect("runtime send probe server did not observe a complete packet");
+
+    assert_eq!(
+        hex::encode(&observed_network_frame),
+        hex::encode(&expected_network_frame),
+        "packet::send_keep_alive in Configuration state must send the official Protocol 775 Configuration serverbound keep_alive framed packet with the outer network length prefix"
     );
 }
 

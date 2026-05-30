@@ -1,0 +1,27 @@
+{
+  "manifest_id": "configuration_keepalive_runtime_send_helper_test",
+  "case_id": "configuration_keepalive_runtime_send_helper",
+  "source_case_id": "configuration_keepalive_framed_dispatch",
+  "contract_path": "oracle/contracts/775/runtime/configuration_keepalive_runtime_send_helper.contract.json",
+  "answer_path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "configuration_keepalive_runtime_send_helper_sends_official_configuration_frame",
+  "comparison_surface": "runtime_send_helper_frame",
+  "comparison_surface_note": "Reads input id and official framed Configuration serverbound keep_alive payload from configuration_keepalive_framed_dispatch.answer.jsonl, calls packet::send_keep_alive on a localhost Conn in State::Configuration, and compares observed TcpStream bytes to VarInt(official framed length) plus the official framed payload.",
+  "test_topology_note": "This runtime-send manifest is intentionally below oracle/test-manifests/775/runtime because the current jar-backed runner only handles direct jar-regenerated cases and manifests.",
+  "official_source": {
+    "jar_role": "client",
+    "jar_path": "_analysis/minecraft-26.1.2/client.jar",
+    "function_or_member": "ConfigurationProtocols.SERVERBOUND.codec().encode(...), ConfigurationProtocols.SERVERBOUND.codec().decode(...), ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...), ServerboundKeepAlivePacket.getId()",
+    "answer_path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl"
+  },
+  "internal_owner": {
+    "domain": "runtime_send_helper",
+    "path": "stevenarella/protocol/src/protocol/packet.rs",
+    "symbol_or_test_surface": "packet::send_keep_alive(&mut Conn { state: State::Configuration, protocol_version: 775, compression_threshold: -1 }, official input id)",
+    "scope_note": "Current implementation witness for outgoing Configuration keep_alive helper send only; not the spawn_reader echo loop."
+  },
+  "corridor": "Login -> Configuration -> Play",
+  "traceability_path": "docs/analysis/protocol/versions/775/traceability.md",
+  "stop_boundary": "This manifest proves or fails the outgoing helper frame only; it does not prove runtime keep-alive echo behavior, Configuration completion, or Play entry."
+}

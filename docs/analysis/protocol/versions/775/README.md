@@ -25,6 +25,7 @@ official jar function
 | `configuration_keepalive_codec` case note | [cases/configuration-keepalive-codec.md](cases/configuration-keepalive-codec.md) |
 | `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
 | `configuration_keepalive_clientbound_framed_dispatch` case note | [cases/configuration-keepalive-clientbound-framed-dispatch.md](cases/configuration-keepalive-clientbound-framed-dispatch.md) |
+| `configuration_keepalive_runtime_send_helper` case note | [cases/configuration-keepalive-runtime-send-helper.md](cases/configuration-keepalive-runtime-send-helper.md) |
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
@@ -36,5 +37,7 @@ At this snapshot, `configuration_keepalive_codec`,
 `configuration_finish_framed_terminal` are the proven jar-backed answer rows in
 this 775 shard. In the current run, their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
-the current Leafish checkout. No broader Protocol 775 or client-load phase is
+the current Leafish checkout. `configuration_keepalive_runtime_send_helper` is
+also passing as a root-owned runtime-send probe that reuses the official
+serverbound keep_alive answer. No broader Protocol 775 or client-load phase is
 complete from those proofs.
