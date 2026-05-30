@@ -1,0 +1,59 @@
+{
+  "case_id": "configuration_keepalive_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND.codec().encode(...)",
+      "authority_note": "Official binary source for Configuration serverbound framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration serverbound framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration serverbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ServerboundKeepAlivePacket.getId()",
+      "authority_note": "Official binary source for decoded keep-alive payload id."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/configuration/ConfigurationProtocols.java",
+      "function_or_member": "SERVERBOUND, SERVERBOUND_TEMPLATE",
+      "authority_note": "Decompiled witness path for the official jar calls when restored; the jar remains authoritative."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/common/ServerboundKeepAlivePacket.java",
+      "function_or_member": "STREAM_CODEC, getId()",
+      "authority_note": "Decompiled witness path for the packet class when restored; the jar remains authoritative."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Serverbound",
+    "packet_type": "minecraft:keep_alive",
+    "packet_class": "ServerboundKeepAlivePacket",
+    "input_fields": {
+      "id": 12345
+    },
+    "field_notes": {
+      "id": "Keep-alive payload id encoded after the Configuration serverbound packet table id in the framed packet."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_keepalive_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Do not infer runtime keep-alive echo behavior or Configuration completion from this framed dispatch/decode case."
+}

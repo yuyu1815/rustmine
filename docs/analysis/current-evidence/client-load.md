@@ -19,7 +19,7 @@ from structural observation for client-load and playability claims.
 | Load phase | Proof state | Evidence | What this proves | What it does not prove |
 |---|---|---|---|---|
 | `local_boot_resources` | `unproven` | none | nothing yet | startup, resources, assets, render setup |
-| `network_login_configuration` | `partial` | `oracle/answers/775/configuration_keepalive_codec.answer.jsonl`; `oracle/test-manifests/775/configuration_keepalive_codec.test-manifest.json`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 after restoring JDK 25 and `_analysis/minecraft-26.1.2/{26.1.2.json,client.jar,server.jar}` | one Configuration serverbound keep-alive packet id/body matches a regenerated official jar answer and the exact reset-proof Rust oracle test executes against the current Leafish checkout | full login/configuration runtime behavior, Configuration packet dispatch/decode, keep-alive response loop, finish configuration, play transition |
+| `network_login_configuration` | `partial` | `configuration_keepalive_codec`; `configuration_keepalive_framed_dispatch`; `oracle/rust-tests/tests/oracle_contracts.rs`; `bash oracle/scripts/run_jar_backed_oracle_tests.sh` passed on 2026-05-31 after restoring JDK 25 and `_analysis/minecraft-26.1.2/{26.1.2.json,client.jar,server.jar}` | Configuration serverbound keep-alive packet id/body and framed dispatch/decode match regenerated official jar answers; exact reset-proof Rust oracle tests execute against the current Leafish checkout | full login/configuration runtime behavior, keep-alive response loop, finish configuration, play transition |
 | `registry_hydration` | `unproven` | none | nothing yet | registry/dimension/known-pack/feature state |
 | `play_entry` | `unproven` | none | nothing yet | successful entry into Play |
 | `world_hydration` | `unproven` | none | nothing yet | chunks, light, block states, biomes, world time |
@@ -30,6 +30,6 @@ from structural observation for client-load and playability claims.
 ## Snapshot Note
 
 At this snapshot, the proven compatibility is only
-`configuration_keepalive_codec`, jar-backed, regenerated in the current run,
-and checked by the exact reset-proof Rust oracle test against the current
-Leafish checkout.
+`configuration_keepalive_codec` and `configuration_keepalive_framed_dispatch`,
+jar-backed, regenerated in the current run, and checked by exact reset-proof
+Rust oracle tests against the current Leafish checkout.

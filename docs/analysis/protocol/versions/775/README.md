@@ -23,12 +23,14 @@ official jar function
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
 | `configuration_keepalive_codec` case note | [cases/configuration-keepalive-codec.md](cases/configuration-keepalive-codec.md) |
+| `configuration_keepalive_framed_dispatch` case note | [cases/configuration-keepalive-framed-dispatch.md](cases/configuration-keepalive-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
 
-At this snapshot, `configuration_keepalive_codec` is the only jar-backed answer
-row in this 775 shard. In the current run, the answer was regenerated from the
-official client jar and the manifest-declared Rust oracle test passed against
+At this snapshot, `configuration_keepalive_codec` and
+`configuration_keepalive_framed_dispatch` are the proven jar-backed answer rows
+in this 775 shard. In the current run, their answers were regenerated from the
+official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout. No broader Protocol 775 or client-load phase is
-complete from that proof.
+complete from those proofs.

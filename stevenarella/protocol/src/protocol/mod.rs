@@ -148,7 +148,25 @@ macro_rules! state_packets {
 
         /// Returns the packet for the given state, direction and id after parsing the fields
         /// from the buffer.
-        pub fn packet_by_id<R: io::Read>(version: i32, state: State, dir: Direction, id: i32, mut buf: &mut R) -> Result<Option<Packet>, Error> {
+        pub fn packet_by_id<R: io::Read>(version: i32, state: State, dir: Direction, id: i32, buf: &mut R) -> Result<Option<Packet>, Error> {
+            if let (State::Configuration, Direction::Serverbound) = (state, dir) {
+                let internal_id = packet::versions::translate_internal_packet_id_for_version(
+                    version, state, dir, id, true,
+                );
+                match internal_id {
+                    packet::configuration::serverbound::internal_ids::ConfigurationKeepAliveServerbound_i64 => {
+                        let mut packet = packet::play::serverbound::KeepAliveServerbound_i64::default();
+                        packet.id = Serializable::read_from(buf)?;
+                        return Ok(Option::Some(Packet::KeepAliveServerbound_i64(packet)));
+                    }
+                    _ => return Ok(Option::None),
+                }
+            }
+
+            legacy_packet_by_id(version, state, dir, id, buf)
+        }
+
+        fn legacy_packet_by_id<R: io::Read>(version: i32, state: State, dir: Direction, id: i32, mut buf: &mut R) -> Result<Option<Packet>, Error> {
             match state {
                 $(
                     State::$stateName => {
