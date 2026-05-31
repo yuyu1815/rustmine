@@ -251,3 +251,30 @@ All currently safe Protocol 775 Play CLIENTBOUND packet rows from the first
 pass and parked-row promotion passes have been implemented as bounded
 jar-backed proof packages. Remaining support is blocked on the explicit
 policies above, not on packet-id cartography.
+
+## Final Blocker Policy Route Map
+
+Use this table before spawning any worker for the six remaining rows. The first
+successful policy should produce a small oracle-cartography package first; Rust
+work only follows after jar-backed answers and rust-fix tasks exist.
+
+| Blocker policy | Rows unlocked | Official evidence needed | Forbidden shortcuts | Smallest next subagent task | Plausibly yields 3-packet batch? |
+|---|---|---|---|---|---|
+| Entity relationship fixture policy | `0x64`, `0x6b` | Official constructor or harness path that creates real source/vehicle/passenger `Entity` instances and proves stable `getId()`, optional/null link, and empty/non-empty passenger list bytes without private buffer construction. | Do not fabricate entity ids by calling private decode constructors; do not use mock entities; do not treat ids as context-free primitives. | `rustmine_nested_oracle_cartographer`: map official minimal entity setup for link/passenger packet constructors and stop at answer feasibility. | No. It can unlock at most 2 rows by itself. |
+| SoundEvent holder fixture policy | `0x74`, `0x75` | Official holder source for a named `SoundEvent`, exact `SoundEvent.STREAM_CODEC` wire bytes under registry-friendly encoding, and for `0x74` an official entity fixture from the entity policy. | Do not invent registry ids; do not use direct `SoundEvent` values as holder ids; do not pick a sound from names or previous-version tables. | `rustmine_nested_oracle_cartographer`: prove one official `Holder<SoundEvent>` fixture and classify whether entity-sound must wait for entity policy. | No by itself. With entity policy, could contribute 2 rows. |
+| World sound-position fixture policy | `0x75` | Official position quantization evidence for `ClientboundSoundPacket` plus SoundEvent holder fixture and bounded `SoundSource`, volume, pitch, seed values. | Do not claim sound playback/world behavior; do not fabricate world context; do not generalize beyond one holder/source/position fixture. | `rustmine_nested_oracle_cartographer`: build a sound-position fixture feasibility note after SoundEvent holder evidence exists. | No. It unlocks 1 row. |
+| MobEffect holder/effect-state policy | `0x84` | Official `Holder<MobEffect>` source, `MobEffectInstance` constructor fixture, exact `MobEffect.STREAM_CODEC` bytes, amplifier, duration, and flag derivation. | Do not invent mob-effect registry ids; do not skip `MobEffectInstance`; do not infer effect behavior from packet fields. | `rustmine_nested_oracle_cartographer`: prove one bounded `MobEffectInstance` fixture and identify unsupported variants. | No. It unlocks 1 row. |
+| Dialog holder/content policy | `0x8c` | Official concrete `Dialog` type fixture, `CommonDialogData` defaults/required fields, holder or context-free codec bytes, and proof that the fixture is content-bounded. | Do not invent dialog UI contents; do not reuse `clear_dialog`; do not treat context-free codec as empty or holder-free support without concrete dialog evidence. | `rustmine_nested_oracle_cartographer`: map the smallest official dialog object that can be encoded and whether it requires registry holder policy. | No. It unlocks 1 row. |
+| Combined registry-holder fixture policy | `0x74`, `0x75`, `0x84`, `0x8c` | Shared official process for safe `Holder<T>` fixtures across `SoundEvent`, `MobEffect`, and `Dialog`, including whether direct holders are valid witnesses for network bytes or whether registry-backed holders are required. | Do not assume all holders share the same wire policy; do not substitute built-in registry ids without jar-backed byte answers. | High-capacity planner then up to two `rustmine_nested_oracle_cartographer` leaves: one for sound/effect holders, one for dialog holder/content. | Possibly, but only if it proves at least sound, mob-effect, and dialog fixtures. |
+
+Recommended next route:
+
+```text
+Need a 3-packet batch?
+  -> first try combined registry-holder fixture policy
+      -> if it proves SoundEvent + MobEffect + Dialog fixtures:
+           candidate batch = 0x75 + 0x84 + 0x8c
+      -> if it also proves entity fixture policy:
+           candidate batch can include 0x74, 0x64, or 0x6b
+      -> otherwise no remaining Protocol 775 Play CLIENTBOUND batch is safe
+```
