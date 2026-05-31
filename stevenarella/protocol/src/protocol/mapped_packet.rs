@@ -17,16 +17,16 @@ use crate::protocol::mapped_packet::play::clientbound::{
     EntityHeadLook, EntityLook, EntityLookAndMove, EntityMetadata, EntityMove, EntityProperties,
     EntityRemoveEffect, EntitySoundEffect, EntityStatus, EntityTeleport, EntityUpdateNBT,
     EntityUsedBed, EntityVelocity, Explosion, FacePlayer, JoinGame, KeepAliveClientbound, Maps,
-    MultiBlockChange, NBTQueryResponse, NamedSoundEffect, OpenBook, Particle, PlayerAbilities,
-    PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound,
-    ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab,
-    ServerDifficulty, ServerMessage, SetCompression, SetCooldown, SetCurrentHotbarSlot,
-    SetExperience, SetPassengers, SignEditorOpen, SoundEffect, SpawnExperienceOrb,
-    SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer, SpawnPosition,
-    Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer, TimeUpdate, Title,
-    TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight, UpdateScore,
-    UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose, WindowItems,
-    WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
+    MultiBlockChange, NBTQueryResponse, NamedSoundEffect, OpenBook, Particle,
+    PlayAddEntityClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
+    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
+    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
+    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
+    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
+    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
+    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
+    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -402,6 +402,19 @@ state_mapped_packets!(
         clientbound Clientbound {
             packet BundleDelimiterClientbound {
                 field empty: (),
+            }
+            packet PlayAddEntityClientbound {
+                field entity_id: i32,
+                field uuid: UUID,
+                field ty: i32,
+                field x: f64,
+                field y: f64,
+                field z: f64,
+                field movement_lp_zero: i32,
+                field x_rot: i8,
+                field y_rot: i8,
+                field y_head_rot: i8,
+                field data: i32,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1456,6 +1469,21 @@ impl MappablePacket for packet::Packet {
                         empty: delimiter.empty,
                     },
                 )
+            }
+            packet::Packet::PlayAddEntityClientbound(add_entity) => {
+                mapped_packet::MappedPacket::PlayAddEntityClientbound(PlayAddEntityClientbound {
+                    entity_id: add_entity.entity_id.0,
+                    uuid: add_entity.uuid,
+                    ty: add_entity.ty.0,
+                    x: add_entity.x,
+                    y: add_entity.y,
+                    z: add_entity.z,
+                    movement_lp_zero: add_entity.movement_lp_zero.0,
+                    x_rot: add_entity.x_rot,
+                    y_rot: add_entity.y_rot,
+                    y_head_rot: add_entity.y_head_rot,
+                    data: add_entity.data.0,
+                })
             }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {

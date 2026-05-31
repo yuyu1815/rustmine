@@ -1,0 +1,26 @@
+{
+  "manifest_id": "play_add_entity_clientbound_framed_dispatch_test",
+  "case_id": "play_add_entity_clientbound_framed_dispatch",
+  "contract_path": "oracle/contracts/775/play_add_entity_clientbound_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/play_add_entity_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "play_add_entity_clientbound_framed_dispatch_matches_official_oracle_answer",
+  "comparison_surface": "framed_dispatch_decode",
+  "comparison_surface_note": "Compares official Play clientbound add_entity framed packet id and body by splitting the generated frame and dispatching the official body bytes through Stevenarella packet_by_id.",
+  "test_topology_note": "The target file and test name are this manifest's current adapter, not the universal runner topology for all oracle cases.",
+  "official_source": {
+    "jar_role": "client",
+    "jar_path": "_analysis/minecraft-26.1.2/client.jar",
+    "function_or_member": "ClientboundAddEntityPacket(int, UUID, double, double, double, float, float, EntityType<?>, int, Vec3, double), ClientboundAddEntityPacket.STREAM_CODEC, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY))).codec().encode/decode(...), EntityType.PIG, BuiltInRegistries.ENTITY_TYPE, Vec3.LP_STREAM_CODEC, ClientGamePacketListener.handleAddEntity(ClientboundAddEntityPacket)",
+    "bytecode_source_command": "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundAddEntityPacket net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes net.minecraft.network.protocol.game.ClientGamePacketListener net.minecraft.core.RegistryAccess net.minecraft.core.registries.BuiltInRegistries net.minecraft.world.entity.EntityType net.minecraft.world.phys.Vec3"
+  },
+  "internal_owner": {
+    "domain": "wire_protocol",
+    "path": "stevenarella/protocol/src/protocol/versions/v26_1_2.rs",
+    "symbol_or_test_surface": "packet::packet_by_id(775, State::Play, Direction::Clientbound, official packet id, official body)",
+    "scope_note": "Current implementation witness for Play clientbound add_entity framed dispatch/decode; not arbitrary entity registry contents, initialized Entity/ServerEntity behavior, spawn readiness, world load, render readiness, or client-load completion."
+  },
+  "corridor": "Configuration -> Play",
+  "traceability_path": "docs/analysis/protocol/versions/775/traceability.md",
+  "stop_boundary": "This manifest proves Play clientbound add_entity packet framing and dispatch/decode for one direct official constructor fixture with built-in EntityType.PIG and zero movement only; it does not prove arbitrary entity registry contents, initialized Entity/ServerEntity behavior, spawn readiness, world load, render readiness, or client-load completion."
+}

@@ -528,6 +528,19 @@ state_packets!(
             packet BundleDelimiterClientbound {
                 field empty: () =,
             }
+            packet PlayAddEntityClientbound {
+                field entity_id: VarInt =,
+                field uuid: UUID =,
+                field ty: VarInt =,
+                field x: f64 =,
+                field y: f64 =,
+                field z: f64 =,
+                field movement_lp_zero: VarInt =,
+                field x_rot: i8 =,
+                field y_rot: i8 =,
+                field y_head_rot: i8 =,
+                field data: VarInt =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

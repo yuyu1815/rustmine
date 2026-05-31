@@ -64,6 +64,7 @@ protocol_packet_ids!(
         }
         clientbound Clientbound {
             0x00 => BundleDelimiterClientbound
+            0x01 => PlayAddEntityClientbound
         }
     }
 );
