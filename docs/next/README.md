@@ -8,7 +8,7 @@ startup stays cheap.
 | Field | Value |
 |---|---|
 | Area | Stevenarella implementation structure cleanup |
-| Current task | KISS-first folder/file split for protocol version organization. The first committed slice should keep behavior unchanged while making `stevenarella/protocol/src/protocol/versions/` the module home and giving Protocol 775 (`v26_1_2`) a packet subfolder. |
+| Current task | KISS-first folder/file split for protocol version organization. The first committed slice made `stevenarella/protocol/src/protocol/versions/` the module home and gave Protocol 775 (`v26_1_2`) a packet subfolder. The current slice moved Login packet decode into `v26_1_2/internal_protocol/login.rs` behind specifically named internal-protocol dispatch functions. |
 | Last touched | `stevenarella/protocol/src/protocol/versions/`, `docs/next/` |
 | Stop boundary | Keep each slice mechanical and reviewable. Do not mix packet ID changes, codec changes, or broad `packet.rs` / `mapped_packet.rs` restructuring into the same commit. Do not stage unrelated logs or generated target files. |
 
@@ -28,9 +28,10 @@ AGENTS.md
 
 ```text
 For the next structure-cleanup slice:
-  -> start from the committed version-module layout diff
-  -> choose one small owner at a time, preferably inside `stevenarella/protocol/src/protocol/`
-  -> keep moves byte-for-byte unless the slice explicitly justifies code edits
+  -> start from the committed 775 Login decode extraction
+  -> choose one small owner at a time inside `stevenarella/protocol/src/protocol/versions/v26_1_2/`
+  -> prefer internal-protocol names such as `internal_protocol/configuration.rs` or `internal_protocol/play_clientbound.rs`; avoid generic `decode`, `helpers`, `utils`, unclear abbreviations, or packet names that overfit one numeric protocol version
+  -> keep packet IDs, packet shapes, and codec behavior unchanged unless the slice explicitly justifies a behavior edit
   -> run `cargo fmt --check`, `cargo check`, and `cargo test` in the affected crate before committing
   -> after consuming any planner, implementation, oracle, docs, mapper, or review result, delete/clear or discard that agent session and cache; never reuse it for the next batch
 ```

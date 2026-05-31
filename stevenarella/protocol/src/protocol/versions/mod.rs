@@ -18,6 +18,8 @@ mod v1_9;
 mod v1_9_2;
 mod v26_1_2;
 
+use std::io;
+
 // https://wiki.vg/Protocol_History
 // https://wiki.vg/Protocol_version_numbers#Versions_after_the_Netty_rewrite
 
@@ -85,5 +87,18 @@ pub fn translate_internal_packet_id_for_version(
         47 => v1_8_9::translate_internal_packet_id(state, dir, id, to_internal),
         5 => v1_7_10::translate_internal_packet_id(state, dir, id, to_internal),
         _ => panic!("unsupported protocol version: {}", version),
+    }
+}
+
+pub(crate) fn read_version_specific_packet_by_id<R: io::Read>(
+    version: i32,
+    state: State,
+    dir: Direction,
+    id: i32,
+    buf: &mut R,
+) -> Result<Option<packet::Packet>, Error> {
+    match version {
+        775 => v26_1_2::read_internal_protocol_packet_by_id(state, dir, id, buf),
+        _ => Ok(None),
     }
 }
