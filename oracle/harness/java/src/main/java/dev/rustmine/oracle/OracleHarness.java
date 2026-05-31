@@ -80,6 +80,11 @@ import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundRotateHeadPacket;
 import net.minecraft.network.protocol.game.ClientboundSelectAdvancementsTabPacket;
+import net.minecraft.network.protocol.game.ClientboundSetBorderCenterPacket;
+import net.minecraft.network.protocol.game.ClientboundSetBorderLerpSizePacket;
+import net.minecraft.network.protocol.game.ClientboundSetBorderSizePacket;
+import net.minecraft.network.protocol.game.ClientboundSetBorderWarningDelayPacket;
+import net.minecraft.network.protocol.game.ClientboundSetBorderWarningDistancePacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheCenterPacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket;
 import net.minecraft.network.protocol.game.GameProtocols;
@@ -160,6 +165,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.phys.Vec3;
 
 public final class OracleHarness {
@@ -536,6 +542,26 @@ public final class OracleHarness {
         }
         if ("play_remove_entities_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, playRemoveEntitiesClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_set_border_center_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playSetBorderCenterClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_set_border_lerp_size_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playSetBorderLerpSizeClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_set_border_size_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playSetBorderSizeClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_set_border_warning_delay_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playSetBorderWarningDelayClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_set_border_warning_distance_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playSetBorderWarningDistanceClientboundFramedDispatch(input));
             return;
         }
         if ("play_set_chunk_cache_center_clientbound_framed_dispatch".equals(caseId)) {
@@ -6912,6 +6938,330 @@ public final class OracleHarness {
         answerBody.put("input_entity_ids", Arrays.stream(entityIds).boxed().toList());
         answerBody.put("stream_decoded_entity_ids", intListValues(streamDecoded.getEntityIds()));
         answerBody.put("decoded_entity_ids", intListValues(decodedRemoveEntities.getEntityIds()));
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playSetBorderCenterClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        WorldBorder border = new WorldBorder();
+        border.setCenter(
+            inputFields.get("new_center_x").getAsDouble(),
+            inputFields.get("new_center_z").getAsDouble()
+        );
+        ClientboundSetBorderCenterPacket packet = new ClientboundSetBorderCenterPacket(border);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundSetBorderCenterPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundSetBorderCenterPacket streamDecoded =
+            ClientboundSetBorderCenterPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:set_border_center");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<?> decodedPacket = protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundSetBorderCenterPacket decodedBorderCenter)) {
+            throw new IllegalStateException(
+                "decoded Play set_border_center as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "WorldBorder(); WorldBorder.setCenter(double, double); ClientboundSetBorderCenterPacket(WorldBorder); ClientboundSetBorderCenterPacket.STREAM_CODEC; FriendlyByteBuf.readDouble/writeDouble; GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...); GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundSetBorderCenterPacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundSetBorderCenterPacket net.minecraft.world.level.border.WorldBorder net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:set_border_center",
+            decodedPacket,
+            "official ClientboundSetBorderCenterPacket primitive WorldBorder center fixture; no initialized Level or world-border runtime state is required",
+            "new center X double followed by new center Z double through ClientboundSetBorderCenterPacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        answerBody.put("input_new_center_x", packet.getNewCenterX());
+        answerBody.put("stream_decoded_new_center_x", streamDecoded.getNewCenterX());
+        answerBody.put("decoded_new_center_x", decodedBorderCenter.getNewCenterX());
+        answerBody.put("input_new_center_z", packet.getNewCenterZ());
+        answerBody.put("stream_decoded_new_center_z", streamDecoded.getNewCenterZ());
+        answerBody.put("decoded_new_center_z", decodedBorderCenter.getNewCenterZ());
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playSetBorderLerpSizeClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        WorldBorder border = new WorldBorder();
+        border.lerpSizeBetween(
+            inputFields.get("old_size").getAsDouble(),
+            inputFields.get("new_size").getAsDouble(),
+            inputFields.get("lerp_time").getAsLong(),
+            0L
+        );
+        ClientboundSetBorderLerpSizePacket packet = new ClientboundSetBorderLerpSizePacket(border);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundSetBorderLerpSizePacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundSetBorderLerpSizePacket streamDecoded =
+            ClientboundSetBorderLerpSizePacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:set_border_lerp_size");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<?> decodedPacket = protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundSetBorderLerpSizePacket decodedBorderLerpSize)) {
+            throw new IllegalStateException(
+                "decoded Play set_border_lerp_size as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "WorldBorder(); WorldBorder.lerpSizeBetween(double, double, long, long); ClientboundSetBorderLerpSizePacket(WorldBorder); ClientboundSetBorderLerpSizePacket.STREAM_CODEC; FriendlyByteBuf.readDouble/writeDouble; FriendlyByteBuf.readVarLong/writeVarLong; GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...); GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundSetBorderLerpSizePacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundSetBorderLerpSizePacket net.minecraft.world.level.border.WorldBorder 'net.minecraft.world.level.border.WorldBorder$MovingBorderExtent' net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:set_border_lerp_size",
+            decodedPacket,
+            "official ClientboundSetBorderLerpSizePacket primitive WorldBorder lerp fixture; no initialized Level or world-border runtime state is required",
+            "old size double, new size double, then lerp time VarLong through ClientboundSetBorderLerpSizePacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        answerBody.put("input_old_size", packet.getOldSize());
+        answerBody.put("stream_decoded_old_size", streamDecoded.getOldSize());
+        answerBody.put("decoded_old_size", decodedBorderLerpSize.getOldSize());
+        answerBody.put("input_new_size", packet.getNewSize());
+        answerBody.put("stream_decoded_new_size", streamDecoded.getNewSize());
+        answerBody.put("decoded_new_size", decodedBorderLerpSize.getNewSize());
+        answerBody.put("input_lerp_time", packet.getLerpTime());
+        answerBody.put("stream_decoded_lerp_time", streamDecoded.getLerpTime());
+        answerBody.put("decoded_lerp_time", decodedBorderLerpSize.getLerpTime());
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playSetBorderSizeClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        WorldBorder border = new WorldBorder();
+        border.setSize(inputFields.get("size").getAsDouble());
+        ClientboundSetBorderSizePacket packet = new ClientboundSetBorderSizePacket(border);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundSetBorderSizePacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundSetBorderSizePacket streamDecoded =
+            ClientboundSetBorderSizePacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:set_border_size");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<?> decodedPacket = protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundSetBorderSizePacket decodedBorderSize)) {
+            throw new IllegalStateException(
+                "decoded Play set_border_size as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "WorldBorder(); WorldBorder.setSize(double); ClientboundSetBorderSizePacket(WorldBorder); ClientboundSetBorderSizePacket.STREAM_CODEC; FriendlyByteBuf.readDouble/writeDouble; GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...); GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundSetBorderSizePacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundSetBorderSizePacket net.minecraft.world.level.border.WorldBorder net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:set_border_size",
+            decodedPacket,
+            "official ClientboundSetBorderSizePacket primitive WorldBorder size fixture; no initialized Level or world-border runtime state is required",
+            "border size double through ClientboundSetBorderSizePacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        answerBody.put("input_size", packet.getSize());
+        answerBody.put("stream_decoded_size", streamDecoded.getSize());
+        answerBody.put("decoded_size", decodedBorderSize.getSize());
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playSetBorderWarningDelayClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        WorldBorder border = new WorldBorder();
+        border.setWarningTime(inputFields.get("warning_delay").getAsInt());
+        ClientboundSetBorderWarningDelayPacket packet = new ClientboundSetBorderWarningDelayPacket(border);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundSetBorderWarningDelayPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundSetBorderWarningDelayPacket streamDecoded =
+            ClientboundSetBorderWarningDelayPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:set_border_warning_delay");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<?> decodedPacket = protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundSetBorderWarningDelayPacket decodedWarningDelay)) {
+            throw new IllegalStateException(
+                "decoded Play set_border_warning_delay as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "WorldBorder(); WorldBorder.setWarningTime(int); ClientboundSetBorderWarningDelayPacket(WorldBorder); ClientboundSetBorderWarningDelayPacket.STREAM_CODEC; FriendlyByteBuf.readVarInt/writeVarInt; GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...); GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundSetBorderWarningDelayPacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundSetBorderWarningDelayPacket net.minecraft.world.level.border.WorldBorder net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:set_border_warning_delay",
+            decodedPacket,
+            "official ClientboundSetBorderWarningDelayPacket primitive WorldBorder warning-delay fixture; no initialized Level, UI, or world-border runtime state is required",
+            "warning delay VarInt through ClientboundSetBorderWarningDelayPacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        answerBody.put("input_warning_delay", packet.getWarningDelay());
+        answerBody.put("stream_decoded_warning_delay", streamDecoded.getWarningDelay());
+        answerBody.put("decoded_warning_delay", decodedWarningDelay.getWarningDelay());
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playSetBorderWarningDistanceClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        WorldBorder border = new WorldBorder();
+        border.setWarningBlocks(inputFields.get("warning_blocks").getAsInt());
+        ClientboundSetBorderWarningDistancePacket packet =
+            new ClientboundSetBorderWarningDistancePacket(border);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundSetBorderWarningDistancePacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundSetBorderWarningDistancePacket streamDecoded =
+            ClientboundSetBorderWarningDistancePacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:set_border_warning_distance");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<?> decodedPacket = protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundSetBorderWarningDistancePacket decodedWarningDistance)) {
+            throw new IllegalStateException(
+                "decoded Play set_border_warning_distance as unexpected packet "
+                    + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "WorldBorder(); WorldBorder.setWarningBlocks(int); ClientboundSetBorderWarningDistancePacket(WorldBorder); ClientboundSetBorderWarningDistancePacket.STREAM_CODEC; FriendlyByteBuf.readVarInt/writeVarInt; GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...); GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundSetBorderWarningDistancePacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundSetBorderWarningDistancePacket net.minecraft.world.level.border.WorldBorder net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:set_border_warning_distance",
+            decodedPacket,
+            "official ClientboundSetBorderWarningDistancePacket primitive WorldBorder warning-distance fixture; no initialized Level, UI, or world-border runtime state is required",
+            "warning distance blocks VarInt through ClientboundSetBorderWarningDistancePacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        answerBody.put("input_warning_blocks", packet.getWarningBlocks());
+        answerBody.put("stream_decoded_warning_blocks", streamDecoded.getWarningBlocks());
+        answerBody.put("decoded_warning_blocks", decodedWarningDistance.getWarningBlocks());
         answer.put("answer", answerBody);
         return answer;
     }

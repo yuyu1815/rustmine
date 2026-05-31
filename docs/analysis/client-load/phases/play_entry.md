@@ -6,10 +6,10 @@
 | Load claim | Client enters Play with enough state to receive spawn/world packets. |
 | Evidence surface | Official state transition plus smoke milestone |
 | Proof label | `partial` |
-| Current proof | Packet-support proofs are recorded case-by-case in `docs/analysis/protocol/versions/775/traceability.md`; latest selected safe GREEN/BLUE Play rows include `minecraft:player_info_remove` / `0x45`, `minecraft:rotate_head` / `0x53`, `minecraft:select_advancements_tab` / `0x55`, `minecraft:set_chunk_cache_center` / `0x5e`, and `minecraft:set_chunk_cache_radius` / `0x5f` while skipped YELLOW rows remain deferred. |
+| Current proof | Packet-support proofs are recorded case-by-case in `docs/analysis/protocol/versions/775/traceability.md`; latest selected safe GREEN/BLUE Play rows include `minecraft:player_info_remove` / `0x45`, `minecraft:rotate_head` / `0x53`, `minecraft:select_advancements_tab` / `0x55`, `minecraft:set_border_center` / `0x58` through `minecraft:set_border_warning_distance` / `0x5c`, `minecraft:set_chunk_cache_center` / `0x5e`, and `minecraft:set_chunk_cache_radius` / `0x5f` while skipped YELLOW rows remain deferred. |
 | Project-level test/probe | Exact Rust oracle tests under `oracle/rust-tests/tests/oracle_contracts.rs`, named in each `oracle/test-manifests/775/play_*_clientbound_framed_dispatch.test-manifest.json`. |
 | Candidate checkout owner under test | login/configuration/play handoff |
-| Candidate evidence gap | Continue safe official Play table packet-support with the deferred safe BLUE border rows `0x58`-`0x5c` or `minecraft:set_entity_motion` / `0x65`, or return to deferred YELLOW rows only after official fixture evidence; then define transition answer and smoke milestone. |
+| Candidate evidence gap | Continue safe official Play table packet-support with `minecraft:set_entity_motion` / `0x65`, or return to deferred YELLOW rows only after official fixture evidence; then define transition answer and smoke milestone. |
 
 ## Boundary
 
@@ -82,10 +82,17 @@ The latest packet-support batch adds selected safe GREEN/BLUE rows
 `minecraft:remove_entities` / `0x4d`, plus `minecraft:player_info_remove` /
 `0x45`, `minecraft:rotate_head` / `0x53`,
 `minecraft:select_advancements_tab` / `0x55`,
+`minecraft:set_border_center` / `0x58`,
+`minecraft:set_border_lerp_size` / `0x59`,
+`minecraft:set_border_size` / `0x5a`,
+`minecraft:set_border_warning_delay` / `0x5b`,
+`minecraft:set_border_warning_distance` / `0x5c`,
 `minecraft:set_chunk_cache_center` / `0x5e`, and
 `minecraft:set_chunk_cache_radius` / `0x5f`. These remain framed
 dispatch/decode proofs only. They do not prove skipped respawn/component/chunk
 section/world/UI rows, entity existence, combat runtime behavior, player
-movement/ability semantics, resource-pack behavior, render readiness, or
-client-load completion. The next official Play clientbound row after this safe
-batch is `minecraft:set_cursor_item` / `0x60`.
+movement/ability semantics, resource-pack behavior, world-border runtime
+behavior, warning UI behavior, render readiness, or client-load completion. The
+next official Play clientbound row after this safe batch is
+`minecraft:set_cursor_item` / `0x60`; `minecraft:set_entity_motion` / `0x65`
+remains intentionally separate.

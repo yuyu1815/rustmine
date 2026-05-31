@@ -29,16 +29,18 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayHurtAnimationClientbound, PlayInitializeBorderClientbound,
     PlayLowDiskSpaceWarningClientbound, PlayMountScreenOpenClientbound, PlayPingClientbound,
     PlayPlayerCombatEndClientbound, PlayPlayerCombatEnterClientbound,
-    PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound, PlayerAbilities, PlayerInfo,
-    PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
-    ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
-    SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
-    SignEditorOpen, SoundEffect, SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject,
-    SpawnPainting, SpawnPlayer, SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags,
-    Teams, TeleportPlayer, TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity,
-    UpdateHealth, UpdateLight, UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition,
-    VehicleTeleport, WindowClose, WindowItems, WindowOpen, WindowOpenHorse, WindowProperty,
-    WindowSetSlot, WorldBorder,
+    PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound, PlaySetBorderCenterClientbound,
+    PlaySetBorderLerpSizeClientbound, PlaySetBorderSizeClientbound,
+    PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound, PlayerAbilities,
+    PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound,
+    ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab,
+    ServerDifficulty, ServerMessage, SetCompression, SetCooldown, SetCurrentHotbarSlot,
+    SetExperience, SetPassengers, SignEditorOpen, SoundEffect, SpawnExperienceOrb,
+    SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer, SpawnPosition,
+    Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer, TimeUpdate, Title,
+    TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight, UpdateScore,
+    UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose, WindowItems,
+    WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -537,6 +539,24 @@ state_mapped_packets!(
                 field new_absolute_max_size: i32,
                 field warning_blocks: i32,
                 field warning_time: i32,
+            }
+            packet PlaySetBorderCenterClientbound {
+                field new_center_x: f64,
+                field new_center_z: f64,
+            }
+            packet PlaySetBorderLerpSizeClientbound {
+                field old_size: f64,
+                field new_size: f64,
+                field lerp_time: i64,
+            }
+            packet PlaySetBorderSizeClientbound {
+                field size: f64,
+            }
+            packet PlaySetBorderWarningDelayClientbound {
+                field warning_delay: i32,
+            }
+            packet PlaySetBorderWarningDistanceClientbound {
+                field warning_blocks: i32,
             }
             packet PlayLowDiskSpaceWarningClientbound {
                 field empty: (),
@@ -1814,6 +1834,42 @@ impl MappablePacket for packet::Packet {
                         new_absolute_max_size: border.new_absolute_max_size.0,
                         warning_blocks: border.warning_blocks.0,
                         warning_time: border.warning_time.0,
+                    },
+                )
+            }
+            packet::Packet::PlaySetBorderCenterClientbound(border) => {
+                mapped_packet::MappedPacket::PlaySetBorderCenterClientbound(
+                    PlaySetBorderCenterClientbound {
+                        new_center_x: border.new_center_x,
+                        new_center_z: border.new_center_z,
+                    },
+                )
+            }
+            packet::Packet::PlaySetBorderLerpSizeClientbound(border) => {
+                mapped_packet::MappedPacket::PlaySetBorderLerpSizeClientbound(
+                    PlaySetBorderLerpSizeClientbound {
+                        old_size: border.old_size,
+                        new_size: border.new_size,
+                        lerp_time: border.lerp_time.0,
+                    },
+                )
+            }
+            packet::Packet::PlaySetBorderSizeClientbound(border) => {
+                mapped_packet::MappedPacket::PlaySetBorderSizeClientbound(
+                    PlaySetBorderSizeClientbound { size: border.size },
+                )
+            }
+            packet::Packet::PlaySetBorderWarningDelayClientbound(border) => {
+                mapped_packet::MappedPacket::PlaySetBorderWarningDelayClientbound(
+                    PlaySetBorderWarningDelayClientbound {
+                        warning_delay: border.warning_delay.0,
+                    },
+                )
+            }
+            packet::Packet::PlaySetBorderWarningDistanceClientbound(border) => {
+                mapped_packet::MappedPacket::PlaySetBorderWarningDistanceClientbound(
+                    PlaySetBorderWarningDistanceClientbound {
+                        warning_blocks: border.warning_blocks.0,
                     },
                 )
             }

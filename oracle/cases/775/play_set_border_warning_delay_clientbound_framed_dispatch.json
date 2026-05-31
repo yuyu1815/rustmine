@@ -1,0 +1,41 @@
+{
+  "case_id": "play_set_border_warning_delay_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "WorldBorder.setWarningTime(int), ClientboundSetBorderWarningDelayPacket(WorldBorder)",
+      "authority_note": "Official binary source for constructing the Play clientbound set_border_warning_delay fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetBorderWarningDelayPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the warning-delay VarInt body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_border_warning_delay packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_border_warning_delay",
+    "packet_class": "ClientboundSetBorderWarningDelayPacket",
+    "input_fields": {
+      "warning_delay": 42
+    },
+    "field_notes": {
+      "warning_delay": "Primitive warning delay fixture; does not prove warning UI/runtime behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_border_warning_delay_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_border_warning_delay packet framing and dispatch/decode for one primitive warning-delay fixture only; do not infer warning UI behavior, world-border runtime behavior, render readiness, or client-load completion."
+}

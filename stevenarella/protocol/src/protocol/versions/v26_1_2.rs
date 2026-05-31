@@ -112,6 +112,11 @@ protocol_packet_ids!(
             0x4d => EntityDestroy
             0x53 => EntityHeadLook
             0x55 => SelectAdvancementTab
+            0x58 => PlaySetBorderCenterClientbound
+            0x59 => PlaySetBorderLerpSizeClientbound
+            0x5a => PlaySetBorderSizeClientbound
+            0x5b => PlaySetBorderWarningDelayClientbound
+            0x5c => PlaySetBorderWarningDistanceClientbound
             0x5e => UpdateViewPosition
             0x5f => UpdateViewDistance
         }

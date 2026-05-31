@@ -1,0 +1,43 @@
+{
+  "case_id": "play_set_border_center_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "WorldBorder.setCenter(double, double), ClientboundSetBorderCenterPacket(WorldBorder)",
+      "authority_note": "Official binary source for constructing the Play clientbound set_border_center fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetBorderCenterPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the border center double/double body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_border_center packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_border_center",
+    "packet_class": "ClientboundSetBorderCenterPacket",
+    "input_fields": {
+      "new_center_x": 12.5,
+      "new_center_z": -34.75
+    },
+    "field_notes": {
+      "new_center_x": "Primitive border center coordinate fixture; does not prove world-border runtime behavior.",
+      "new_center_z": "Primitive border center coordinate fixture; does not prove world-border runtime behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_border_center_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_border_center packet framing and dispatch/decode for one primitive center fixture only; do not infer world-border runtime behavior, world state, render readiness, or client-load completion."
+}

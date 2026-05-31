@@ -665,6 +665,62 @@ const PLAY_REMOVE_ENTITIES_CLIENTBOUND_ANSWER: &str =
 const PLAY_REMOVE_ENTITIES_CLIENTBOUND_TEST_NAME: &str =
     "play_remove_entities_clientbound_framed_dispatch_matches_official_oracle_answer";
 const PLAY_REMOVE_ENTITIES_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_SET_BORDER_CENTER_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_set_border_center_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_SET_BORDER_CENTER_CLIENTBOUND_CASE_ID: &str =
+    "play_set_border_center_clientbound_framed_dispatch";
+const PLAY_SET_BORDER_CENTER_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_set_border_center_clientbound_framed_dispatch.contract.json";
+const PLAY_SET_BORDER_CENTER_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_set_border_center_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_SET_BORDER_CENTER_CLIENTBOUND_TEST_NAME: &str =
+    "play_set_border_center_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_SET_BORDER_CENTER_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_set_border_lerp_size_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_CASE_ID: &str =
+    "play_set_border_lerp_size_clientbound_framed_dispatch";
+const PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_set_border_lerp_size_clientbound_framed_dispatch.contract.json";
+const PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_set_border_lerp_size_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_TEST_NAME: &str =
+    "play_set_border_lerp_size_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_SET_BORDER_SIZE_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_set_border_size_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_SET_BORDER_SIZE_CLIENTBOUND_CASE_ID: &str =
+    "play_set_border_size_clientbound_framed_dispatch";
+const PLAY_SET_BORDER_SIZE_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_set_border_size_clientbound_framed_dispatch.contract.json";
+const PLAY_SET_BORDER_SIZE_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_set_border_size_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_SET_BORDER_SIZE_CLIENTBOUND_TEST_NAME: &str =
+    "play_set_border_size_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_SET_BORDER_SIZE_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_set_border_warning_delay_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_CASE_ID: &str =
+    "play_set_border_warning_delay_clientbound_framed_dispatch";
+const PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_set_border_warning_delay_clientbound_framed_dispatch.contract.json";
+const PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_set_border_warning_delay_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_TEST_NAME: &str =
+    "play_set_border_warning_delay_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_set_border_warning_distance_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_CASE_ID: &str =
+    "play_set_border_warning_distance_clientbound_framed_dispatch";
+const PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_set_border_warning_distance_clientbound_framed_dispatch.contract.json";
+const PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_set_border_warning_distance_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_TEST_NAME: &str =
+    "play_set_border_warning_distance_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_COMPARISON_SURFACE: &str =
+    "framed_dispatch_decode";
 const PLAY_SET_CHUNK_CACHE_CENTER_CLIENTBOUND_MANIFEST: &str =
     "oracle/test-manifests/775/play_set_chunk_cache_center_clientbound_framed_dispatch.test-manifest.json";
 const PLAY_SET_CHUNK_CACHE_CENTER_CLIENTBOUND_CASE_ID: &str =
@@ -1406,19 +1462,31 @@ struct ConfigurationOracleAnswer {
     stream_decoded_radius: Option<i32>,
     decoded_radius: Option<i32>,
     input_new_center_x: Option<f64>,
+    stream_decoded_new_center_x: Option<f64>,
     decoded_new_center_x: Option<f64>,
     input_new_center_z: Option<f64>,
+    stream_decoded_new_center_z: Option<f64>,
     decoded_new_center_z: Option<f64>,
     input_old_size: Option<f64>,
+    stream_decoded_old_size: Option<f64>,
     decoded_old_size: Option<f64>,
     input_new_size: Option<f64>,
+    stream_decoded_new_size: Option<f64>,
     decoded_new_size: Option<f64>,
     input_lerp_time: Option<i64>,
+    stream_decoded_lerp_time: Option<i64>,
     decoded_lerp_time: Option<i64>,
+    input_size: Option<f64>,
+    stream_decoded_size: Option<f64>,
+    decoded_size: Option<f64>,
     input_new_absolute_max_size: Option<i32>,
     decoded_new_absolute_max_size: Option<i32>,
     input_warning_blocks: Option<i32>,
+    stream_decoded_warning_blocks: Option<i32>,
     decoded_warning_blocks: Option<i32>,
+    input_warning_delay: Option<i32>,
+    stream_decoded_warning_delay: Option<i32>,
+    decoded_warning_delay: Option<i32>,
     input_warning_time: Option<i32>,
     decoded_warning_time: Option<i32>,
     input_animation_action_name: Option<String>,
@@ -8679,6 +8747,313 @@ fn play_remove_entities_clientbound_framed_dispatch_body() {
         }
         other => {
             panic!("decoded packet did not preserve Play clientbound remove_entities identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_set_border_center_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_set_border_center_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_set_border_center_clientbound_framed_dispatch_body)
+        .expect("spawn play_set_border_center_clientbound oracle stack")
+        .join()
+        .expect("play_set_border_center_clientbound oracle thread panicked");
+}
+
+fn play_set_border_center_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_SET_BORDER_CENTER_CLIENTBOUND_MANIFEST,
+        PLAY_SET_BORDER_CENTER_CLIENTBOUND_CASE_ID,
+        PLAY_SET_BORDER_CENTER_CLIENTBOUND_CONTRACT,
+        PLAY_SET_BORDER_CENTER_CLIENTBOUND_ANSWER,
+        PLAY_SET_BORDER_CENTER_CLIENTBOUND_TEST_NAME,
+        PLAY_SET_BORDER_CENTER_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:set_border_center",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundSetBorderCenterPacket")
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_new_center_x,
+        oracle.answer.input_new_center_x
+    );
+    assert_eq!(
+        oracle.answer.decoded_new_center_x,
+        oracle.answer.input_new_center_x
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_new_center_z,
+        oracle.answer.input_new_center_z
+    );
+    assert_eq!(
+        oracle.answer.decoded_new_center_z,
+        oracle.answer.input_new_center_z
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound set_border_center")
+    .expect("dispatch Play clientbound set_border_center");
+
+    match decoded {
+        packet::Packet::PlaySetBorderCenterClientbound(border) => {
+            assert_eq!(
+                border.new_center_x,
+                oracle.answer.decoded_new_center_x.unwrap()
+            );
+            assert_eq!(
+                border.new_center_z,
+                oracle.answer.decoded_new_center_z.unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound set_border_center identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_set_border_lerp_size_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_set_border_lerp_size_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_set_border_lerp_size_clientbound_framed_dispatch_body)
+        .expect("spawn play_set_border_lerp_size_clientbound oracle stack")
+        .join()
+        .expect("play_set_border_lerp_size_clientbound oracle thread panicked");
+}
+
+fn play_set_border_lerp_size_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_MANIFEST,
+        PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_CASE_ID,
+        PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_CONTRACT,
+        PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_ANSWER,
+        PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_TEST_NAME,
+        PLAY_SET_BORDER_LERP_SIZE_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:set_border_lerp_size",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundSetBorderLerpSizePacket")
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_old_size,
+        oracle.answer.input_old_size
+    );
+    assert_eq!(oracle.answer.decoded_old_size, oracle.answer.input_old_size);
+    assert_eq!(
+        oracle.answer.stream_decoded_new_size,
+        oracle.answer.input_new_size
+    );
+    assert_eq!(oracle.answer.decoded_new_size, oracle.answer.input_new_size);
+    assert_eq!(
+        oracle.answer.stream_decoded_lerp_time,
+        oracle.answer.input_lerp_time
+    );
+    assert_eq!(
+        oracle.answer.decoded_lerp_time,
+        oracle.answer.input_lerp_time
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound set_border_lerp_size")
+    .expect("dispatch Play clientbound set_border_lerp_size");
+
+    match decoded {
+        packet::Packet::PlaySetBorderLerpSizeClientbound(border) => {
+            assert_eq!(border.old_size, oracle.answer.decoded_old_size.unwrap());
+            assert_eq!(border.new_size, oracle.answer.decoded_new_size.unwrap());
+            assert_eq!(border.lerp_time.0, oracle.answer.decoded_lerp_time.unwrap());
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound set_border_lerp_size identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_set_border_size_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_set_border_size_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_set_border_size_clientbound_framed_dispatch_body)
+        .expect("spawn play_set_border_size_clientbound oracle stack")
+        .join()
+        .expect("play_set_border_size_clientbound oracle thread panicked");
+}
+
+fn play_set_border_size_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_SET_BORDER_SIZE_CLIENTBOUND_MANIFEST,
+        PLAY_SET_BORDER_SIZE_CLIENTBOUND_CASE_ID,
+        PLAY_SET_BORDER_SIZE_CLIENTBOUND_CONTRACT,
+        PLAY_SET_BORDER_SIZE_CLIENTBOUND_ANSWER,
+        PLAY_SET_BORDER_SIZE_CLIENTBOUND_TEST_NAME,
+        PLAY_SET_BORDER_SIZE_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:set_border_size",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundSetBorderSizePacket")
+    );
+    assert_eq!(oracle.answer.stream_decoded_size, oracle.answer.input_size);
+    assert_eq!(oracle.answer.decoded_size, oracle.answer.input_size);
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound set_border_size")
+    .expect("dispatch Play clientbound set_border_size");
+
+    match decoded {
+        packet::Packet::PlaySetBorderSizeClientbound(border) => {
+            assert_eq!(border.size, oracle.answer.decoded_size.unwrap());
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound set_border_size identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_set_border_warning_delay_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_set_border_warning_delay_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_set_border_warning_delay_clientbound_framed_dispatch_body)
+        .expect("spawn play_set_border_warning_delay_clientbound oracle stack")
+        .join()
+        .expect("play_set_border_warning_delay_clientbound oracle thread panicked");
+}
+
+fn play_set_border_warning_delay_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_MANIFEST,
+        PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_CASE_ID,
+        PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_CONTRACT,
+        PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_ANSWER,
+        PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_TEST_NAME,
+        PLAY_SET_BORDER_WARNING_DELAY_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:set_border_warning_delay",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundSetBorderWarningDelayPacket")
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_warning_delay,
+        oracle.answer.input_warning_delay
+    );
+    assert_eq!(
+        oracle.answer.decoded_warning_delay,
+        oracle.answer.input_warning_delay
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound set_border_warning_delay")
+    .expect("dispatch Play clientbound set_border_warning_delay");
+
+    match decoded {
+        packet::Packet::PlaySetBorderWarningDelayClientbound(border) => {
+            assert_eq!(
+                border.warning_delay.0,
+                oracle.answer.decoded_warning_delay.unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound set_border_warning_delay identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_set_border_warning_distance_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_set_border_warning_distance_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_set_border_warning_distance_clientbound_framed_dispatch_body)
+        .expect("spawn play_set_border_warning_distance_clientbound oracle stack")
+        .join()
+        .expect("play_set_border_warning_distance_clientbound oracle thread panicked");
+}
+
+fn play_set_border_warning_distance_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_MANIFEST,
+        PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_CASE_ID,
+        PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_CONTRACT,
+        PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_ANSWER,
+        PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_TEST_NAME,
+        PLAY_SET_BORDER_WARNING_DISTANCE_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:set_border_warning_distance",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundSetBorderWarningDistancePacket")
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_warning_blocks,
+        oracle.answer.input_warning_blocks
+    );
+    assert_eq!(
+        oracle.answer.decoded_warning_blocks,
+        oracle.answer.input_warning_blocks
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound set_border_warning_distance")
+    .expect("dispatch Play clientbound set_border_warning_distance");
+
+    match decoded {
+        packet::Packet::PlaySetBorderWarningDistanceClientbound(border) => {
+            assert_eq!(
+                border.warning_blocks.0,
+                oracle.answer.decoded_warning_blocks.unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound set_border_warning_distance identity: {other:?}")
         }
     }
     assert!(body_slice.is_empty());

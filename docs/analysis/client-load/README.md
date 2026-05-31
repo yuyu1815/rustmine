@@ -76,10 +76,17 @@ proofs for `minecraft:level_event` / `0x2e`,
 `minecraft:remove_entities` / `0x4d`, plus `minecraft:player_info_remove` /
 `0x45`, `minecraft:rotate_head` / `0x53`,
 `minecraft:select_advancements_tab` / `0x55`,
+`minecraft:set_border_center` / `0x58`,
+`minecraft:set_border_lerp_size` / `0x59`,
+`minecraft:set_border_size` / `0x5a`,
+`minecraft:set_border_warning_delay` / `0x5b`,
+`minecraft:set_border_warning_distance` / `0x5c`,
 `minecraft:set_chunk_cache_center` / `0x5e`, and
 `minecraft:set_chunk_cache_radius` / `0x5f`. The skipped YELLOW rows remain
 deferred; this does not prove chunk/light/world hydration, entity existence,
 combat runtime behavior, player movement/ability semantics, UI behavior,
-resource-pack behavior, render readiness, or client-load completion. The next
-official Play clientbound row after this safe batch is
+resource-pack behavior, world-border runtime behavior, warning UI behavior,
+render readiness, or client-load completion. `minecraft:set_entity_motion` /
+`0x65` remains intentionally separate. The next official Play clientbound row
+after this safe batch is
 `minecraft:set_cursor_item` / `0x60`.

@@ -82,6 +82,11 @@ official jar function
 | `play_hurt_animation_clientbound_framed_dispatch` case note | [cases/play-hurt-animation-clientbound-framed-dispatch.md](cases/play-hurt-animation-clientbound-framed-dispatch.md) |
 | `play_initialize_border_clientbound_framed_dispatch` case note | [cases/play-initialize-border-clientbound-framed-dispatch.md](cases/play-initialize-border-clientbound-framed-dispatch.md) |
 | `play_keep_alive_clientbound_framed_dispatch` case note | [cases/play-keep-alive-clientbound-framed-dispatch.md](cases/play-keep-alive-clientbound-framed-dispatch.md) |
+| `play_set_border_center_clientbound_framed_dispatch` case note | [cases/play-set-border-center-clientbound-framed-dispatch.md](cases/play-set-border-center-clientbound-framed-dispatch.md) |
+| `play_set_border_lerp_size_clientbound_framed_dispatch` case note | [cases/play-set-border-lerp-size-clientbound-framed-dispatch.md](cases/play-set-border-lerp-size-clientbound-framed-dispatch.md) |
+| `play_set_border_size_clientbound_framed_dispatch` case note | [cases/play-set-border-size-clientbound-framed-dispatch.md](cases/play-set-border-size-clientbound-framed-dispatch.md) |
+| `play_set_border_warning_delay_clientbound_framed_dispatch` case note | [cases/play-set-border-warning-delay-clientbound-framed-dispatch.md](cases/play-set-border-warning-delay-clientbound-framed-dispatch.md) |
+| `play_set_border_warning_distance_clientbound_framed_dispatch` case note | [cases/play-set-border-warning-distance-clientbound-framed-dispatch.md](cases/play-set-border-warning-distance-clientbound-framed-dispatch.md) |
 | `play_move_vehicle_clientbound_framed_dispatch` case note | [cases/play-move-vehicle-clientbound-framed-dispatch.md](cases/play-move-vehicle-clientbound-framed-dispatch.md) |
 | `play_open_book_clientbound_framed_dispatch` case note | [cases/play-open-book-clientbound-framed-dispatch.md](cases/play-open-book-clientbound-framed-dispatch.md) |
 | `play_ping_clientbound_framed_dispatch` case note | [cases/play-ping-clientbound-framed-dispatch.md](cases/play-ping-clientbound-framed-dispatch.md) |
@@ -547,6 +552,23 @@ world hydration, render readiness, or client-load completion. The skipped
 YELLOW rows through `0x65` remain parked in `play-clientbound-deferred.md`; the
 next official Play clientbound row after this safe batch is
 `minecraft:set_cursor_item` / `0x60`.
+
+`play_set_border_center_clientbound_framed_dispatch`,
+`play_set_border_lerp_size_clientbound_framed_dispatch`,
+`play_set_border_size_clientbound_framed_dispatch`,
+`play_set_border_warning_delay_clientbound_framed_dispatch`, and
+`play_set_border_warning_distance_clientbound_framed_dispatch` are
+packet-support evidence for the official primitive/context-free border rows
+`minecraft:set_border_center` / `0x58` through
+`minecraft:set_border_warning_distance` / `0x5c`. They prove frames
+`584029000000000000c041600000000000`, `594059000000000000406f500000000000b960`,
+`5a4080020000000000`, `5b2a`, and `5c07`, with full body consumption through
+Stevenarella dispatch. They do not prove world-border runtime behavior,
+warning UI behavior, world state, render readiness, or client-load completion.
+`minecraft:set_entity_motion` / `0x65` remains a safe separate proof candidate;
+the skipped YELLOW rows remain parked in `play-clientbound-deferred.md`. The
+next official Play clientbound row after the latest proven contiguous area is
+still `minecraft:set_cursor_item` / `0x60`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

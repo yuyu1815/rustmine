@@ -51,11 +51,6 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x54` | `minecraft:section_blocks_update` | deferred YELLOW | Official codec uses section position plus block-state update data from chunk section/block-state context. | Do not fake chunk section contents or block-state ids. |
 | `0x56` | `minecraft:server_data` | deferred YELLOW | Official codec uses trusted Component MOTD and optional icon bytes, which needs UI/content fixture policy. | Do not invent MOTD component or icon payload policy. |
 | `0x57` | `minecraft:set_action_bar_text` | deferred YELLOW | Official codec uses trusted Component text. | Do not invent action-bar component bytes or UI behavior. |
-| `0x58` | `minecraft:set_border_center` | safe BLUE deferred by cap | Official codec body is primitive border center doubles, but the 5-packet batch selected lower-risk existing mappings first. | Do not infer world-border runtime behavior; use an official fixture before implementation. |
-| `0x59` | `minecraft:set_border_lerp_size` | safe BLUE deferred by cap | Official codec body is primitive old size, new size, and lerp time. | Do not infer world-border interpolation/runtime behavior. |
-| `0x5a` | `minecraft:set_border_size` | safe BLUE deferred by cap | Official codec body is one primitive border size double. | Do not infer world-border runtime behavior. |
-| `0x5b` | `minecraft:set_border_warning_delay` | safe BLUE deferred by cap | Official codec body is one primitive warning-delay VarInt. | Do not infer warning UI/runtime behavior. |
-| `0x5c` | `minecraft:set_border_warning_distance` | safe BLUE deferred by cap | Official codec body is one primitive warning-distance VarInt. | Do not infer warning UI/runtime behavior. |
 | `0x5d` | `minecraft:set_camera` | deferred YELLOW | Official public constructor is entity-backed and the packet changes camera target state. | Do not fake camera entity existence or spectate state. |
 | `0x60` | `minecraft:set_cursor_item` | deferred YELLOW | Official codec uses `ItemStack.OPTIONAL_STREAM_CODEC`, which is item/component/registry-backed even for broader policy. | Do not invent item stack contents or component registry behavior. |
 | `0x61` | `minecraft:set_default_spawn_position` | deferred YELLOW | Official codec uses `LevelData.RespawnData` with position/angle spawn semantics. | Do not infer spawn state or compass/player behavior. |
@@ -66,6 +61,8 @@ proof loop takes safe GREEN/BLUE batches.
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
+The former safe BLUE border rows `0x58`-`0x5c` have been promoted to
+jar-backed packet-support proofs and are no longer deferred.
 
 ## Batch Confirmation
 
@@ -91,10 +88,12 @@ runtime behavior was inferred while crossing those rows.
 
 The `0x45` / `0x53` / `0x55` / `0x5e` / `0x5f` safe batch implemented the
 previously confirmed GREEN `player_info_remove` row plus selected GREEN/BLUE
-rows from the `0x52`-started cartography pass. The skipped YELLOW rows
-`0x52`, `0x54`, `0x56`-`0x57`, `0x5d`, and `0x60`-`0x64` remain parked for the
-official-evidence reasons above. Safe BLUE rows `0x58`-`0x5c` and `0x65` were
-not rejected; they were deferred by the 5-packet batch cap. No respawn,
-component UI, chunk-section, camera, item stack, spawn, scoreboard, entity
-metadata, entity-link, world-border runtime, or entity-motion runtime behavior
-was inferred while crossing those rows.
+rows from the `0x52`-started cartography pass. The follow-up border batch
+promoted `0x58`-`0x5c` from safe BLUE deferred rows to official jar-backed
+packet-support proofs. The skipped YELLOW rows `0x52`, `0x54`, `0x56`-`0x57`,
+`0x5d`, and `0x60`-`0x64` remain parked for the official-evidence reasons
+above. Safe BLUE row `0x65` was not rejected; it remains deferred as a separate
+bounded proof candidate. No respawn, component UI, chunk-section, camera, item
+stack, spawn, scoreboard, entity metadata, entity-link, world-border runtime,
+warning UI, or entity-motion runtime behavior was inferred while crossing those
+rows.

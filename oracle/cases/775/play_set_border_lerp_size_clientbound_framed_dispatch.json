@@ -1,0 +1,45 @@
+{
+  "case_id": "play_set_border_lerp_size_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "WorldBorder.lerpSizeBetween(double, double, long, long), ClientboundSetBorderLerpSizePacket(WorldBorder)",
+      "authority_note": "Official binary source for constructing the Play clientbound set_border_lerp_size fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetBorderLerpSizePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the old size/new size/lerp time body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_border_lerp_size packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_border_lerp_size",
+    "packet_class": "ClientboundSetBorderLerpSizePacket",
+    "input_fields": {
+      "old_size": 100.0,
+      "new_size": 250.5,
+      "lerp_time": 12345
+    },
+    "field_notes": {
+      "old_size": "Primitive border size fixture; does not prove interpolation runtime behavior.",
+      "new_size": "Primitive border target size fixture; does not prove interpolation runtime behavior.",
+      "lerp_time": "Primitive lerp time fixture encoded as a VarLong by the official codec."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_border_lerp_size_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_border_lerp_size packet framing and dispatch/decode for one primitive lerp fixture only; do not infer world-border interpolation behavior, world state, render readiness, or client-load completion."
+}

@@ -651,6 +651,24 @@ state_packets!(
                 field warning_blocks: VarInt =,
                 field warning_time: VarInt =,
             }
+            packet PlaySetBorderCenterClientbound {
+                field new_center_x: f64 =,
+                field new_center_z: f64 =,
+            }
+            packet PlaySetBorderLerpSizeClientbound {
+                field old_size: f64 =,
+                field new_size: f64 =,
+                field lerp_time: VarLong =,
+            }
+            packet PlaySetBorderSizeClientbound {
+                field size: f64 =,
+            }
+            packet PlaySetBorderWarningDelayClientbound {
+                field warning_delay: VarInt =,
+            }
+            packet PlaySetBorderWarningDistanceClientbound {
+                field warning_blocks: VarInt =,
+            }
             packet PlayLowDiskSpaceWarningClientbound {
                 field empty: () =,
             }
