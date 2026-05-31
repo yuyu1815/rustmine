@@ -1,0 +1,48 @@
+{
+  "case_id": "play_animate_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the animate packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundAnimatePacket.STREAM_CODEC, private ClientboundAnimatePacket(FriendlyByteBuf), private write(FriendlyByteBuf)",
+      "authority_note": "Official binary source for decoding and writing the animate body without an initialized Entity, Level, or game state."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundAnimatePacket.SWING_MAIN_HAND",
+      "authority_note": "Official binary source for the fixture action constant."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound animate frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:animate",
+    "packet_class": "ClientboundAnimatePacket",
+    "input_fields": {
+      "entity_id": 123,
+      "animation_action": "SWING_MAIN_HAND"
+    },
+    "field_notes": {
+      "fixture": "Uses the official STREAM_CODEC decode path with entity id and the official SWING_MAIN_HAND action constant, then re-encodes through the official Play clientbound protocol codec. This avoids initialized Entity, Level, and game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_animate_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound animate packet framing and dispatch/decode for one official STREAM_CODEC decode fixture with entity id 123 and SWING_MAIN_HAND only; do not infer entity existence, animation semantics, initialized Entity/Level behavior, spawn readiness, world load, render readiness, or client-load completion."
+}

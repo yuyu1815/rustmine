@@ -63,6 +63,7 @@ official jar function
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
 | `play_bundle_delimiter_clientbound_framed_dispatch` case note | [cases/play-bundle-delimiter-clientbound-framed-dispatch.md](cases/play-bundle-delimiter-clientbound-framed-dispatch.md) |
 | `play_add_entity_clientbound_framed_dispatch` case note | [cases/play-add-entity-clientbound-framed-dispatch.md](cases/play-add-entity-clientbound-framed-dispatch.md) |
+| `play_animate_clientbound_framed_dispatch` case note | [cases/play-animate-clientbound-framed-dispatch.md](cases/play-animate-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -104,10 +105,11 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `configuration_accept_code_of_conduct_framed_dispatch`,
 `configuration_finish_framed_terminal`,
 `play_bundle_delimiter_clientbound_framed_dispatch`, and
-`play_add_entity_clientbound_framed_dispatch` are the passing jar-backed answer rows
-in this 775 shard. Their answers were regenerated from the official client jar
-and the manifest-declared Rust oracle tests passed against the current Leafish
-checkout.
+`play_add_entity_clientbound_framed_dispatch`, and
+`play_animate_clientbound_framed_dispatch` are the passing jar-backed answer
+rows in this 775 shard. Their answers were regenerated from the official
+client jar and the manifest-declared Rust oracle tests passed against the
+current Leafish checkout.
 
 `handshake_intention_framed_dispatch` is packet-support evidence for one
 official LOGIN-intent fixture only. It does not prove Login authentication,
@@ -220,8 +222,16 @@ completion. The generated answer observed 141 Play clientbound rows from
 `GameProtocols.CLIENTBOUND_TEMPLATE`; first Play clientbound rows are
 `minecraft:bundle_delimiter` / `0x00`, `minecraft:add_entity` / `0x01`,
 `minecraft:animate` / `0x02`, `minecraft:award_stats` / `0x03`, and
-`minecraft:block_changed_ack` / `0x04`. The next packet-support target by the
-same ordering rule is Play clientbound `minecraft:animate` / `0x02`.
+`minecraft:block_changed_ack` / `0x04`.
+
+`play_animate_clientbound_framed_dispatch` is packet-support evidence for one
+official Play clientbound animate `STREAM_CODEC` decode fixture only. It proves
+the official `minecraft:animate` / `0x02` row, body order, entity id VarInt,
+`SWING_MAIN_HAND` unsigned-byte action constant `0`, and full body consumption
+through Stevenarella dispatch. It does not prove entity existence, animation
+semantics, initialized `Entity`/`Level` behavior, spawn readiness, world load,
+render readiness, or client-load completion. The next packet-support target by
+the same ordering rule is Play clientbound `minecraft:award_stats` / `0x03`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

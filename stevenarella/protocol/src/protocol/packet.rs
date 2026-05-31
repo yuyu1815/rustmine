@@ -541,6 +541,10 @@ state_packets!(
                 field y_head_rot: i8 =,
                 field data: VarInt =,
             }
+            packet PlayAnimateClientbound {
+                field entity_id: VarInt =,
+                field action: u8 =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

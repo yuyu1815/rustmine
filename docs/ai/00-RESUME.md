@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `play_add_entity_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Play clientbound `minecraft:add_entity` / `0x01` answer for one direct `ClientboundAddEntityPacket` constructor fixture with bootstrapped built-in `EntityType.PIG` and zero `Vec3.LP_STREAM_CODEC` movement, then decodes it through `packet::packet_by_id(775, State::Play, Direction::Clientbound, official id, body)` with full body consumption. Play clientbound `minecraft:bundle_delimiter` / `0x00` also passes. The generated 26.1.2 Play table audit observed 141 clientbound rows and 69 serverbound rows from `GameProtocols.CLIENTBOUND_TEMPLATE` / `SERVERBOUND_TEMPLATE`; first Play clientbound rows are `minecraft:bundle_delimiter` / `0x00`, `minecraft:add_entity` / `0x01`, `minecraft:animate` / `0x02`, `minecraft:award_stats` / `0x03`, and `minecraft:block_changed_ack` / `0x04`; first Play serverbound rows are `minecraft:accept_teleportation` / `0x00`, `minecraft:attack` / `0x01`, `minecraft:block_entity_tag_query` / `0x02`, `minecraft:bundle_item_selected` / `0x03`, and `minecraft:change_difficulty` / `0x04`. Configuration clientbound/serverbound, Handshaking serverbound, Login serverbound, and Login clientbound packet-support are complete through their current official rows. |
+| Current location | Protocol 775 `play_animate_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Play clientbound `minecraft:animate` / `0x02` answer for one official `ClientboundAnimatePacket.STREAM_CODEC` decode fixture with entity id `123` and `SWING_MAIN_HAND` action `0`, then decodes it through `packet::packet_by_id(775, State::Play, Direction::Clientbound, official id, body)` with full body consumption. Play clientbound `minecraft:bundle_delimiter` / `0x00` and `minecraft:add_entity` / `0x01` also pass. The generated 26.1.2 Play table audit observed 141 clientbound rows and 69 serverbound rows from `GameProtocols.CLIENTBOUND_TEMPLATE` / `SERVERBOUND_TEMPLATE`; first Play clientbound rows are `minecraft:bundle_delimiter` / `0x00`, `minecraft:add_entity` / `0x01`, `minecraft:animate` / `0x02`, `minecraft:award_stats` / `0x03`, and `minecraft:block_changed_ack` / `0x04`; first Play serverbound rows are `minecraft:accept_teleportation` / `0x00`, `minecraft:attack` / `0x01`, `minecraft:block_entity_tag_query` / `0x02`, `minecraft:bundle_item_selected` / `0x03`, and `minecraft:change_difficulty` / `0x04`. Configuration clientbound/serverbound, Handshaking serverbound, Login serverbound, and Login clientbound packet-support are complete through their current official rows. |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{packet.rs,mapped_packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `play_add_entity_clientbound_framed_dispatch` proves only Play clientbound add_entity packet id/body dispatch for one built-in EntityType.PIG zero-movement constructor fixture. It does not prove arbitrary entity registry contents, initialized Entity/ServerEntity behavior, runtime Configuration-to-Play transition, successful Play entry, world load, spawn readiness, render readiness, or client-load completion. |
+| Explicit uncertainty | `play_animate_clientbound_framed_dispatch` proves only Play clientbound animate packet id/body dispatch for one official STREAM_CODEC decode fixture with entity id `123` and `SWING_MAIN_HAND` action. It does not prove entity existence, animation semantics, initialized Entity/Level behavior, runtime Configuration-to-Play transition, successful Play entry, world load, spawn readiness, render readiness, or client-load completion. |
 
 ## Recovery Flow
 
@@ -36,10 +36,11 @@ For future work:
           -> for packet-support loop, Play table audit now exists from
              GameProtocols.CLIENTBOUND_TEMPLATE / SERVERBOUND_TEMPLATE and
              Play clientbound minecraft:bundle_delimiter / 0x00 plus
-             minecraft:add_entity / 0x01 proofs pass
+             minecraft:add_entity / 0x01 plus minecraft:animate / 0x02
+             proofs pass
             -> next packet-support target by the same official Play
-               clientbound table order is minecraft:animate / 0x02
-              -> first determine whether a smallest official animate fixture
+               clientbound table order is minecraft:award_stats / 0x03
+              -> first determine whether a smallest official award_stats fixture
                  can be generated without initialized Minecraft/game state;
                  stop with an initialized-harness blocker if it cannot
 ```
