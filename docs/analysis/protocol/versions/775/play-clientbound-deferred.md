@@ -229,3 +229,25 @@ progress, item/display/recipe, relative movement, or waypoint track/update
 semantics. No fabricated entity, world, registry holder, item, recipe,
 advancement, waypoint position, sound, effect, dialog behavior, or client-load
 behavior was inferred.
+
+## Final Parked Packet Audit
+
+After commit `c9a4cf6`, an explicit official-jar cartography pass rechecked the
+last six parked Play CLIENTBOUND rows. No row exposed a singleton, empty,
+remove, or default fixture branch that avoids fabricated entity/world objects,
+registry holders, or dialog content. Because fewer than three safe rows remain,
+no Rust/oracle implementation batch should be forced from this set.
+
+| Row | Packet | Official evidence | Blocker policy needed |
+|---|---|---|---|
+| `0x64` | `minecraft:set_entity_link` | `ClientboundSetEntityLinkPacket(Entity, Entity)` stores `source.getId()` and optional destination entity id; the primitive buffer constructor is private. | Entity fixture policy for source entity identity and link/leash semantics. |
+| `0x6b` | `minecraft:set_passengers` | `ClientboundSetPassengersPacket(Entity)` stores vehicle id and copies `Entity.getPassengers()` ids; the primitive buffer constructor is private. | Entity relationship fixture policy for vehicle/passenger identity without fake runtime entities. |
+| `0x74` | `minecraft:sound_entity` | `ClientboundSoundEntityPacket(Holder<SoundEvent>, SoundSource, Entity, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, entity id, volume, pitch, and seed. | SoundEvent holder policy plus entity sound context. |
+| `0x75` | `minecraft:sound` | `ClientboundSoundPacket(Holder<SoundEvent>, SoundSource, double, double, double, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, quantized position ints, volume, pitch, and seed. | SoundEvent holder and world sound-position fixture policy. |
+| `0x84` | `minecraft:update_mob_effect` | `ClientboundUpdateMobEffectPacket(int, MobEffectInstance, boolean)` extracts a `MobEffect` holder, amplifier, duration, and flags; decode/write use `MobEffect.STREAM_CODEC`. | MobEffect holder/effect-state fixture policy. |
+| `0x8c` | `minecraft:show_dialog` | `ClientboundShowDialogPacket(Holder<Dialog>)` uses `Dialog.STREAM_CODEC`; its context-free codec still requires a concrete `Dialog` encoded by dialog type and `CommonDialogData`. | Dialog holder/content/UI fixture policy. |
+
+All currently safe Protocol 775 Play CLIENTBOUND packet rows from the first
+pass and parked-row promotion passes have been implemented as bounded
+jar-backed proof packages. Remaining support is blocked on the explicit
+policies above, not on packet-id cartography.
