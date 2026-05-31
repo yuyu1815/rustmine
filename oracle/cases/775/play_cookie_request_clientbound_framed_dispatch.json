@@ -1,0 +1,59 @@
+{
+  "case_id": "play_cookie_request_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.resources.Identifier.parse(String)",
+      "authority_note": "Official binary source for constructing the cookie key Identifier fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.cookie.ClientboundCookieRequestPacket(Identifier)",
+      "authority_note": "Official binary source for constructing the Play clientbound cookie_request packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.cookie.ClientboundCookieRequestPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound cookie_request packet body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the cookie_request packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundCookieRequestPacket)",
+      "authority_note": "Official binary source for Play clientbound cookie_request framed packet encode and dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundCookieRequestPacket.key(), ClientGamePacketListener extends ClientCommonPacketListener extends ClientCookiePacketListener",
+      "authority_note": "Official binary source for reading the decoded cookie_request key field and confirming the Play listener cookie surface."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:cookie_request",
+    "packet_class": "ClientboundCookieRequestPacket",
+    "input_fields": {
+      "key": "a:a"
+    },
+    "field_notes": {
+      "key": "Smallest one-character namespace and path Identifier fixture accepted by Identifier.parse(String) without initialized Minecraft state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_cookie_request_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound cookie_request packet framing and dispatch/decode for one Identifier key fixture only; do not infer cookie storage policy, cookie request/response runtime behavior, initialized client/server state, runtime Play entry, world load, spawn readiness, render readiness, or client-load completion."
+}

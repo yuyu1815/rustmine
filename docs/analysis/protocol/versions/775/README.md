@@ -69,6 +69,7 @@ official jar function
 | `play_container_set_content_clientbound_framed_dispatch` case note | [cases/play-container-set-content-clientbound-framed-dispatch.md](cases/play-container-set-content-clientbound-framed-dispatch.md) |
 | `play_container_set_data_clientbound_framed_dispatch` case note | [cases/play-container-set-data-clientbound-framed-dispatch.md](cases/play-container-set-data-clientbound-framed-dispatch.md) |
 | `play_container_set_slot_clientbound_framed_dispatch` case note | [cases/play-container-set-slot-clientbound-framed-dispatch.md](cases/play-container-set-slot-clientbound-framed-dispatch.md) |
+| `play_cookie_request_clientbound_framed_dispatch` case note | [cases/play-cookie-request-clientbound-framed-dispatch.md](cases/play-cookie-request-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -129,7 +130,8 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `play_container_close_clientbound_framed_dispatch`, and
 `play_container_set_content_clientbound_framed_dispatch`,
 `play_container_set_data_clientbound_framed_dispatch`, and
-`play_container_set_slot_clientbound_framed_dispatch` are the passing jar-backed
+`play_container_set_slot_clientbound_framed_dispatch`, and
+`play_cookie_request_clientbound_framed_dispatch` are the passing jar-backed
 answer rows in this 775 shard. Their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout.
@@ -326,8 +328,18 @@ fixture container id `7`, state id `123`, slot `4`, empty item marker, framed
 bytes `14077b000400`, and full body consumption through Stevenarella dispatch.
 It does not prove non-empty ItemStack/component registry handling, menu
 lifecycle behavior, inventory state, runtime Play entry, world load, render
-readiness, or client-load completion. The next packet-support target by the
-same ordering rule is Play clientbound `minecraft:cookie_request` / `0x15`.
+readiness, or client-load completion.
+
+`play_cookie_request_clientbound_framed_dispatch` is packet-support evidence
+for one official Play clientbound cookie_request Identifier-key fixture only.
+It proves the official `minecraft:cookie_request` / `0x15` row, body shape as
+one `Identifier` key via `FriendlyByteBuf.writeIdentifier`, fixture key `a:a`,
+framed bytes `1503613a61`, body bytes `03613a61`, and full body consumption
+through Stevenarella dispatch. It does not prove cookie storage policy, cookie
+request/response runtime behavior, initialized client/server state, runtime
+Play entry, world load, spawn readiness, render readiness, or client-load
+completion. The next packet-support target by the same ordering rule is Play
+clientbound `minecraft:cooldown` / `0x16`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

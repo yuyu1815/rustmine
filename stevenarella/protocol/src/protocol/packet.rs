@@ -602,6 +602,9 @@ state_packets!(
                 field slot: i16 =,
                 field item: Option<item::Stack> =,
             }
+            packet PlayCookieRequestClientbound {
+                field key: String =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

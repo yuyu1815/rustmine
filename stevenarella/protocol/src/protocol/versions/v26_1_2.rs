@@ -84,6 +84,7 @@ protocol_packet_ids!(
             0x12 => PlayContainerSetContentClientbound
             0x13 => WindowProperty
             0x14 => PlayContainerSetSlotClientbound
+            0x15 => PlayCookieRequestClientbound
         }
     }
 );
