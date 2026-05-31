@@ -1,0 +1,48 @@
+{
+  "case_id": "play_boss_event_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the boss_event packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundBossEventPacket.createRemovePacket(UUID), ClientboundBossEventPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for constructing, decoding, and writing the boss_event remove-operation body without initialized game state."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "RegistryFriendlyByteBuf.writeUUID/readUUID, RegistryFriendlyByteBuf.writeEnum/readEnum, REMOVE_OPERATION.write(...)",
+      "authority_note": "Official binary source for the UUID, operation enum, and empty remove-operation body shape."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound boss_event frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:boss_event",
+    "packet_class": "ClientboundBossEventPacket",
+    "input_fields": {
+      "uuid": "00000000-0000-0000-0000-000000000009",
+      "operation": "REMOVE"
+    },
+    "field_notes": {
+      "fixture": "Uses official ClientboundBossEventPacket.createRemovePacket(UUID). The remove operation is context-free and does not require an initialized BossEvent, Level, or game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_boss_event_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound boss_event packet framing and dispatch/decode for one official UUID remove-operation fixture only; do not infer add/update boss-bar payloads, boss-bar UI behavior, entity/world state, initialized game state, spawn readiness, world load, render readiness, or client-load completion."
+}

@@ -1,0 +1,21 @@
+{
+  "task_id": "play_boss_event_clientbound_framed_dispatch_rust_fix",
+  "case_id": "play_boss_event_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "failure_path": "oracle/failures/775/play_boss_event_clientbound_framed_dispatch.why-what-answer.jsonl",
+  "contract_path": "oracle/contracts/775/play_boss_event_clientbound_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/play_boss_event_clientbound_framed_dispatch.answer.jsonl",
+  "test_manifest_path": "oracle/test-manifests/775/play_boss_event_clientbound_framed_dispatch.test-manifest.json",
+  "rust_test_command": "cargo test --manifest-path oracle/rust-tests/Cargo.toml --test oracle_contracts play_boss_event_clientbound_framed_dispatch_matches_official_oracle_answer -- --exact",
+  "observed_failure": "Stevenarella panicked with bad packet id 0x9 in Clientbound Play when dispatching official Protocol 775 Play clientbound minecraft:boss_event.",
+  "required_behavior": "Dispatch Protocol 775 Play clientbound packet id 0x09 to a body decoder that reads UUID plus remove-operation VarInt/enum ordinal and consumes the official body bytes for the generated ClientboundBossEventPacket.createRemovePacket(UUID) fixture.",
+  "allowed_write_scope": [
+    "stevenarella/protocol/src/protocol/versions/v26_1_2.rs"
+  ],
+  "forbidden": [
+    "Do not edit oracle answers, contracts, or expected values.",
+    "Do not read official jars or decompiled sources while implementing this Rust fix.",
+    "Do not expand the fixture beyond the official generated remove-operation answer."
+  ],
+  "stop_boundary": "Stop when the named exact Rust oracle test passes or the existing allowed_write_scope is insufficient."
+}
