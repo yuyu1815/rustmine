@@ -57,6 +57,23 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x62` | `minecraft:set_display_objective` | deferred YELLOW | Official codec uses display slot and scoreboard objective name. | Do not infer scoreboard state. |
 | `0x63` | `minecraft:set_entity_data` | deferred YELLOW | Official codec uses SynchedEntityData values and serializers. | Do not invent entity metadata serializers or initialized entity state. |
 | `0x64` | `minecraft:set_entity_link` | deferred YELLOW | Official public constructor is entity-backed and represents entity link/leash relationship state. | Do not fake linked entity existence or relationship semantics. |
+| `0x74` | `minecraft:sound_entity` | deferred YELLOW | Official `ClientboundSoundEntityPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, entity id, volume, pitch, and seed. | Do not invent sound registry holder values or entity runtime context. |
+| `0x75` | `minecraft:sound` | deferred YELLOW | Official `ClientboundSoundPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, position ints, volume, pitch, and seed. | Do not invent sound registry holder values or world sound context. |
+| `0x77` | `minecraft:stop_sound` | safe GREEN follow-up | Official `ClientboundStopSoundPacket` supports a null/null fixture with one flags byte `0`; no registry holder is required for that fixture. | Implement only through a generated official answer; do not infer named-sound behavior. |
+| `0x78` | `minecraft:store_cookie` | safe BLUE follow-up | Official Play row uses common `ClientboundStoreCookiePacket` with Identifier plus bounded byte-array payload; Configuration has a corresponding implementation witness. | Do not change cross-state ownership without a Rust-fix task and exact Play answer. |
+| `0x79` | `minecraft:system_chat` | deferred YELLOW | Official codec uses `ComponentSerialization.TRUSTED_STREAM_CODEC` plus overlay bool. | Do not invent Component bytes or chat/UI behavior. |
+| `0x7a` | `minecraft:tab_list` | deferred YELLOW | Official codec uses trusted Component header and footer. | Do not invent Component bytes or player-list UI behavior. |
+| `0x7b` | `minecraft:tag_query` | deferred YELLOW | Official codec uses VarInt transaction id plus NBT via `readNbt`/`writeNbt`. | Do not invent NBT payload policy or query context. |
+| `0x7d` | `minecraft:teleport_entity` | deferred YELLOW | Official codec uses entity id, `PositionMoveRotation.STREAM_CODEC`, relative flags, and onGround. | Do not infer entity teleport/movement semantics or relative flag policy. |
+| `0x7e` | `minecraft:test_instance_block_status` | deferred YELLOW | Official codec uses Component status plus optional `Vec3i` size for test-instance/debug behavior. | Do not invent Component bytes or game-test block semantics. |
+| `0x7f` | `minecraft:ticking_state` | safe GREEN follow-up | Official `ClientboundTickingStatePacket(float, boolean)` writes one float and one boolean. | Implement only through a generated official answer; do not claim world ticking runtime behavior. |
+| `0x80` | `minecraft:ticking_step` | safe GREEN follow-up | Official `ClientboundTickingStepPacket(int)` writes one VarInt tick step count. | Implement only through a generated official answer; do not claim tick-manager runtime behavior. |
+| `0x81` | `minecraft:transfer` | safe BLUE follow-up | Official Play row uses common `ClientboundTransferPacket` with host string and port VarInt; Configuration has a corresponding implementation witness. | Do not change cross-state ownership without a Rust-fix task and exact Play answer. |
+| `0x82` | `minecraft:update_advancements` | deferred YELLOW | Official codec uses advancement holders, identifiers, advancement progress, and show/reset flags. | Do not invent advancement tree/progress semantics. |
+| `0x83` | `minecraft:update_attributes` | deferred YELLOW | Official codec uses entity id plus attribute snapshots with attribute registry holders and modifiers. | Do not invent attribute registry ids or initialized entity attributes. |
+| `0x84` | `minecraft:update_mob_effect` | deferred YELLOW | Official codec uses entity id plus `MobEffect.STREAM_CODEC`, amplifier, duration, and flags. | Do not invent mob-effect registry holders or entity/effect state. |
+| `0x85` | `minecraft:update_recipes` | deferred YELLOW | Official codec uses recipe property sets and selectable recipe data. | Do not invent recipe/item display contents. |
+| `0x86` | `minecraft:update_tags` | deferred BLUE/YELLOW | Official Play row uses common `ClientboundUpdateTagsPacket`; an empty-map fixture is codec-safe but tag semantics remain registry-backed. | Only promote with an exact Play answer and stop boundary for empty tag maps. |
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
@@ -105,3 +122,12 @@ five named rows into jar-backed packet-support packages. The skipped rows
 this batch. No item stack, spawn, scoreboard, entity metadata, entity link,
 equipment, recipe, custom sound, or entity-sound fixture was inferred while
 crossing the batch boundary.
+
+The `0x73` / `0x76` / `0x7c` safe batch promoted only
+`set_titles_animation`, `start_configuration`, and `take_item_entity` into
+jar-backed packet-support packages. The skipped rows `0x74`-`0x75`,
+`0x77`-`0x7b`, `0x7d`-`0x86` were classified from explicit official bytecode
+evidence, but only GREEN rows selected for this batch were implemented. No
+sound registry holder, Component, NBT, entity teleport, game-test, ticking
+runtime, common-packet cross-state ownership, advancement, attribute, mob
+effect, recipe, or tag semantics were inferred while crossing this batch.

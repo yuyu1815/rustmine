@@ -112,6 +112,9 @@ public final class OracleCases {
             case "play_set_health_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHealthClientboundFramedDispatchCase.generate(input);
             case "play_set_held_slot_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHeldSlotClientboundFramedDispatchCase.generate(input);
             case "play_set_simulation_distance_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSimulationDistanceClientboundFramedDispatchCase.generate(input);
+            case "play_set_titles_animation_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitlesAnimationClientboundFramedDispatchCase.generate(input);
+            case "play_start_configuration_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStartConfigurationClientboundFramedDispatchCase.generate(input);
+            case "play_take_item_entity_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTakeItemEntityClientboundFramedDispatchCase.generate(input);
             default -> throw new IllegalArgumentException("unsupported oracle case: " + caseId);
         };
     }

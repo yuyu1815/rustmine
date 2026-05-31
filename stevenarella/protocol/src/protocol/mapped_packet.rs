@@ -31,7 +31,8 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayPlayerCombatEndClientbound, PlayPlayerCombatEnterClientbound,
     PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound, PlaySetBorderCenterClientbound,
     PlaySetBorderLerpSizeClientbound, PlaySetBorderSizeClientbound,
-    PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound, PlayerAbilities,
+    PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound,
+    PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound, PlayerAbilities,
     PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound,
     ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab,
     ServerDifficulty, ServerMessage, SetCompression, SetCooldown, SetCurrentHotbarSlot,
@@ -572,6 +573,14 @@ state_mapped_packets!(
             }
             packet PlayPlayerInfoRemoveClientbound {
                 field profile_ids: Vec<UUID>,
+            }
+            packet PlaySetTitlesAnimationClientbound {
+                field fade_in: i32,
+                field stay: i32,
+                field fade_out: i32,
+            }
+            packet PlayStartConfigurationClientbound {
+                field empty: (),
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1903,6 +1912,22 @@ impl MappablePacket for packet::Packet {
                 mapped_packet::MappedPacket::PlayPlayerInfoRemoveClientbound(
                     PlayPlayerInfoRemoveClientbound {
                         profile_ids: player_info_remove.profile_ids.data,
+                    },
+                )
+            }
+            packet::Packet::PlaySetTitlesAnimationClientbound(set_titles_animation) => {
+                mapped_packet::MappedPacket::PlaySetTitlesAnimationClientbound(
+                    PlaySetTitlesAnimationClientbound {
+                        fade_in: set_titles_animation.fade_in,
+                        stay: set_titles_animation.stay,
+                        fade_out: set_titles_animation.fade_out,
+                    },
+                )
+            }
+            packet::Packet::PlayStartConfigurationClientbound(start_configuration) => {
+                mapped_packet::MappedPacket::PlayStartConfigurationClientbound(
+                    PlayStartConfigurationClientbound {
+                        empty: start_configuration.empty,
                     },
                 )
             }

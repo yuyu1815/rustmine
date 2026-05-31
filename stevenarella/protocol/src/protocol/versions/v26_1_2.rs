@@ -124,6 +124,9 @@ protocol_packet_ids!(
             0x68 => UpdateHealth
             0x69 => SetCurrentHotbarSlot
             0x6f => UpdateViewDistance
+            0x73 => PlaySetTitlesAnimationClientbound
+            0x76 => PlayStartConfigurationClientbound
+            0x7c => CollectItem
         }
     }
 );

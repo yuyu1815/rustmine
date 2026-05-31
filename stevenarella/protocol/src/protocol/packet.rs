@@ -684,6 +684,14 @@ state_packets!(
             packet PlayPlayerInfoRemoveClientbound {
                 field profile_ids: LenPrefixed<VarInt, UUID> =,
             }
+            packet PlaySetTitlesAnimationClientbound {
+                field fade_in: i32 =,
+                field stay: i32 =,
+                field fade_out: i32 =,
+            }
+            packet PlayStartConfigurationClientbound {
+                field empty: () =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {
