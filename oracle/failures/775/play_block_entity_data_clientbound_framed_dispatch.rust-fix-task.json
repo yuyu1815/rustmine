@@ -1,0 +1,29 @@
+{
+  "task_id": "play_block_entity_data_clientbound_framed_dispatch_rust_fix",
+  "case_id": "play_block_entity_data_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "failure_packet": "oracle/failures/775/play_block_entity_data_clientbound_framed_dispatch.why-what-answer.jsonl",
+  "contract_path": "oracle/contracts/775/play_block_entity_data_clientbound_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/play_block_entity_data_clientbound_framed_dispatch.answer.jsonl",
+  "test_manifest_path": "oracle/test-manifests/775/play_block_entity_data_clientbound_framed_dispatch.test-manifest.json",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "play_block_entity_data_clientbound_framed_dispatch_matches_official_oracle_answer",
+  "allowed_write_scope": [
+    "stevenarella/protocol/src/protocol/packet.rs",
+    "stevenarella/protocol/src/protocol/mapped_packet.rs",
+    "stevenarella/protocol/src/protocol/versions/v26_1_2.rs"
+  ],
+  "implementation_goal": "Add only the Protocol 775 Play clientbound minecraft:block_entity_data framed dispatch/decode support needed for the official BlockPos, built-in chest block entity type registry id, and empty trusted CompoundTag fixture.",
+  "forbidden": [
+    "Do not read official jars, decompiled sources, or reference repositories while implementing this Rust task.",
+    "Do not edit oracle/contracts/** or oracle/answers/**.",
+    "Do not change expected bytes or packet facts.",
+    "Do not broaden packet semantics beyond the official answer artifact."
+  ],
+  "done_when": [
+    "The named exact Rust oracle test passes.",
+    "The implementation consumes the full official body bytes for the generated answer.",
+    "Only files in allowed_write_scope are changed for Rust implementation."
+  ]
+}

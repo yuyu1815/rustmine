@@ -1,0 +1,51 @@
+{
+  "case_id": "play_block_entity_data_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the block_entity_data packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "private net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket(BlockPos, BlockEntityType<?>, CompoundTag), ClientboundBlockEntityDataPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for constructing, decoding, and writing the block_entity_data body without an initialized BlockEntity/Level."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "BlockPos.STREAM_CODEC, ByteBufCodecs.registry(Registries.BLOCK_ENTITY_TYPE), ByteBufCodecs.TRUSTED_COMPOUND_TAG",
+      "authority_note": "Official binary source for the position, block entity type registry id, and trusted compound tag body shape."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY))).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound block_entity_data frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:block_entity_data",
+    "packet_class": "ClientboundBlockEntityDataPacket",
+    "input_fields": {
+      "block_x": 12,
+      "block_y": 64,
+      "block_z": -7,
+      "block_entity_type": "minecraft:chest",
+      "tag_size": 0
+    },
+    "field_notes": {
+      "fixture": "Uses the official private constructor and STREAM_CODEC with a context-free BlockPos value, built-in BlockEntityType.CHEST, and an empty CompoundTag. It requires bootstrapped built-in registries for the registry codec but no initialized Level, BlockEntity, or game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_block_entity_data_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound block_entity_data packet framing and dispatch/decode for one official BlockPos, built-in chest block entity type, and empty CompoundTag fixture only; do not infer block entity semantics, NBT schema, world/chunk state, initialized game state, spawn readiness, world load, render readiness, or client-load completion."
+}

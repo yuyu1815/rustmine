@@ -255,6 +255,30 @@ readiness, world load, render readiness, or client-load completion. The next
 packet-support target by the same ordering rule is Play clientbound
 `minecraft:block_destruction` / `0x05`.
 
+`play_block_destruction_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound block_destruction breaker id, block
+position, and progress fixture only. It proves the official
+`minecraft:block_destruction` / `0x05` row, body shape as breaker id VarInt,
+BlockPos, and unsigned-byte progress, fixture breaker id `123`, position
+`x=12, y=64, z=-7`, progress `5`, and full body consumption through
+Stevenarella dispatch. It does not prove block break animation semantics,
+entity existence for the breaker id, client world state, initialized game
+state, spawn readiness, world load, render readiness, or client-load
+completion.
+
+`play_block_entity_data_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound block_entity_data block position,
+built-in chest block entity type, and empty tag fixture only. It proves the
+official `minecraft:block_entity_data` / `0x06` row, body shape as BlockPos,
+block entity type registry id, and trusted compound tag, fixture position
+`x=12, y=64, z=-7`, type `minecraft:chest`, empty tag `{}`, and full body
+consumption through Stevenarella dispatch. It requires bootstrapped built-in
+registries but not initialized `Level`, `BlockEntity`, or game state. It does
+not prove block entity semantics, NBT schema, world/chunk state, initialized
+game state, spawn readiness, world load, render readiness, or client-load
+completion. The next packet-support target by the same ordering rule is Play
+clientbound `minecraft:block_event` / `0x07`.
+
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary
 plugin-channel handling, payload routing policy, Configuration completion, or

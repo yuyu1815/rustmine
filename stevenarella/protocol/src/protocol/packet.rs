@@ -556,6 +556,12 @@ state_packets!(
                 field location: Position =,
                 field progress: u8 =,
             }
+            packet PlayBlockEntityDataClientbound {
+                field location: Position =,
+                field block_entity_type: VarInt =,
+                field nbt_tag_type: u8 =,
+                field tag: Vec<u8> =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

@@ -7,6 +7,7 @@ import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,6 +38,7 @@ import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
 import net.minecraft.network.protocol.game.ClientboundAwardStatsPacket;
 import net.minecraft.network.protocol.game.ClientboundBlockChangedAckPacket;
 import net.minecraft.network.protocol.game.ClientboundBlockDestructionPacket;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.login.ClientLoginPacketListener;
@@ -104,6 +106,7 @@ import net.minecraft.server.packs.repository.KnownPack;
 import net.minecraft.stats.Stat;
 import net.minecraft.tags.TagNetworkSerialization;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.phys.Vec3;
 
 public final class OracleHarness {
@@ -308,6 +311,10 @@ public final class OracleHarness {
         }
         if ("play_block_destruction_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, playBlockDestructionClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_block_entity_data_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playBlockEntityDataClientboundFramedDispatch(input));
             return;
         }
 
@@ -3251,6 +3258,138 @@ public final class OracleHarness {
         return answer;
     }
 
+    private static Map<String, Object> playBlockEntityDataClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        int blockX = inputFields.get("block_x").getAsInt();
+        int blockY = inputFields.get("block_y").getAsInt();
+        int blockZ = inputFields.get("block_z").getAsInt();
+        String expectedBlockEntityType = inputFields.get("block_entity_type").getAsString();
+        int expectedTagSize = inputFields.get("tag_size").getAsInt();
+        BlockEntityType<?> type = BlockEntityType.CHEST;
+        String blockEntityType = BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(type).toString();
+        if (!expectedBlockEntityType.equals(blockEntityType)) {
+            throw new IllegalArgumentException(
+                "minimal block_entity_data fixture expected " + expectedBlockEntityType
+                    + " but official type is " + blockEntityType
+            );
+        }
+        BlockPos pos = new BlockPos(blockX, blockY, blockZ);
+        CompoundTag tag = new CompoundTag();
+        if (expectedTagSize != tag.size()) {
+            throw new IllegalArgumentException("minimal block_entity_data fixture only supports empty tag");
+        }
+        ClientboundBlockEntityDataPacket packet =
+            constructBlockEntityDataPacket(pos, type, tag);
+        RegistryAccess registryAccess =
+            RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+
+        RegistryFriendlyByteBuf fixtureBodyOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        ClientboundBlockEntityDataPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        RegistryFriendlyByteBuf packetIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody), registryAccess);
+        ClientboundBlockEntityDataPacket streamDecoded =
+            ClientboundBlockEntityDataPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = new ArrayList<>();
+        final int[] blockEntityDataPacketId = { -1 };
+        GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((packetType, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", packetType.id().toString());
+            row.put("flow", packetType.flow().id());
+            playClientboundPackets.add(row);
+            if ("minecraft:block_entity_data".equals(packetType.id().toString())) {
+                blockEntityDataPacketId[0] = packetId;
+            }
+        });
+        if (blockEntityDataPacketId[0] < 0) {
+            throw new IllegalStateException("missing official Play clientbound block_entity_data packet id");
+        }
+
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundBlockEntityDataPacket decodedBlockEntityData)) {
+            throw new IllegalStateException(
+                "decoded Play block_entity_data as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        BlockPos streamDecodedPos = streamDecoded.getPos();
+        BlockPos decodedPos = decodedBlockEntityData.getPos();
+        String streamDecodedType = BuiltInRegistries.BLOCK_ENTITY_TYPE
+            .getKey(streamDecoded.getType())
+            .toString();
+        String decodedType = BuiltInRegistries.BLOCK_ENTITY_TYPE
+            .getKey(decodedBlockEntityData.getType())
+            .toString();
+        int typeRegistryId = BuiltInRegistries.BLOCK_ENTITY_TYPE.getId(type);
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "private ClientboundBlockEntityDataPacket(BlockPos, BlockEntityType<?>, CompoundTag), ClientboundBlockEntityDataPacket.STREAM_CODEC, BlockPos.STREAM_CODEC, ByteBufCodecs.registry(Registries.BLOCK_ENTITY_TYPE), ByteBufCodecs.TRUSTED_COMPOUND_TAG, BuiltInRegistries.BLOCK_ENTITY_TYPE, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY))).codec().encode/decode(...), ClientGamePacketListener.handleBlockEntityData(ClientboundBlockEntityDataPacket)",
+            "bytecode_source_command", "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p -verbose net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes net.minecraft.network.protocol.game.ClientGamePacketListener net.minecraft.world.level.block.entity.BlockEntityType net.minecraft.core.registries.BuiltInRegistries net.minecraft.nbt.CompoundTag"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Play");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:block_entity_data");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("fixture", "official private ClientboundBlockEntityDataPacket BlockPos, built-in BlockEntityType.CHEST, and empty CompoundTag constructor fixture; requires bootstrapped built-in registries but no initialized Level, BlockEntity, or game state");
+        answerBody.put("official_body_shape", "block position encoded with BlockPos.STREAM_CODEC, block entity type encoded with ByteBufCodecs.registry(Registries.BLOCK_ENTITY_TYPE), and tag encoded with ByteBufCodecs.TRUSTED_COMPOUND_TAG");
+        answerBody.put("input_block_x", blockX);
+        answerBody.put("input_block_y", blockY);
+        answerBody.put("input_block_z", blockZ);
+        answerBody.put("stream_decoded_block_x", streamDecodedPos.getX());
+        answerBody.put("stream_decoded_block_y", streamDecodedPos.getY());
+        answerBody.put("stream_decoded_block_z", streamDecodedPos.getZ());
+        answerBody.put("decoded_block_x", decodedPos.getX());
+        answerBody.put("decoded_block_y", decodedPos.getY());
+        answerBody.put("decoded_block_z", decodedPos.getZ());
+        answerBody.put("input_block_entity_type", blockEntityType);
+        answerBody.put("stream_decoded_block_entity_type", streamDecodedType);
+        answerBody.put("decoded_block_entity_type", decodedType);
+        answerBody.put("decoded_block_entity_type_registry_id", typeRegistryId);
+        answerBody.put("input_tag_size", tag.size());
+        answerBody.put("stream_decoded_tag_size", streamDecoded.getTag().size());
+        answerBody.put("decoded_tag_size", decodedBlockEntityData.getTag().size());
+        answerBody.put("input_tag_snbt", tag.toString());
+        answerBody.put("stream_decoded_tag_snbt", streamDecoded.getTag().toString());
+        answerBody.put("decoded_tag_snbt", decodedBlockEntityData.getTag().toString());
+        answerBody.put("remaining_after_packet_stream_decode", packetIn.readableBytes());
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("fixture_body_hex", HexFormat.of().formatHex(fixtureBody));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("play_clientbound_packet_table", playClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
     private static Map<String, Object> configurationSelectKnownPacksFramedDispatch(JsonObject input) {
         JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
         String vanillaPackId = inputFields.get("vanilla_pack_id").getAsString();
@@ -3938,6 +4077,25 @@ public final class OracleHarness {
                 "failed to read official field " + fieldName + " from " + object.getClass().getName(),
                 err
             );
+        }
+    }
+
+    private static ClientboundBlockEntityDataPacket constructBlockEntityDataPacket(
+        BlockPos pos,
+        BlockEntityType<?> type,
+        CompoundTag tag
+    ) {
+        try {
+            Constructor<ClientboundBlockEntityDataPacket> constructor =
+                ClientboundBlockEntityDataPacket.class.getDeclaredConstructor(
+                    BlockPos.class,
+                    BlockEntityType.class,
+                    CompoundTag.class
+                );
+            constructor.setAccessible(true);
+            return constructor.newInstance(pos, type, tag);
+        } catch (ReflectiveOperationException err) {
+            throw new IllegalStateException("failed to call official ClientboundBlockEntityDataPacket constructor", err);
         }
     }
 }
