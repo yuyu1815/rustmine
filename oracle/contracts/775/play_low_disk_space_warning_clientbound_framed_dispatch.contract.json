@@ -1,0 +1,32 @@
+{
+  "contract_id": "play_low_disk_space_warning_clientbound_framed_dispatch_contract",
+  "case_id": "play_low_disk_space_warning_clientbound_framed_dispatch",
+  "scope": "codec",
+  "official_functions": [
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundLowDiskSpaceWarningPacket.INSTANCE",
+      "role": "Construct the official Play clientbound low_disk_space_warning singleton fixture"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundLowDiskSpaceWarningPacket.STREAM_CODEC, StreamCodec.unit(INSTANCE)",
+      "role": "Write, decode, and observe the official empty singleton body"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "role": "Name the packet id assigned in Play clientbound state"
+    }
+  ],
+  "invariants": [
+    "The official Play clientbound table assigns low_disk_space_warning to packet id 0x32.",
+    "The official Play clientbound protocol codec dispatches the low_disk_space_warning id to ClientboundLowDiskSpaceWarningPacket.",
+    "The official low_disk_space_warning body is empty through a singleton unit codec.",
+    "The fixture does not require initialized disk-warning UI state, Level, or game state."
+  ],
+  "answer_path": "oracle/answers/775/play_low_disk_space_warning_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "test_topology_note": "rust_test_target names the current case adapter only; the manifest owns the runnable test topology.",
+  "stop_boundary": "Do not use this framed dispatch/decode contract to infer disk warning UI behavior, client storage state, render readiness, or client-load completion."
+}

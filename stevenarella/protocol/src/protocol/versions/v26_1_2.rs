@@ -96,6 +96,11 @@ protocol_packet_ids!(
             0x2a => PlayHurtAnimationClientbound
             0x2b => PlayInitializeBorderClientbound
             0x2c => KeepAliveClientbound_i64
+            0x2e => Effect
+            0x32 => PlayLowDiskSpaceWarningClientbound
+            0x35 => EntityMove_i16
+            0x36 => EntityLookAndMove_i16
+            0x38 => EntityLook_VarInt
         }
     }
 );

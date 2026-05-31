@@ -1,0 +1,32 @@
+{
+  "contract_id": "play_move_entity_pos_rot_clientbound_framed_dispatch_contract",
+  "case_id": "play_move_entity_pos_rot_clientbound_framed_dispatch",
+  "scope": "codec",
+  "official_functions": [
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundMoveEntityPacket.PosRot(int, short, short, short, byte, byte, boolean)",
+      "role": "Construct the official Play clientbound move_entity_pos_rot packet fixture"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundMoveEntityPacket.PosRot.STREAM_CODEC, FriendlyByteBuf.readVarInt/writeVarInt, readShort/writeShort, readByte/writeByte, readBoolean/writeBoolean",
+      "role": "Write, decode, and observe the official move_entity_pos_rot body"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "role": "Name the packet id assigned in Play clientbound state"
+    }
+  ],
+  "invariants": [
+    "The official Play clientbound table assigns move_entity_pos_rot to packet id 0x36.",
+    "The official Play clientbound protocol codec dispatches the move_entity_pos_rot id to ClientboundMoveEntityPacket.PosRot.",
+    "The official move_entity_pos_rot body is entity id VarInt, three signed short deltas, yRot byte, xRot byte, and one boolean onGround.",
+    "The fixture uses primitive fields and does not require initialized Entity, Level, or game state."
+  ],
+  "answer_path": "oracle/answers/775/play_move_entity_pos_rot_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "test_topology_note": "rust_test_target names the current case adapter only; the manifest owns the runnable test topology.",
+  "stop_boundary": "Do not use this framed dispatch/decode contract to infer entity existence, movement interpolation semantics, initialized Level state, render readiness, or client-load completion."
+}

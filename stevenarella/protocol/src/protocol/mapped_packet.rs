@@ -26,16 +26,17 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayContainerSetContentClientbound, PlayContainerSetSlotClientbound,
     PlayCookieRequestClientbound, PlayCooldownClientbound, PlayCustomChatCompletionsClientbound,
     PlayEntityPositionSyncClientbound, PlayForgetLevelChunkClientbound, PlayGameEventClientbound,
-    PlayHurtAnimationClientbound, PlayInitializeBorderClientbound, PlayMountScreenOpenClientbound,
-    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
-    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
-    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
-    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
-    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
-    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
-    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
-    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
-    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
+    PlayHurtAnimationClientbound, PlayInitializeBorderClientbound,
+    PlayLowDiskSpaceWarningClientbound, PlayMountScreenOpenClientbound, PlayerAbilities,
+    PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound,
+    ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab,
+    ServerDifficulty, ServerMessage, SetCompression, SetCooldown, SetCurrentHotbarSlot,
+    SetExperience, SetPassengers, SignEditorOpen, SoundEffect, SpawnExperienceOrb,
+    SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer, SpawnPosition,
+    Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer, TimeUpdate, Title,
+    TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight, UpdateScore,
+    UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose, WindowItems,
+    WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -534,6 +535,9 @@ state_mapped_packets!(
                 field new_absolute_max_size: i32,
                 field warning_blocks: i32,
                 field warning_time: i32,
+            }
+            packet PlayLowDiskSpaceWarningClientbound {
+                field empty: (),
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1793,6 +1797,13 @@ impl MappablePacket for packet::Packet {
                         new_absolute_max_size: border.new_absolute_max_size.0,
                         warning_blocks: border.warning_blocks.0,
                         warning_time: border.warning_time.0,
+                    },
+                )
+            }
+            packet::Packet::PlayLowDiskSpaceWarningClientbound(low_disk) => {
+                mapped_packet::MappedPacket::PlayLowDiskSpaceWarningClientbound(
+                    PlayLowDiskSpaceWarningClientbound {
+                        empty: low_disk.empty,
                     },
                 )
             }

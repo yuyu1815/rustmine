@@ -1,0 +1,44 @@
+{
+  "case_id": "play_move_entity_rot_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundMoveEntityPacket.Rot(int, byte, byte, boolean)",
+      "authority_note": "Official binary source for constructing the Play clientbound move_entity_rot packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundMoveEntityPacket.Rot.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound move_entity_rot packet body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and move_entity_rot packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:move_entity_rot",
+    "packet_class": "ClientboundMoveEntityPacket.Rot",
+    "input_fields": {
+      "entity_id": 125,
+      "y_rot": 32,
+      "x_rot": -16,
+      "on_ground": true
+    },
+    "field_notes": {
+      "fixture": "Uses primitive entity rotation fields accepted by the official STREAM_CODEC; no initialized Entity or Level is required."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_move_entity_rot_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound move_entity_rot packet framing and dispatch/decode for one primitive rotation fixture only; do not infer entity existence, rotation interpolation semantics, initialized Level state, render readiness, or client-load completion."
+}

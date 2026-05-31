@@ -1,0 +1,39 @@
+{
+  "case_id": "play_low_disk_space_warning_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundLowDiskSpaceWarningPacket.INSTANCE",
+      "authority_note": "Official binary source for the Play clientbound low_disk_space_warning singleton fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundLowDiskSpaceWarningPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the singleton unit body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and low_disk_space_warning packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:low_disk_space_warning",
+    "packet_class": "ClientboundLowDiskSpaceWarningPacket",
+    "input_fields": {},
+    "field_notes": {
+      "fixture": "Uses the official singleton INSTANCE and unit STREAM_CODEC; the body is empty."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_low_disk_space_warning_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound low_disk_space_warning packet framing and dispatch/decode for the singleton empty-body fixture only; do not infer disk warning UI behavior, client storage state, render readiness, or client-load completion."
+}

@@ -1,0 +1,45 @@
+{
+  "case_id": "play_move_entity_pos_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundMoveEntityPacket.Pos(int, short, short, short, boolean)",
+      "authority_note": "Official binary source for constructing the Play clientbound move_entity_pos packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundMoveEntityPacket.Pos.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound move_entity_pos packet body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and move_entity_pos packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:move_entity_pos",
+    "packet_class": "ClientboundMoveEntityPacket.Pos",
+    "input_fields": {
+      "entity_id": 123,
+      "xa": 4096,
+      "ya": -2048,
+      "za": 128,
+      "on_ground": true
+    },
+    "field_notes": {
+      "fixture": "Uses primitive relative-move fields accepted by the official STREAM_CODEC; no initialized Entity or Level is required."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_move_entity_pos_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound move_entity_pos packet framing and dispatch/decode for one primitive relative-move fixture only; do not infer entity existence, movement interpolation semantics, initialized Level state, render readiness, or client-load completion."
+}

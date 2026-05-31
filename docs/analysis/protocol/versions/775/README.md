@@ -461,8 +461,39 @@ the official `minecraft:keep_alive` / `0x2c` row, id `12345`, framed bytes
 `2c0000000000003039`, body bytes `0000000000003039`, and full body
 consumption through Stevenarella dispatch. It does not prove runtime
 keep-alive response behavior, Play entry, render readiness, or client-load
-completion. The next official Play clientbound row after this safe batch is
-`minecraft:level_chunk_with_light` / `0x2d`.
+completion.
+
+`play_level_event_clientbound_framed_dispatch` is packet-support evidence for
+one official Play clientbound level_event primitive fixture only. It proves the
+official `minecraft:level_event` / `0x2e` row, type `2001`, block position
+`(1,64,-2)`, data `1`, globalEvent `false`, framed bytes
+`2e000007d10000007fffffe0400000000100`, body bytes
+`000007d10000007fffffe0400000000100`, and full body consumption through
+Stevenarella dispatch. It does not prove level event semantics,
+sound/particle behavior, initialized Level state, render readiness, or
+client-load completion.
+
+`play_low_disk_space_warning_clientbound_framed_dispatch` is packet-support
+evidence for the official Play clientbound low_disk_space_warning singleton
+empty-body fixture only. It proves the official
+`minecraft:low_disk_space_warning` / `0x32` row, framed bytes `32`, empty body
+bytes, and full body consumption through Stevenarella dispatch. It does not
+prove disk warning UI behavior, client storage state, render readiness, or
+client-load completion.
+
+`play_move_entity_pos_clientbound_framed_dispatch`,
+`play_move_entity_pos_rot_clientbound_framed_dispatch`, and
+`play_move_entity_rot_clientbound_framed_dispatch` are packet-support evidence
+for one official primitive entity move fixture each. They prove the official
+`minecraft:move_entity_pos` / `0x35` frame `357b1000f800008001`,
+`minecraft:move_entity_pos_rot` / `0x36` frame
+`367c0010ffe0003040e000`, and `minecraft:move_entity_rot` / `0x38` frame
+`387d20f001`, with full body consumption through Stevenarella dispatch. They
+do not prove entity existence, movement/rotation interpolation semantics,
+initialized Level state, render readiness, or client-load completion. The next
+official Play clientbound row after this safe batch is
+`minecraft:move_vehicle` / `0x39`; the skipped YELLOW rows remain parked in
+`play-clientbound-deferred.md`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

@@ -651,6 +651,9 @@ state_packets!(
                 field warning_blocks: VarInt =,
                 field warning_time: VarInt =,
             }
+            packet PlayLowDiskSpaceWarningClientbound {
+                field empty: () =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

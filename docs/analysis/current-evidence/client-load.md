@@ -521,9 +521,10 @@ readiness, or client-load completion.
 one official Play clientbound keep_alive primitive id fixture only. It proves
 the official `minecraft:keep_alive` / `0x2c` row and full body consumption
 through Stevenarella dispatch. It does not prove runtime keep-alive response
-behavior, Play entry, render readiness, or client-load completion. The next
-packet-support target by official Play clientbound table order is
-`minecraft:level_chunk_with_light` / `0x2d`.
+behavior, Play entry, render readiness, or client-load completion. Later safe
+GREEN/BLUE proofs now cover selected rows through `minecraft:move_entity_rot`
+/ `0x38`; skipped YELLOW rows remain deferred, and the next safe candidate is
+`minecraft:move_vehicle` / `0x39`.
 
 `configuration_cookie_response_framed_dispatch` is packet-support evidence for
 one non-null payload fixture only. It does not prove cookie storage policy,
@@ -646,3 +647,21 @@ Configuration clientbound table row in the generated 26.1.2 packet table.
 evidence only. It does not prove runtime resource pack UI, accept/reject
 behavior, pack download/reload behavior, Configuration completion, or Play
 entry.
+
+`play_level_event_clientbound_framed_dispatch`,
+`play_low_disk_space_warning_clientbound_framed_dispatch`,
+`play_move_entity_pos_clientbound_framed_dispatch`,
+`play_move_entity_pos_rot_clientbound_framed_dispatch`, and
+`play_move_entity_rot_clientbound_framed_dispatch` extend Play clientbound
+packet-support proof through selected safe GREEN/BLUE rows after
+`minecraft:keep_alive` / `0x2c`: `minecraft:level_event` / `0x2e`,
+`minecraft:low_disk_space_warning` / `0x32`, `minecraft:move_entity_pos` /
+`0x35`, `minecraft:move_entity_pos_rot` / `0x36`, and
+`minecraft:move_entity_rot` / `0x38`. These proofs are official framed
+dispatch/decode fixtures only. They do not prove skipped YELLOW rows,
+initialized chunk/light/world state, disk warning UI behavior, entity
+existence, movement/rotation interpolation semantics, render readiness, or
+client-load completion. The next safe candidate by official table order is
+`minecraft:move_vehicle` / `0x39`; `0x2d`, `0x2f`-`0x31`, `0x33`-`0x34`, and
+`0x37` remain deferred in
+`docs/analysis/protocol/versions/775/play-clientbound-deferred.md`.

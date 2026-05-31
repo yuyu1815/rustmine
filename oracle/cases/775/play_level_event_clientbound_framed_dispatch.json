@@ -1,0 +1,52 @@
+{
+  "case_id": "play_level_event_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundLevelEventPacket(int, BlockPos, int, boolean)",
+      "authority_note": "Official binary source for constructing the Play clientbound level_event packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundLevelEventPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound level_event packet body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and level_event packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundLevelEventPacket)",
+      "authority_note": "Official binary source for Play clientbound level_event framed packet encode and dispatch/decode."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:level_event",
+    "packet_class": "ClientboundLevelEventPacket",
+    "input_fields": {
+      "type": 2001,
+      "block_x": 1,
+      "block_y": 64,
+      "block_z": -2,
+      "data": 1,
+      "global_event": false
+    },
+    "field_notes": {
+      "fixture": "Uses only official primitive constructor fields accepted by STREAM_CODEC; no initialized Level, sound, particle, or block-event runtime state is asserted."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_level_event_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound level_event packet framing and dispatch/decode for one primitive fixture only; do not infer level event semantics, sound/particle behavior, initialized Level state, render readiness, or client-load completion."
+}

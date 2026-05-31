@@ -36,3 +36,11 @@ proof loop takes safe GREEN/BLUE batches.
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
+
+## Batch Confirmation
+
+The `0x2e` / `0x32` / `0x35` / `0x36` / `0x38` safe batch did not implement
+the skipped YELLOW rows. `0x2d`, `0x2f`, `0x30`, `0x31`, `0x33`, `0x34`, and
+`0x37` remain deferred for the reasons above. No packet ids, registry-backed
+payloads, chunk/light/world fixtures, map/trade/item payloads, or minecart
+track-step bodies were inferred while crossing those rows.
