@@ -57,9 +57,10 @@ support route has now proven rows through:
 |---|---|
 | `0x11` | `minecraft:container_close` |
 | `0x12` | `minecraft:container_set_content` |
+| `0x13` | `minecraft:container_set_data` |
 
-The next official Play clientbound row is `minecraft:container_set_data` /
-`0x13`.
+The next official Play clientbound row after the current route is
+`minecraft:container_set_slot` / `0x14`.
 
 ## Stop Boundary
 
