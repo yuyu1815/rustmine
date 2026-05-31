@@ -611,6 +611,18 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationCodeOfConductClientbound => {
+                        let packet =
+                            packet::configuration::clientbound::ConfigurationCodeOfConductClientbound {
+                                code_of_conduct: Serializable::read_from(buf)?,
+                            };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "CodeOfConduct".to_owned(),
+                                data: packet.code_of_conduct.into_bytes(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(

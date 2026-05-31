@@ -37,6 +37,7 @@ official jar function
 | `configuration_server_links_clientbound_framed_dispatch` case note | [cases/configuration-server-links-clientbound-framed-dispatch.md](cases/configuration-server-links-clientbound-framed-dispatch.md) |
 | `configuration_clear_dialog_clientbound_framed_dispatch` case note | [cases/configuration-clear-dialog-clientbound-framed-dispatch.md](cases/configuration-clear-dialog-clientbound-framed-dispatch.md) |
 | `configuration_show_dialog_clientbound_framed_dispatch` case note | [cases/configuration-show-dialog-clientbound-framed-dispatch.md](cases/configuration-show-dialog-clientbound-framed-dispatch.md) |
+| `configuration_code_of_conduct_clientbound_framed_dispatch` case note | [cases/configuration-code-of-conduct-clientbound-framed-dispatch.md](cases/configuration-code-of-conduct-clientbound-framed-dispatch.md) |
 | `configuration_select_known_packs_framed_dispatch` case note | [cases/configuration-select-known-packs-framed-dispatch.md](cases/configuration-select-known-packs-framed-dispatch.md) |
 | `configuration_custom_click_action_framed_dispatch` case note | [cases/configuration-custom-click-action-framed-dispatch.md](cases/configuration-custom-click-action-framed-dispatch.md) |
 | `configuration_accept_code_of_conduct_framed_dispatch` case note | [cases/configuration-accept-code-of-conduct-framed-dispatch.md](cases/configuration-accept-code-of-conduct-framed-dispatch.md) |
@@ -71,6 +72,7 @@ At this snapshot, `configuration_client_information_framed_dispatch`,
 `configuration_server_links_clientbound_framed_dispatch`,
 `configuration_clear_dialog_clientbound_framed_dispatch`,
 `configuration_show_dialog_clientbound_framed_dispatch`,
+`configuration_code_of_conduct_clientbound_framed_dispatch`,
 `configuration_select_known_packs_framed_dispatch`,
 `configuration_custom_click_action_framed_dispatch`,
 `configuration_accept_code_of_conduct_framed_dispatch`, and
@@ -162,3 +164,11 @@ evidence for one official direct NoticeDialog context-free fixture only. It
 does not prove dialog UI display behavior, screen flow, registry-backed
 dialogs, custom actions, Configuration completion, Play entry, world load,
 render readiness, or runtime behavior.
+
+`configuration_code_of_conduct_clientbound_framed_dispatch` is packet-support
+evidence for one official String fixture only. It does not prove UI consent
+flow, legal acceptance semantics, Configuration completion, Play entry, world
+load, render readiness, or runtime behavior. The generated Configuration
+clientbound packet table now has jar-backed packet-support rows through
+`minecraft:code_of_conduct` / `0x13`, the last clientbound table entry in the
+current official 26.1.2 answer.

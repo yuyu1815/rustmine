@@ -32,6 +32,7 @@ protocol_packet_ids!(
             0x10 => ConfigurationServerLinksClientbound
             0x11 => ConfigurationClearDialogClientbound
             0x12 => ConfigurationShowDialogClientbound
+            0x13 => ConfigurationCodeOfConductClientbound
         }
     }
 );

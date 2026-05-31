@@ -2578,6 +2578,7 @@ pub mod configuration {
             pub const ConfigurationServerLinksClientbound: i32 = 16;
             pub const ConfigurationClearDialogClientbound: i32 = 17;
             pub const ConfigurationShowDialogClientbound: i32 = 18;
+            pub const ConfigurationCodeOfConductClientbound: i32 = 19;
         }
 
         #[derive(Default, Debug)]
@@ -2989,6 +2990,28 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 buf.write_all(&self.dialog_data)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCodeOfConductClientbound {
+            pub code_of_conduct: String,
+        }
+
+        impl PacketType for ConfigurationCodeOfConductClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationCodeOfConductClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.code_of_conduct.write_to(buf)?;
                 Ok(())
             }
         }
