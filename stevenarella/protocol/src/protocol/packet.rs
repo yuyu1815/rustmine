@@ -578,6 +578,9 @@ state_packets!(
             packet PlayChunkBatchStartClientbound {
                 field empty: () =,
             }
+            packet PlayChunksBiomesClientbound {
+                field chunk_biome_data: LenPrefixed<VarInt, packet::ChunkBiomeData> =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {
@@ -3240,6 +3243,26 @@ impl Serializable for ChunkMeta {
         self.x.write_to(buf)?;
         self.z.write_to(buf)?;
         self.bitmask.write_to(buf)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ChunkBiomeData {
+    pub pos: i64,
+    pub buffer: LenPrefixedBytes<VarInt>,
+}
+
+impl Serializable for ChunkBiomeData {
+    fn read_from<R: io::Read>(buf: &mut R) -> Result<Self, Error> {
+        Ok(ChunkBiomeData {
+            pos: Serializable::read_from(buf)?,
+            buffer: Serializable::read_from(buf)?,
+        })
+    }
+
+    fn write_to<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+        self.pos.write_to(buf)?;
+        self.buffer.write_to(buf)
     }
 }
 

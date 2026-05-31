@@ -76,6 +76,7 @@ protocol_packet_ids!(
             0x0a => ServerDifficulty_Locked
             0x0b => PlayChunkBatchFinishedClientbound
             0x0c => PlayChunkBatchStartClientbound
+            0x0d => PlayChunksBiomesClientbound
         }
     }
 );

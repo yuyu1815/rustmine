@@ -1,0 +1,47 @@
+{
+  "case_id": "play_chunks_biomes_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the chunks_biomes packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundChunksBiomesPacket(List<ChunkBiomeData>), ClientboundChunksBiomesPacket.STREAM_CODEC, private ClientboundChunksBiomesPacket(FriendlyByteBuf), private write(FriendlyByteBuf), FriendlyByteBuf.readList/writeCollection",
+      "authority_note": "Official binary source for constructing, decoding, and writing the chunks_biomes list body."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundChunksBiomesPacket.ChunkBiomeData(ChunkPos, byte[]), ChunkBiomeData(FriendlyByteBuf), ChunkBiomeData.write(FriendlyByteBuf), FriendlyByteBuf.readChunkPos/writeChunkPos, FriendlyByteBuf.readByteArray(2097152)/writeByteArray",
+      "authority_note": "Official binary source for the per-chunk body element shape. The selected fixture uses an empty list, so no initialized LevelChunk, biome palette, registry contents, or game state are required."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound chunks_biomes frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:chunks_biomes",
+    "packet_class": "ClientboundChunksBiomesPacket",
+    "input_fields": {
+      "chunk_biome_data": []
+    },
+    "field_notes": {
+      "fixture": "Uses the official ClientboundChunksBiomesPacket(List<ChunkBiomeData>) constructor with an empty List. This is the smallest context-free fixture and does not require an initialized Level, LevelChunk, biome registry/palette contents, chunk storage, or game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_chunks_biomes_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound chunks_biomes packet framing and dispatch/decode for the official empty chunkBiomeData-list fixture only; do not infer non-empty chunk biome serialization, biome palette contents, initialized LevelChunk extraction, chunk/world hydration, spawn readiness, world load, render readiness, or client-load completion."
+}
