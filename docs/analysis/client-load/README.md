@@ -68,8 +68,10 @@ proofs for `minecraft:level_event` / `0x2e`,
 `minecraft:low_disk_space_warning` / `0x32`,
 `minecraft:move_entity_pos` / `0x35`,
 `minecraft:move_entity_pos_rot` / `0x36`, and
-`minecraft:move_entity_rot` / `0x38`. The skipped YELLOW rows remain deferred;
-this does not prove chunk/light/world hydration, entity existence, movement
-semantics, render readiness, or client-load completion. The next safe row by
-the current official Play clientbound table is `minecraft:move_vehicle` /
-`0x39`.
+`minecraft:move_entity_rot` / `0x38`, `minecraft:move_vehicle` / `0x39`,
+`minecraft:open_book` / `0x3a`, and `minecraft:ping` / `0x3d`. The skipped
+YELLOW rows remain deferred; this does not prove chunk/light/world hydration,
+entity or vehicle existence, UI behavior, runtime pong response behavior,
+movement semantics, render readiness, or client-load completion. The next
+official Play clientbound row after this safe batch is
+`minecraft:pong_response` / `0x3e`.

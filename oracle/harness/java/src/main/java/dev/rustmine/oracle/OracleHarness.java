@@ -70,6 +70,8 @@ import net.minecraft.network.protocol.game.ClientboundLevelEventPacket;
 import net.minecraft.network.protocol.game.ClientboundLowDiskSpaceWarningPacket;
 import net.minecraft.network.protocol.game.ClientboundMountScreenOpenPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
+import net.minecraft.network.protocol.game.ClientboundOpenBookPacket;
 import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.login.ClientLoginPacketListener;
@@ -139,6 +141,7 @@ import net.minecraft.tags.TagNetworkSerialization;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PositionMoveRotation;
 import net.minecraft.world.Difficulty;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
@@ -477,6 +480,18 @@ public final class OracleHarness {
         }
         if ("play_move_entity_rot_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, playMoveEntityRotClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_move_vehicle_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playMoveVehicleClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_open_book_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playOpenBookClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_ping_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playPingClientboundFramedDispatch(input));
             return;
         }
 
@@ -6169,6 +6184,195 @@ public final class OracleHarness {
         return answer;
     }
 
+    private static Map<String, Object> playMoveVehicleClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        Vec3 position = new Vec3(
+            inputFields.get("x").getAsDouble(),
+            inputFields.get("y").getAsDouble(),
+            inputFields.get("z").getAsDouble()
+        );
+        ClientboundMoveVehiclePacket packet = new ClientboundMoveVehiclePacket(
+            position,
+            inputFields.get("y_rot").getAsFloat(),
+            inputFields.get("x_rot").getAsFloat()
+        );
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundMoveVehiclePacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundMoveVehiclePacket streamDecoded =
+            ClientboundMoveVehiclePacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:move_vehicle");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundMoveVehiclePacket decodedMoveVehicle)) {
+            throw new IllegalStateException(
+                "decoded Play move_vehicle as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "ClientboundMoveVehiclePacket(Vec3, float, float), ClientboundMoveVehiclePacket.STREAM_CODEC, Vec3.STREAM_CODEC, ByteBufCodecs.FLOAT, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundMoveVehiclePacket), ClientGamePacketListener.handleMoveVehicle(ClientboundMoveVehiclePacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket net.minecraft.world.phys.Vec3 net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes net.minecraft.network.protocol.game.ClientGamePacketListener"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:move_vehicle",
+            decodedPacket,
+            "official ClientboundMoveVehiclePacket primitive Vec3/yRot/xRot fixture; no initialized Entity, vehicle, Level, or game state",
+            "position Vec3 as three doubles, yRot float, and xRot float through ClientboundMoveVehiclePacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        putMoveVehicleFields(answerBody, "input", packet);
+        putMoveVehicleFields(answerBody, "stream_decoded", streamDecoded);
+        putMoveVehicleFields(answerBody, "decoded", decodedMoveVehicle);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playOpenBookClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        InteractionHand hand = InteractionHand.valueOf(inputFields.get("hand").getAsString());
+        ClientboundOpenBookPacket packet = new ClientboundOpenBookPacket(hand);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundOpenBookPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundOpenBookPacket streamDecoded =
+            ClientboundOpenBookPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:open_book");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundOpenBookPacket decodedOpenBook)) {
+            throw new IllegalStateException(
+                "decoded Play open_book as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "ClientboundOpenBookPacket(InteractionHand), ClientboundOpenBookPacket.STREAM_CODEC, FriendlyByteBuf.readEnum/writeEnum(InteractionHand), GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundOpenBookPacket), ClientGamePacketListener.handleOpenBook(ClientboundOpenBookPacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundOpenBookPacket net.minecraft.world.InteractionHand net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes net.minecraft.network.protocol.game.ClientGamePacketListener"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:open_book",
+            decodedPacket,
+            "official ClientboundOpenBookPacket InteractionHand fixture; no item, inventory, or screen state is required",
+            "InteractionHand enum ordinal through FriendlyByteBuf.writeEnum/readEnum via ClientboundOpenBookPacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        putOpenBookFields(answerBody, "input", packet);
+        putOpenBookFields(answerBody, "stream_decoded", streamDecoded);
+        putOpenBookFields(answerBody, "decoded", decodedOpenBook);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playPingClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        ClientboundPingPacket packet = new ClientboundPingPacket(inputFields.get("id").getAsInt());
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundPingPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundPingPacket streamDecoded = ClientboundPingPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:ping");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundPingPacket decodedPing)) {
+            throw new IllegalStateException(
+                "decoded Play ping as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = playAnswerHeader(
+            input,
+            "ClientboundPingPacket(int), ClientboundPingPacket.STREAM_CODEC, FriendlyByteBuf.readInt/writeInt, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundPingPacket), ClientCommonPacketListener.handlePing(ClientboundPingPacket)",
+            "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.common.ClientboundPingPacket net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes net.minecraft.network.protocol.common.ClientCommonPacketListener"
+        );
+        Map<String, Object> answerBody = playAnswerBody(
+            "minecraft:ping",
+            decodedPacket,
+            "official ClientboundPingPacket primitive int id fixture; no initialized client/server state is required",
+            "one signed int id through ClientboundPingPacket.STREAM_CODEC",
+            packetId,
+            packetIn.readableBytes(),
+            framed,
+            body,
+            fixtureBody,
+            framedIn.readableBytes(),
+            playClientboundPackets
+        );
+        answerBody.put("input_id", packet.getId());
+        answerBody.put("stream_decoded_id", streamDecoded.getId());
+        answerBody.put("decoded_id", decodedPing.getId());
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
     private static Map<String, Object> configurationSelectKnownPacksFramedDispatch(JsonObject input) {
         JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
         String vanillaPackId = inputFields.get("vanilla_pack_id").getAsString();
@@ -6994,6 +7198,27 @@ public final class OracleHarness {
         answerBody.put(prefix + "_on_ground", packet.isOnGround());
         answerBody.put(prefix + "_has_rotation", packet.hasRotation());
         answerBody.put(prefix + "_has_position", packet.hasPosition());
+    }
+
+    private static void putMoveVehicleFields(
+        Map<String, Object> answerBody,
+        String prefix,
+        ClientboundMoveVehiclePacket packet
+    ) {
+        answerBody.put(prefix + "_x", packet.position().x);
+        answerBody.put(prefix + "_y", packet.position().y);
+        answerBody.put(prefix + "_z", packet.position().z);
+        answerBody.put(prefix + "_y_rot", packet.yRot());
+        answerBody.put(prefix + "_x_rot", packet.xRot());
+    }
+
+    private static void putOpenBookFields(
+        Map<String, Object> answerBody,
+        String prefix,
+        ClientboundOpenBookPacket packet
+    ) {
+        answerBody.put(prefix + "_hand", packet.getHand().name());
+        answerBody.put(prefix + "_hand_ordinal", packet.getHand().ordinal());
     }
 
     private static void putInitializeBorderFields(

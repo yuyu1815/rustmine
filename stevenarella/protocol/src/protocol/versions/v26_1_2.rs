@@ -101,6 +101,9 @@ protocol_packet_ids!(
             0x35 => EntityMove_i16
             0x36 => EntityLookAndMove_i16
             0x38 => EntityLook_VarInt
+            0x39 => VehicleTeleport
+            0x3a => OpenBook
+            0x3d => PlayPingClientbound_i32
         }
     }
 );

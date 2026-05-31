@@ -2245,6 +2245,9 @@ state_packets!(
             packet CoFHLib_SendUUID {
                 field player_uuid: UUID =,
             }
+            packet PlayPingClientbound_i32 {
+                field id: i32 =,
+            }
        }
     }
     login Login {

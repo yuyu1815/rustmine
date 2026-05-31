@@ -82,6 +82,9 @@ official jar function
 | `play_hurt_animation_clientbound_framed_dispatch` case note | [cases/play-hurt-animation-clientbound-framed-dispatch.md](cases/play-hurt-animation-clientbound-framed-dispatch.md) |
 | `play_initialize_border_clientbound_framed_dispatch` case note | [cases/play-initialize-border-clientbound-framed-dispatch.md](cases/play-initialize-border-clientbound-framed-dispatch.md) |
 | `play_keep_alive_clientbound_framed_dispatch` case note | [cases/play-keep-alive-clientbound-framed-dispatch.md](cases/play-keep-alive-clientbound-framed-dispatch.md) |
+| `play_move_vehicle_clientbound_framed_dispatch` case note | [cases/play-move-vehicle-clientbound-framed-dispatch.md](cases/play-move-vehicle-clientbound-framed-dispatch.md) |
+| `play_open_book_clientbound_framed_dispatch` case note | [cases/play-open-book-clientbound-framed-dispatch.md](cases/play-open-book-clientbound-framed-dispatch.md) |
+| `play_ping_clientbound_framed_dispatch` case note | [cases/play-ping-clientbound-framed-dispatch.md](cases/play-ping-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -490,10 +493,21 @@ for one official primitive entity move fixture each. They prove the official
 `367c0010ffe0003040e000`, and `minecraft:move_entity_rot` / `0x38` frame
 `387d20f001`, with full body consumption through Stevenarella dispatch. They
 do not prove entity existence, movement/rotation interpolation semantics,
-initialized Level state, render readiness, or client-load completion. The next
-official Play clientbound row after this safe batch is
-`minecraft:move_vehicle` / `0x39`; the skipped YELLOW rows remain parked in
-`play-clientbound-deferred.md`.
+initialized Level state, render readiness, or client-load completion.
+
+`play_move_vehicle_clientbound_framed_dispatch`,
+`play_open_book_clientbound_framed_dispatch`, and
+`play_ping_clientbound_framed_dispatch` are packet-support evidence for one
+official primitive/context-free fixture each. They prove the official
+`minecraft:move_vehicle` / `0x39` frame
+`3940290000000000004050100000000000c01f00000000000043078000c1b20000`,
+`minecraft:open_book` / `0x3a` frame `3a00`, and `minecraft:ping` / `0x3d`
+frame `3d10203040`, with full body consumption through Stevenarella dispatch.
+They do not prove vehicle existence, book UI behavior, runtime pong response
+behavior, Play entry, render readiness, or client-load completion. The skipped
+YELLOW rows `0x3b` / `0x3c` remain parked in
+`play-clientbound-deferred.md`; the next official Play clientbound row after
+this safe batch is `minecraft:pong_response` / `0x3e`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

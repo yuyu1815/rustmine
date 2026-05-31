@@ -548,6 +548,36 @@ const PLAY_MOVE_ENTITY_ROT_CLIENTBOUND_ANSWER: &str =
 const PLAY_MOVE_ENTITY_ROT_CLIENTBOUND_TEST_NAME: &str =
     "play_move_entity_rot_clientbound_framed_dispatch_matches_official_oracle_answer";
 const PLAY_MOVE_ENTITY_ROT_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_MOVE_VEHICLE_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_move_vehicle_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_MOVE_VEHICLE_CLIENTBOUND_CASE_ID: &str = "play_move_vehicle_clientbound_framed_dispatch";
+const PLAY_MOVE_VEHICLE_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_move_vehicle_clientbound_framed_dispatch.contract.json";
+const PLAY_MOVE_VEHICLE_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_move_vehicle_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_MOVE_VEHICLE_CLIENTBOUND_TEST_NAME: &str =
+    "play_move_vehicle_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_MOVE_VEHICLE_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_OPEN_BOOK_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_open_book_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_OPEN_BOOK_CLIENTBOUND_CASE_ID: &str = "play_open_book_clientbound_framed_dispatch";
+const PLAY_OPEN_BOOK_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_open_book_clientbound_framed_dispatch.contract.json";
+const PLAY_OPEN_BOOK_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_open_book_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_OPEN_BOOK_CLIENTBOUND_TEST_NAME: &str =
+    "play_open_book_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_OPEN_BOOK_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_PING_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_ping_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_PING_CLIENTBOUND_CASE_ID: &str = "play_ping_clientbound_framed_dispatch";
+const PLAY_PING_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_ping_clientbound_framed_dispatch.contract.json";
+const PLAY_PING_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_ping_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_PING_CLIENTBOUND_TEST_NAME: &str =
+    "play_ping_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_PING_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -1230,6 +1260,12 @@ struct ConfigurationOracleAnswer {
     input_has_position: Option<bool>,
     stream_decoded_has_position: Option<bool>,
     decoded_has_position: Option<bool>,
+    input_hand: Option<String>,
+    stream_decoded_hand: Option<String>,
+    decoded_hand: Option<String>,
+    input_hand_ordinal: Option<i32>,
+    stream_decoded_hand_ordinal: Option<i32>,
+    decoded_hand_ordinal: Option<i32>,
     input_yaw: Option<f32>,
     stream_decoded_yaw: Option<f32>,
     decoded_yaw: Option<f32>,
@@ -7840,6 +7876,193 @@ fn play_move_entity_rot_clientbound_framed_dispatch_body() {
         other => panic!(
             "decoded packet did not preserve Play clientbound move_entity_rot identity: {other:?}"
         ),
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_move_vehicle_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_move_vehicle_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_move_vehicle_clientbound_framed_dispatch_body)
+        .expect("spawn play_move_vehicle_clientbound oracle stack")
+        .join()
+        .expect("play_move_vehicle_clientbound oracle thread panicked");
+}
+
+fn play_move_vehicle_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_MOVE_VEHICLE_CLIENTBOUND_MANIFEST,
+        PLAY_MOVE_VEHICLE_CLIENTBOUND_CASE_ID,
+        PLAY_MOVE_VEHICLE_CLIENTBOUND_CONTRACT,
+        PLAY_MOVE_VEHICLE_CLIENTBOUND_ANSWER,
+        PLAY_MOVE_VEHICLE_CLIENTBOUND_TEST_NAME,
+        PLAY_MOVE_VEHICLE_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:move_vehicle",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket")
+    );
+    assert_eq!(oracle.answer.input_x, oracle.answer.decoded_x);
+    assert_eq!(oracle.answer.stream_decoded_x, oracle.answer.decoded_x);
+    assert_eq!(oracle.answer.input_y, oracle.answer.decoded_y);
+    assert_eq!(oracle.answer.stream_decoded_y, oracle.answer.decoded_y);
+    assert_eq!(oracle.answer.input_z, oracle.answer.decoded_z);
+    assert_eq!(oracle.answer.stream_decoded_z, oracle.answer.decoded_z);
+    assert_eq!(oracle.answer.input_y_rot, oracle.answer.decoded_y_rot);
+    assert_eq!(
+        oracle.answer.stream_decoded_y_rot,
+        oracle.answer.decoded_y_rot
+    );
+    assert_eq!(oracle.answer.input_x_rot, oracle.answer.decoded_x_rot);
+    assert_eq!(
+        oracle.answer.stream_decoded_x_rot,
+        oracle.answer.decoded_x_rot
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound move_vehicle")
+    .expect("dispatch Play clientbound move_vehicle");
+
+    match decoded {
+        packet::Packet::VehicleTeleport(vehicle) => {
+            assert_eq!(vehicle.x, oracle.answer.decoded_x.unwrap());
+            assert_eq!(vehicle.y, oracle.answer.decoded_y.unwrap());
+            assert_eq!(vehicle.z, oracle.answer.decoded_z.unwrap());
+            assert_eq!(vehicle.yaw, oracle.answer.decoded_y_rot.unwrap());
+            assert_eq!(vehicle.pitch, oracle.answer.decoded_x_rot.unwrap());
+        }
+        other => {
+            panic!(
+                "decoded packet did not preserve Play clientbound move_vehicle identity: {other:?}"
+            )
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_open_book_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_open_book_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_open_book_clientbound_framed_dispatch_body)
+        .expect("spawn play_open_book_clientbound oracle stack")
+        .join()
+        .expect("play_open_book_clientbound oracle thread panicked");
+}
+
+fn play_open_book_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_OPEN_BOOK_CLIENTBOUND_MANIFEST,
+        PLAY_OPEN_BOOK_CLIENTBOUND_CASE_ID,
+        PLAY_OPEN_BOOK_CLIENTBOUND_CONTRACT,
+        PLAY_OPEN_BOOK_CLIENTBOUND_ANSWER,
+        PLAY_OPEN_BOOK_CLIENTBOUND_TEST_NAME,
+        PLAY_OPEN_BOOK_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:open_book",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundOpenBookPacket")
+    );
+    assert_eq!(oracle.answer.input_hand, oracle.answer.decoded_hand);
+    assert_eq!(
+        oracle.answer.stream_decoded_hand,
+        oracle.answer.decoded_hand
+    );
+    assert_eq!(
+        oracle.answer.input_hand_ordinal,
+        oracle.answer.decoded_hand_ordinal
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_hand_ordinal,
+        oracle.answer.decoded_hand_ordinal
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound open_book")
+    .expect("dispatch Play clientbound open_book");
+
+    match decoded {
+        packet::Packet::OpenBook(open_book) => {
+            assert_eq!(
+                open_book.hand.0,
+                oracle.answer.decoded_hand_ordinal.unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound open_book identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_ping_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_ping_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_ping_clientbound_framed_dispatch_body)
+        .expect("spawn play_ping_clientbound oracle stack")
+        .join()
+        .expect("play_ping_clientbound oracle thread panicked");
+}
+
+fn play_ping_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_PING_CLIENTBOUND_MANIFEST,
+        PLAY_PING_CLIENTBOUND_CASE_ID,
+        PLAY_PING_CLIENTBOUND_CONTRACT,
+        PLAY_PING_CLIENTBOUND_ANSWER,
+        PLAY_PING_CLIENTBOUND_TEST_NAME,
+        PLAY_PING_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:ping",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ClientboundPingPacket")
+    );
+    assert_eq!(oracle.answer.decoded_id, Some(oracle.answer.input_id));
+    assert_eq!(
+        oracle.answer.stream_decoded_id,
+        Some(oracle.answer.input_id)
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound ping")
+    .expect("dispatch Play clientbound ping");
+
+    match decoded {
+        packet::Packet::PlayPingClientbound_i32(ping) => {
+            assert_eq!(i64::from(ping.id), oracle.answer.input_id);
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound ping identity: {other:?}")
+        }
     }
     assert!(body_slice.is_empty());
 }

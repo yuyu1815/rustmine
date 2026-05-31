@@ -27,16 +27,16 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayCookieRequestClientbound, PlayCooldownClientbound, PlayCustomChatCompletionsClientbound,
     PlayEntityPositionSyncClientbound, PlayForgetLevelChunkClientbound, PlayGameEventClientbound,
     PlayHurtAnimationClientbound, PlayInitializeBorderClientbound,
-    PlayLowDiskSpaceWarningClientbound, PlayMountScreenOpenClientbound, PlayerAbilities,
-    PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound,
-    ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab,
-    ServerDifficulty, ServerMessage, SetCompression, SetCooldown, SetCurrentHotbarSlot,
-    SetExperience, SetPassengers, SignEditorOpen, SoundEffect, SpawnExperienceOrb,
-    SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer, SpawnPosition,
-    Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer, TimeUpdate, Title,
-    TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight, UpdateScore,
-    UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose, WindowItems,
-    WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
+    PlayLowDiskSpaceWarningClientbound, PlayMountScreenOpenClientbound, PlayPingClientbound,
+    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
+    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
+    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
+    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
+    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
+    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
+    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
+    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -1031,6 +1031,9 @@ state_mapped_packets!(
             /// Opens the book GUI.
             packet OpenBook {
                 field hand: Hand,
+            }
+            packet PlayPingClientbound {
+                field id: i32,
             }
             /// SignEditorOpen causes the client to open the editor for a sign so that
             /// it can write to it. Only sent in vanilla when the player places a sign.
@@ -3046,6 +3049,11 @@ impl MappablePacket for packet::Packet {
             packet::Packet::OpenBook(open_book) => {
                 mapped_packet::MappedPacket::OpenBook(OpenBook {
                     hand: Hand::from(open_book.hand.0),
+                })
+            }
+            packet::Packet::PlayPingClientbound_i32(ping) => {
+                mapped_packet::MappedPacket::PlayPingClientbound(PlayPingClientbound {
+                    id: ping.id,
                 })
             }
             packet::Packet::Player(player) => mapped_packet::MappedPacket::Player(Player {

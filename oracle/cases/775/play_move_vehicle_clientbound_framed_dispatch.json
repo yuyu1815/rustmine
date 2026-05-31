@@ -1,0 +1,45 @@
+{
+  "case_id": "play_move_vehicle_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket(Vec3, float, float)",
+      "authority_note": "Official binary source for constructing the Play clientbound move_vehicle packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound move_vehicle packet body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and move_vehicle packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:move_vehicle",
+    "packet_class": "ClientboundMoveVehiclePacket",
+    "input_fields": {
+      "x": 12.5,
+      "y": 64.25,
+      "z": -7.75,
+      "y_rot": 135.5,
+      "x_rot": -22.25
+    },
+    "field_notes": {
+      "fixture": "Uses primitive Vec3/float fields accepted by the official STREAM_CODEC; no initialized Entity, vehicle, or Level is required."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_move_vehicle_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound move_vehicle packet framing and dispatch/decode for one primitive vehicle position/rotation fixture only; do not infer vehicle existence, movement semantics, initialized Level state, render readiness, or client-load completion."
+}

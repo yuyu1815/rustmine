@@ -44,3 +44,10 @@ the skipped YELLOW rows. `0x2d`, `0x2f`, `0x30`, `0x31`, `0x33`, `0x34`, and
 `0x37` remain deferred for the reasons above. No packet ids, registry-backed
 payloads, chunk/light/world fixtures, map/trade/item payloads, or minecart
 track-step bodies were inferred while crossing those rows.
+
+The `0x39` / `0x3a` / `0x3d` safe batch did not implement the skipped YELLOW
+rows `0x3b` and `0x3c`. `0x3b` remains parked because its official codec uses
+the menu registry plus trusted `Component` title data; `0x3c` remains parked
+because its official fixture needs sign/block position and front-text behavior
+evidence. No menu registry id, title component bytes, sign state, block
+semantics, or world state were inferred while crossing those rows.
