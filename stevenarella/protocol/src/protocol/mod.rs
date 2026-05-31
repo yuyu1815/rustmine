@@ -770,6 +770,23 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlaySetCursorItemClientbound { item: None },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlaySetDefaultSpawnPositionClientbound => {
+                        let dimension = String::read_from(buf)?;
+                        if dimension != "minecraft:overworld" {
+                            return Err(Error::Err(format!(
+                                "unsupported Play set_default_spawn_position dimension {:?}",
+                                dimension
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetDefaultSpawnPositionClientbound(
+                            packet::play::clientbound::PlaySetDefaultSpawnPositionClientbound {
+                                dimension,
+                                location: Position::read_from(buf)?,
+                                yaw: buf.read_f32::<BigEndian>()?,
+                                pitch: buf.read_f32::<BigEndian>()?,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlaySetEntityDataClientbound => {
                         let entity_id = VarInt::read_from(buf)?;
                         let marker = u8::read_from(buf)?;
@@ -804,6 +821,22 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlaySetObjectiveClientbound => {
+                        let objective_name = String::read_from(buf)?;
+                        let method = i8::read_from(buf)?;
+                        if method != 1 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play set_objective method {}",
+                                method
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetObjectiveClientbound(
+                            packet::play::clientbound::PlaySetObjectiveClientbound {
+                                objective_name,
+                                method,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
                         let slot = VarInt::read_from(buf)?;
                         read_empty_item_stack_marker(buf, "set_player_inventory")?;
@@ -811,6 +844,22 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlaySetPlayerInventoryClientbound {
                                 slot,
                                 item: None,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetPlayerTeamClientbound => {
+                        let team_name = String::read_from(buf)?;
+                        let method = i8::read_from(buf)?;
+                        if method != 1 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play set_player_team method {}",
+                                method
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetPlayerTeamClientbound(
+                            packet::play::clientbound::PlaySetPlayerTeamClientbound {
+                                team_name,
+                                method,
                             },
                         )));
                     }
@@ -910,6 +959,45 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlayTabListClientbound {
                                 header: read_nbt_string_component(buf)?,
                                 footer: read_nbt_string_component(buf)?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayTagQueryClientbound => {
+                        let transaction_id = VarInt::read_from(buf)?;
+                        let nbt_tag_type = u8::read_from(buf)?;
+                        if nbt_tag_type != 10 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play tag_query root NBT tag type {}",
+                                nbt_tag_type
+                            )));
+                        }
+                        let mut tag = Vec::new();
+                        buf.read_to_end(&mut tag)?;
+                        if tag != [0] {
+                            return Err(Error::Err(
+                                "unsupported non-empty Play tag_query compound payload".to_owned(),
+                            ));
+                        }
+                        return Ok(Option::Some(Packet::PlayTagQueryClientbound(
+                            packet::play::clientbound::PlayTagQueryClientbound {
+                                transaction_id,
+                                nbt_tag_type,
+                                tag,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayTestInstanceBlockStatusClientbound => {
+                        let status = read_nbt_string_component(buf)?;
+                        let size_present = bool::read_from(buf)?;
+                        if size_present {
+                            return Err(Error::Err(
+                                "unsupported Play test_instance_block_status present size".to_owned(),
+                            ));
+                        }
+                        return Ok(Option::Some(Packet::PlayTestInstanceBlockStatusClientbound(
+                            packet::play::clientbound::PlayTestInstanceBlockStatusClientbound {
+                                status,
+                                size_present,
                             },
                         )));
                     }

@@ -33,12 +33,15 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayProjectilePowerClientbound, PlayServerLinksClientbound, PlaySetBorderCenterClientbound,
     PlaySetBorderLerpSizeClientbound, PlaySetBorderSizeClientbound,
     PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound,
-    PlaySetCursorItemClientbound, PlaySetDisplayObjectiveClientbound, PlaySetEntityDataClientbound,
-    PlaySetEquipmentClientbound, PlaySetPlayerInventoryClientbound, PlaySetScoreClientbound,
+    PlaySetCursorItemClientbound, PlaySetDefaultSpawnPositionClientbound,
+    PlaySetDisplayObjectiveClientbound, PlaySetEntityDataClientbound, PlaySetEquipmentClientbound,
+    PlaySetObjectiveClientbound, PlaySetPlayerInventoryClientbound, PlaySetPlayerTeamClientbound,
+    PlaySetScoreClientbound,
     PlaySetSubtitleTextClientbound, PlaySetTimeClientbound, PlaySetTitleTextClientbound,
     PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound,
     PlayStoreCookieClientbound, PlaySystemChatClientbound, PlayTabListClientbound,
-    PlayTickingStateClientbound, PlayTickingStepClientbound, PlayTransferClientbound,
+    PlayTagQueryClientbound, PlayTestInstanceBlockStatusClientbound, PlayTickingStateClientbound,
+    PlayTickingStepClientbound, PlayTransferClientbound,
     PlayUpdateAttributesClientbound, PlayUpdateTagsClientbound, PlayerAbilities, PlayerInfo,
     PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
     ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
@@ -584,9 +587,19 @@ state_mapped_packets!(
             packet PlaySetCursorItemClientbound {
                 field item: Option<item::Stack>,
             }
+            packet PlaySetDefaultSpawnPositionClientbound {
+                field dimension: String,
+                field location: Position,
+                field yaw: f32,
+                field pitch: f32,
+            }
             packet PlaySetEntityDataClientbound {
                 field entity_id: i32,
                 field packed_item_count: i32,
+            }
+            packet PlaySetObjectiveClientbound {
+                field objective_name: String,
+                field method: i8,
             }
             packet PlaySetDisplayObjectiveClientbound {
                 field slot: i32,
@@ -600,6 +613,10 @@ state_mapped_packets!(
             packet PlaySetPlayerInventoryClientbound {
                 field slot: i32,
                 field item: Option<item::Stack>,
+            }
+            packet PlaySetPlayerTeamClientbound {
+                field team_name: String,
+                field method: i8,
             }
             packet PlaySetScoreClientbound {
                 field owner: String,
@@ -637,6 +654,15 @@ state_mapped_packets!(
             packet PlayTabListClientbound {
                 field header: format::Component,
                 field footer: format::Component,
+            }
+            packet PlayTagQueryClientbound {
+                field transaction_id: i32,
+                field nbt_tag_type: u8,
+                field tag: Vec<u8>,
+            }
+            packet PlayTestInstanceBlockStatusClientbound {
+                field status: format::Component,
+                field size_present: bool,
             }
             packet PlayTickingStateClientbound {
                 field tick_rate: f32,
@@ -2026,11 +2052,29 @@ impl MappablePacket for packet::Packet {
                     },
                 )
             }
+            packet::Packet::PlaySetDefaultSpawnPositionClientbound(spawn) => {
+                mapped_packet::MappedPacket::PlaySetDefaultSpawnPositionClientbound(
+                    PlaySetDefaultSpawnPositionClientbound {
+                        dimension: spawn.dimension,
+                        location: spawn.location,
+                        yaw: spawn.yaw,
+                        pitch: spawn.pitch,
+                    },
+                )
+            }
             packet::Packet::PlaySetEntityDataClientbound(entity_data) => {
                 mapped_packet::MappedPacket::PlaySetEntityDataClientbound(
                     PlaySetEntityDataClientbound {
                         entity_id: entity_data.entity_id.0,
                         packed_item_count: entity_data.packed_item_count.0,
+                    },
+                )
+            }
+            packet::Packet::PlaySetObjectiveClientbound(objective) => {
+                mapped_packet::MappedPacket::PlaySetObjectiveClientbound(
+                    PlaySetObjectiveClientbound {
+                        objective_name: objective.objective_name,
+                        method: objective.method,
                     },
                 )
             }
@@ -2048,6 +2092,14 @@ impl MappablePacket for packet::Packet {
                     PlaySetPlayerInventoryClientbound {
                         slot: inventory.slot.0,
                         item: inventory.item,
+                    },
+                )
+            }
+            packet::Packet::PlaySetPlayerTeamClientbound(team) => {
+                mapped_packet::MappedPacket::PlaySetPlayerTeamClientbound(
+                    PlaySetPlayerTeamClientbound {
+                        team_name: team.team_name,
+                        method: team.method,
                     },
                 )
             }
@@ -2104,6 +2156,21 @@ impl MappablePacket for packet::Packet {
                     header: tab_list.header,
                     footer: tab_list.footer,
                 })
+            }
+            packet::Packet::PlayTagQueryClientbound(tag_query) => {
+                mapped_packet::MappedPacket::PlayTagQueryClientbound(PlayTagQueryClientbound {
+                    transaction_id: tag_query.transaction_id.0,
+                    nbt_tag_type: tag_query.nbt_tag_type,
+                    tag: tag_query.tag,
+                })
+            }
+            packet::Packet::PlayTestInstanceBlockStatusClientbound(status) => {
+                mapped_packet::MappedPacket::PlayTestInstanceBlockStatusClientbound(
+                    PlayTestInstanceBlockStatusClientbound {
+                        status: status.status,
+                        size_present: status.size_present,
+                    },
+                )
             }
             packet::Packet::PlayTickingStateClientbound(ticking_state) => {
                 mapped_packet::MappedPacket::PlayTickingStateClientbound(

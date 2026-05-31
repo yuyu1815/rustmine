@@ -687,9 +687,19 @@ state_packets!(
             packet PlaySetCursorItemClientbound {
                 field item: Option<item::Stack> =,
             }
+            packet PlaySetDefaultSpawnPositionClientbound {
+                field dimension: String =,
+                field location: Position =,
+                field yaw: f32 =,
+                field pitch: f32 =,
+            }
             packet PlaySetEntityDataClientbound {
                 field entity_id: VarInt =,
                 field packed_item_count: VarInt =,
+            }
+            packet PlaySetObjectiveClientbound {
+                field objective_name: String =,
+                field method: i8 =,
             }
             packet PlaySetDisplayObjectiveClientbound {
                 field slot: VarInt =,
@@ -703,6 +713,10 @@ state_packets!(
             packet PlaySetPlayerInventoryClientbound {
                 field slot: VarInt =,
                 field item: Option<item::Stack> =,
+            }
+            packet PlaySetPlayerTeamClientbound {
+                field team_name: String =,
+                field method: i8 =,
             }
             packet PlaySetScoreClientbound {
                 field owner: String =,
@@ -740,6 +754,15 @@ state_packets!(
             packet PlayTabListClientbound {
                 field header: format::Component =,
                 field footer: format::Component =,
+            }
+            packet PlayTagQueryClientbound {
+                field transaction_id: VarInt =,
+                field nbt_tag_type: u8 =,
+                field tag: Vec<u8> =,
+            }
+            packet PlayTestInstanceBlockStatusClientbound {
+                field status: format::Component =,
+                field size_present: bool =,
             }
             packet PlayTickingStateClientbound {
                 field tick_rate: f32 =,

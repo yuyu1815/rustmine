@@ -115,6 +115,7 @@ include!("oracle_contracts/cases/play/play_set_border_warning_distance_clientbou
 include!("oracle_contracts/cases/play/play_set_chunk_cache_center_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_chunk_cache_radius_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_cursor_item_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_set_default_spawn_position_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_display_objective_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_entity_data_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_equipment_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
@@ -122,7 +123,9 @@ include!("oracle_contracts/cases/play/play_set_entity_motion_clientbound_framed_
 include!("oracle_contracts/cases/play/play_set_experience_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_health_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_held_slot_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_set_objective_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_player_inventory_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_set_player_team_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_score_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_simulation_distance_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_projectile_power_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
@@ -136,7 +139,9 @@ include!("oracle_contracts/cases/play/play_stop_sound_clientbound_framed_dispatc
 include!("oracle_contracts/cases/play/play_store_cookie_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_system_chat_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_tab_list_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_tag_query_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_take_item_entity_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_test_instance_block_status_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_ticking_state_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_ticking_step_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_transfer_clientbound_framed_dispatch_matches_official_oracle_answer.rs");

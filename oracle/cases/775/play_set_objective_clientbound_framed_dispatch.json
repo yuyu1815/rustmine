@@ -1,0 +1,36 @@
+{
+  "case_id": "play_set_objective_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetObjectivePacket(Objective, METHOD_REMOVE), ClientboundSetObjectivePacket.write/STREAM_CODEC",
+      "authority_note": "Official binary source for the remove-only set_objective body."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_objective packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_objective",
+    "packet_class": "ClientboundSetObjectivePacket",
+    "input_fields": {
+      "objective_name": "rustmine_objective",
+      "method": "remove"
+    },
+    "field_notes": {
+      "scope": "Remove method only; official write branch omits display Component, render type, and number format."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_objective_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_objective packet framing and dispatch/decode for one remove fixture only; does not infer objective lifecycle, add/change Component bytes, render type, number format, or scoreboard UI behavior."
+}

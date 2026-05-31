@@ -120,6 +120,7 @@ protocol_packet_ids!(
             0x5e => UpdateViewPosition
             0x5f => UpdateViewDistance
             0x60 => PlaySetCursorItemClientbound
+            0x61 => PlaySetDefaultSpawnPositionClientbound
             0x62 => PlaySetDisplayObjectiveClientbound
             0x63 => PlaySetEntityDataClientbound
             0x65 => EntityVelocity
@@ -127,7 +128,9 @@ protocol_packet_ids!(
             0x67 => SetExperience
             0x68 => UpdateHealth
             0x69 => SetCurrentHotbarSlot
+            0x6a => PlaySetObjectiveClientbound
             0x6c => PlaySetPlayerInventoryClientbound
+            0x6d => PlaySetPlayerTeamClientbound
             0x6e => PlaySetScoreClientbound
             0x6f => UpdateViewDistance
             0x70 => PlaySetSubtitleTextClientbound
@@ -139,7 +142,9 @@ protocol_packet_ids!(
             0x78 => PlayStoreCookieClientbound
             0x79 => PlaySystemChatClientbound
             0x7a => PlayTabListClientbound
+            0x7b => PlayTagQueryClientbound
             0x7c => CollectItem
+            0x7e => PlayTestInstanceBlockStatusClientbound
             0x7f => PlayTickingStateClientbound
             0x80 => PlayTickingStepClientbound
             0x81 => PlayTransferClientbound
