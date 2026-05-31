@@ -83,6 +83,7 @@ protocol_packet_ids!(
             0x11 => WindowClose
             0x12 => PlayContainerSetContentClientbound
             0x13 => WindowProperty
+            0x14 => PlayContainerSetSlotClientbound
         }
     }
 );
