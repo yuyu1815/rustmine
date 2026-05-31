@@ -1,0 +1,67 @@
+{
+  "case_id": "login_cookie_response_serverbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Handshake -> Login -> Configuration",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.cookie.ServerboundCookieResponsePacket(Identifier, byte[])",
+      "authority_note": "Official binary source for constructing a Login serverbound cookie_response packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.cookie.ServerboundCookieResponsePacket.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for Login serverbound cookie_response packet body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.SERVERBOUND.codec().encode(ServerboundCookieResponsePacket)",
+      "authority_note": "Official binary source for Login serverbound cookie_response framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.SERVERBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Login serverbound cookie_response framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Login serverbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ServerboundCookieResponsePacket.key(), ServerboundCookieResponsePacket.payload(), ServerLoginPacketListener extends ServerCookiePacketListener",
+      "authority_note": "Official binary source for reading decoded cookie_response fields and confirming the Login listener accepts the cookie packet listener surface."
+    },
+    {
+      "role": "decompiled_source",
+      "path": "_analysis/minecraft-26.1.2/decompiled-protocol/net/minecraft/network/protocol/cookie/ServerboundCookieResponsePacket.java",
+      "function_or_member": "ServerboundCookieResponsePacket(Identifier, byte[]), STREAM_CODEC, key(), payload()",
+      "authority_note": "Decompiled witness path when restored; the jar remains authoritative."
+    }
+  ],
+  "question": {
+    "state": "Login",
+    "flow": "Serverbound",
+    "packet_type": "minecraft:cookie_response",
+    "packet_class": "ServerboundCookieResponsePacket",
+    "input_fields": {
+      "key": "rustmine:oracle_login_cookie",
+      "payload_hex": "00112233445566778899aabbccddeeff"
+    },
+    "field_notes": {
+      "key": "The official packet uses Identifier for the cookie key.",
+      "payload_hex": "The official packet uses a nullable payload encoded through ClientboundStoreCookiePacket.PAYLOAD_STREAM_CODEC; this fixture uses the non-null branch."
+    }
+  },
+  "answer_path": "oracle/answers/775/login_cookie_response_serverbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Login serverbound cookie_response packet framing and dispatch/decode for one non-null payload fixture only; do not infer cookie storage policy, request/response runtime behavior, Configuration entry, Play readiness, or client-load completion."
+}

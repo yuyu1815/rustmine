@@ -2149,6 +2149,11 @@ state_packets!(
             packet LoginAcknowledged {
                 field empty: () =,
             }
+            packet LoginCookieResponse {
+                field key: String =,
+                field has_payload: bool =,
+                field payload: LenPrefixedBytes<VarInt> = when(|p: &LoginCookieResponse| p.has_payload),
+            }
         }
         clientbound Clientbound {
             /// LoginDisconnect is sent by the server if there was any issues

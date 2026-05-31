@@ -27,6 +27,7 @@ official jar function
 | `login_key_serverbound_framed_dispatch` case note | [cases/login-key-serverbound-framed-dispatch.md](cases/login-key-serverbound-framed-dispatch.md) |
 | `login_custom_query_answer_serverbound_framed_dispatch` case note | [cases/login-custom-query-answer-serverbound-framed-dispatch.md](cases/login-custom-query-answer-serverbound-framed-dispatch.md) |
 | `login_acknowledged_serverbound_framed_dispatch` case note | [cases/login-acknowledged-serverbound-framed-dispatch.md](cases/login-acknowledged-serverbound-framed-dispatch.md) |
+| `login_cookie_response_serverbound_framed_dispatch` case note | [cases/login-cookie-response-serverbound-framed-dispatch.md](cases/login-cookie-response-serverbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -63,6 +64,7 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `login_key_serverbound_framed_dispatch`,
 `login_custom_query_answer_serverbound_framed_dispatch`,
 `login_acknowledged_serverbound_framed_dispatch`,
+`login_cookie_response_serverbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -123,7 +125,15 @@ for the official singleton Login serverbound login_acknowledged fixture only.
 It proves the official `minecraft:login_acknowledged` / `0x03` row,
 empty-body unit codec, terminal flag, and full body consumption through
 Stevenarella dispatch. It does not prove Configuration entry, state transition
-handling, cookie_response support, Play readiness, or client-load completion.
+handling, Play readiness, or client-load completion.
+
+`login_cookie_response_serverbound_framed_dispatch` is packet-support evidence
+for one official Login serverbound cookie_response non-null payload fixture
+only. It proves the official `minecraft:cookie_response` / `0x04` row,
+Identifier key field, nullable payload marker/body, and full body consumption
+through Stevenarella dispatch. It does not prove cookie storage policy,
+cookie request/response runtime behavior, Configuration entry, Play readiness,
+or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

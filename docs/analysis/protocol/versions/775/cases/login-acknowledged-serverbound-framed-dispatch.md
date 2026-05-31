@@ -31,5 +31,5 @@ client.jar ServerboundLoginAcknowledgedPacket.INSTANCE
 
 This is packet framing/dispatch/decode evidence for the official singleton
 Login serverbound login_acknowledged fixture only. It does not prove
-Configuration entry, state transition handling, cookie_response support, Play
-readiness, or client-load completion.
+Configuration entry, state transition handling, Play readiness, or client-load
+completion.
