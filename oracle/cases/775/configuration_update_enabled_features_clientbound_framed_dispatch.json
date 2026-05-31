@@ -1,0 +1,59 @@
+{
+  "case_id": "configuration_update_enabled_features_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundUpdateEnabledFeaturesPacket(Set<Identifier>)",
+      "authority_note": "Official binary source for constructing the Configuration clientbound update_enabled_features packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundUpdateEnabledFeaturesPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for Configuration clientbound update_enabled_features body encoding and decoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(ClientboundUpdateEnabledFeaturesPacket)",
+      "authority_note": "Official binary source for Configuration clientbound update_enabled_features framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound update_enabled_features framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundUpdateEnabledFeaturesPacket.features()",
+      "authority_note": "Official binary source for reading decoded update_enabled_features fields."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:update_enabled_features",
+    "packet_class": "ClientboundUpdateEnabledFeaturesPacket",
+    "input_fields": {
+      "features": []
+    },
+    "field_notes": {
+      "features": "Explicit empty Set<Identifier> fixture accepted by the official constructor/codec without initialized Minecraft state."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_update_enabled_features_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration clientbound update_enabled_features packet framing and dispatch/decode for one official empty feature-set fixture only; do not infer feature registry hydration, enabled-feature semantics, Configuration completion, Play entry, world load, render readiness, or runtime behavior."
+}

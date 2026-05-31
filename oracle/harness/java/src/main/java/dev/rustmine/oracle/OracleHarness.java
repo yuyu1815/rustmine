@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.SharedConstants;
 import net.minecraft.network.FriendlyByteBuf;
@@ -23,6 +24,7 @@ import net.minecraft.network.protocol.configuration.ClientboundFinishConfigurati
 import net.minecraft.network.protocol.configuration.ClientboundRegistryDataPacket;
 import net.minecraft.network.protocol.configuration.ConfigurationProtocols;
 import net.minecraft.network.protocol.configuration.ClientboundResetChatPacket;
+import net.minecraft.network.protocol.configuration.ClientboundUpdateEnabledFeaturesPacket;
 import net.minecraft.network.protocol.configuration.ServerboundAcceptCodeOfConductPacket;
 import net.minecraft.network.protocol.configuration.ServerConfigurationPacketListener;
 import net.minecraft.network.protocol.configuration.ServerboundFinishConfigurationPacket;
@@ -135,6 +137,10 @@ public final class OracleHarness {
         }
         if ("configuration_transfer_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, configurationTransferClientboundFramedDispatch(input));
+            return;
+        }
+        if ("configuration_update_enabled_features_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, configurationUpdateEnabledFeaturesClientboundFramedDispatch(input));
             return;
         }
         if ("configuration_resource_pack_response_framed_dispatch".equals(caseId)) {
@@ -1370,6 +1376,71 @@ public final class OracleHarness {
         return answer;
     }
 
+    private static Map<String, Object> configurationUpdateEnabledFeaturesClientboundFramedDispatch(JsonObject input) {
+        Set<Identifier> features = Set.of();
+        ClientboundUpdateEnabledFeaturesPacket packet =
+            new ClientboundUpdateEnabledFeaturesPacket(features);
+
+        FriendlyByteBuf framedOut = new FriendlyByteBuf(Unpooled.buffer());
+        ConfigurationProtocols.CLIENTBOUND.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+
+        FriendlyByteBuf framedIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(framed));
+        Packet<? super ClientConfigurationPacketListener> decodedPacket =
+            ConfigurationProtocols.CLIENTBOUND.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundUpdateEnabledFeaturesPacket decodedUpdateEnabledFeatures)) {
+            throw new IllegalStateException(
+                "expected ClientboundUpdateEnabledFeaturesPacket, got " + decodedPacket.getClass().getName()
+            );
+        }
+
+        FriendlyByteBuf bodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundUpdateEnabledFeaturesPacket.STREAM_CODEC.encode(bodyOut, packet);
+        byte[] body = readableBytes(bodyOut);
+
+        List<Map<String, Object>> configurationClientboundPackets = new ArrayList<>();
+        ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((type, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", type.id().toString());
+            row.put("flow", type.flow().id());
+            configurationClientboundPackets.add(row);
+        });
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "ClientboundUpdateEnabledFeaturesPacket(Set<Identifier>), ClientboundUpdateEnabledFeaturesPacket.STREAM_CODEC, ConfigurationProtocols.CLIENTBOUND.codec().encode/decode(ClientboundUpdateEnabledFeaturesPacket), ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundUpdateEnabledFeaturesPacket.features()",
+            "bytecode_source_command", "_tools/java/jdk-25-full/Contents/Home/bin/javap -classpath _analysis/minecraft-26.1.2/client.jar -c -p net.minecraft.network.protocol.configuration.ClientboundUpdateEnabledFeaturesPacket net.minecraft.network.protocol.configuration.ConfigurationProtocols net.minecraft.network.protocol.configuration.ConfigurationPacketTypes"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Configuration");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:update_enabled_features");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("input_fixture", "Set.of() features");
+        answerBody.put("input_feature_count", features.size());
+        answerBody.put("decoded_feature_count", decodedUpdateEnabledFeatures.features().size());
+        answerBody.put("input_features", identifierStrings(features));
+        answerBody.put("decoded_features", identifierStrings(decodedUpdateEnabledFeatures.features()));
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("configuration_clientbound_packet_table", configurationClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
     private static Map<String, Object> configurationResourcePackResponseFramedDispatch(JsonObject input) {
         JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
         UUID id = UUID.fromString(inputFields.get("id").getAsString());
@@ -1752,5 +1823,9 @@ public final class OracleHarness {
             rows.add(row);
         }
         return rows;
+    }
+
+    private static List<String> identifierStrings(Set<Identifier> identifiers) {
+        return identifiers.stream().map(Identifier::toString).sorted().toList();
     }
 }

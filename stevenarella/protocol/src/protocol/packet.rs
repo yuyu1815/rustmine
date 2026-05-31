@@ -2571,6 +2571,7 @@ pub mod configuration {
             pub const ConfigurationResourcePackPushClientbound: i32 = 9;
             pub const ConfigurationStoreCookieClientbound: i32 = 10;
             pub const ConfigurationTransferClientbound: i32 = 11;
+            pub const ConfigurationUpdateEnabledFeaturesClientbound: i32 = 12;
         }
 
         #[derive(Default, Debug)]
@@ -2790,6 +2791,31 @@ pub mod configuration {
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.host.write_to(buf)?;
                 VarInt(self.port).write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationUpdateEnabledFeaturesClientbound {
+            pub features: Vec<String>,
+        }
+
+        impl PacketType for ConfigurationUpdateEnabledFeaturesClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationUpdateEnabledFeaturesClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                VarInt(self.features.len() as i32).write_to(buf)?;
+                for feature in &self.features {
+                    feature.write_to(buf)?;
+                }
                 Ok(())
             }
         }

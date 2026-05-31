@@ -433,6 +433,28 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationUpdateEnabledFeaturesClientbound => {
+                        let feature_count = VarInt::read_from(buf)?.0;
+                        if feature_count < 0 {
+                            return Err(Error::Err(format!(
+                                "negative update_enabled_features feature count {}",
+                                feature_count
+                            )));
+                        }
+                        let mut features = Vec::with_capacity(feature_count as usize);
+                        for _ in 0..feature_count {
+                            features.push(Serializable::read_from(buf)?);
+                        }
+                        let _packet = packet::configuration::clientbound::ConfigurationUpdateEnabledFeaturesClientbound {
+                            features,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "UpdateEnabledFeatures".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(
