@@ -637,6 +637,20 @@ state_packets!(
                 field inventory_columns: VarInt =,
                 field entity_id: i32 =,
             }
+            packet PlayHurtAnimationClientbound {
+                field entity_id: VarInt =,
+                field yaw: f32 =,
+            }
+            packet PlayInitializeBorderClientbound {
+                field new_center_x: f64 =,
+                field new_center_z: f64 =,
+                field old_size: f64 =,
+                field new_size: f64 =,
+                field lerp_time: VarLong =,
+                field new_absolute_max_size: VarInt =,
+                field warning_blocks: VarInt =,
+                field warning_time: VarInt =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

@@ -1,0 +1,48 @@
+{
+  "case_id": "play_initialize_border_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundInitializeBorderPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound initialize_border packet body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and initialize_border packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundInitializeBorderPacket)",
+      "authority_note": "Official binary source for Play clientbound initialize_border framed packet encode and dispatch/decode."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:initialize_border",
+    "packet_class": "ClientboundInitializeBorderPacket",
+    "input_fields": {
+      "new_center_x": 12.5,
+      "new_center_z": -7.25,
+      "old_size": 100.0,
+      "new_size": 64.5,
+      "lerp_time": 12345,
+      "new_absolute_max_size": 29999984,
+      "warning_blocks": 5,
+      "warning_time": 15
+    },
+    "field_notes": {
+      "fixture": "Primitive STREAM_CODEC decode fixture; does not require initialized WorldBorder or Level."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_initialize_border_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound initialize_border packet framing and dispatch/decode for one primitive border-field fixture only; do not infer world-border runtime behavior, world state, render readiness, or client-load completion."
+}

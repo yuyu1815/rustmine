@@ -79,6 +79,9 @@ official jar function
 | `play_forget_level_chunk_clientbound_framed_dispatch` case note | [cases/play-forget-level-chunk-clientbound-framed-dispatch.md](cases/play-forget-level-chunk-clientbound-framed-dispatch.md) |
 | `play_game_event_clientbound_framed_dispatch` case note | [cases/play-game-event-clientbound-framed-dispatch.md](cases/play-game-event-clientbound-framed-dispatch.md) |
 | `play_mount_screen_open_clientbound_framed_dispatch` case note | [cases/play-mount-screen-open-clientbound-framed-dispatch.md](cases/play-mount-screen-open-clientbound-framed-dispatch.md) |
+| `play_hurt_animation_clientbound_framed_dispatch` case note | [cases/play-hurt-animation-clientbound-framed-dispatch.md](cases/play-hurt-animation-clientbound-framed-dispatch.md) |
+| `play_initialize_border_clientbound_framed_dispatch` case note | [cases/play-initialize-border-clientbound-framed-dispatch.md](cases/play-initialize-border-clientbound-framed-dispatch.md) |
+| `play_keep_alive_clientbound_framed_dispatch` case note | [cases/play-keep-alive-clientbound-framed-dispatch.md](cases/play-keep-alive-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -148,7 +151,10 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `play_entity_position_sync_clientbound_framed_dispatch`,
 `play_forget_level_chunk_clientbound_framed_dispatch`,
 `play_game_event_clientbound_framed_dispatch`, and
-`play_mount_screen_open_clientbound_framed_dispatch` are the passing jar-backed
+`play_mount_screen_open_clientbound_framed_dispatch`,
+`play_hurt_animation_clientbound_framed_dispatch`,
+`play_initialize_border_clientbound_framed_dispatch`, and
+`play_keep_alive_clientbound_framed_dispatch` are the passing jar-backed
 answer rows in this 775 shard. Their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout.
@@ -428,9 +434,35 @@ proves the official `minecraft:mount_screen_open` / `0x29` row, container id
 `7`, inventory columns `5`, entity id `123`, framed bytes `2907050000007b`,
 body bytes `07050000007b`, and full body consumption through Stevenarella
 dispatch. It does not prove mount entity existence, inventory/menu semantics,
-screen behavior, render readiness, or client-load completion. The next
-official Play clientbound row after this safe batch is
-`minecraft:hurt_animation` / `0x2a`.
+screen behavior, render readiness, or client-load completion.
+
+`play_hurt_animation_clientbound_framed_dispatch` is packet-support evidence
+for one official Play clientbound hurt_animation primitive fixture only. It
+proves the official `minecraft:hurt_animation` / `0x2a` row, entity id `123`,
+yaw `45.5`, framed bytes `2a7b42360000`, body bytes `7b42360000`, and full
+body consumption through Stevenarella dispatch. It does not prove entity
+existence, hurt animation semantics, world state, render readiness, or
+client-load completion.
+
+`play_initialize_border_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound initialize_border primitive-field
+fixture only. It proves the official `minecraft:initialize_border` / `0x2b`
+row, center/size/lerp/warning body, framed bytes
+`2b4029000000000000c01d00000000000040590000000000004050200000000000b960f086a70e050f`,
+body bytes
+`4029000000000000c01d00000000000040590000000000004050200000000000b960f086a70e050f`,
+and full body consumption through Stevenarella dispatch. It does not prove
+world-border runtime behavior, world state, render readiness, or client-load
+completion.
+
+`play_keep_alive_clientbound_framed_dispatch` is packet-support evidence for
+one official Play clientbound keep_alive primitive id fixture only. It proves
+the official `minecraft:keep_alive` / `0x2c` row, id `12345`, framed bytes
+`2c0000000000003039`, body bytes `0000000000003039`, and full body
+consumption through Stevenarella dispatch. It does not prove runtime
+keep-alive response behavior, Play entry, render readiness, or client-load
+completion. The next official Play clientbound row after this safe batch is
+`minecraft:level_chunk_with_light` / `0x2d`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

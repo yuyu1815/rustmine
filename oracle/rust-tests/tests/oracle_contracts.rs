@@ -462,6 +462,38 @@ const PLAY_MOUNT_SCREEN_OPEN_CLIENTBOUND_ANSWER: &str =
 const PLAY_MOUNT_SCREEN_OPEN_CLIENTBOUND_TEST_NAME: &str =
     "play_mount_screen_open_clientbound_framed_dispatch_matches_official_oracle_answer";
 const PLAY_MOUNT_SCREEN_OPEN_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_HURT_ANIMATION_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_hurt_animation_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_HURT_ANIMATION_CLIENTBOUND_CASE_ID: &str =
+    "play_hurt_animation_clientbound_framed_dispatch";
+const PLAY_HURT_ANIMATION_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_hurt_animation_clientbound_framed_dispatch.contract.json";
+const PLAY_HURT_ANIMATION_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_hurt_animation_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_HURT_ANIMATION_CLIENTBOUND_TEST_NAME: &str =
+    "play_hurt_animation_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_HURT_ANIMATION_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_INITIALIZE_BORDER_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_initialize_border_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_INITIALIZE_BORDER_CLIENTBOUND_CASE_ID: &str =
+    "play_initialize_border_clientbound_framed_dispatch";
+const PLAY_INITIALIZE_BORDER_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_initialize_border_clientbound_framed_dispatch.contract.json";
+const PLAY_INITIALIZE_BORDER_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_initialize_border_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_INITIALIZE_BORDER_CLIENTBOUND_TEST_NAME: &str =
+    "play_initialize_border_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_INITIALIZE_BORDER_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_KEEP_ALIVE_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_keep_alive_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_KEEP_ALIVE_CLIENTBOUND_CASE_ID: &str = "play_keep_alive_clientbound_framed_dispatch";
+const PLAY_KEEP_ALIVE_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_keep_alive_clientbound_framed_dispatch.contract.json";
+const PLAY_KEEP_ALIVE_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_keep_alive_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_KEEP_ALIVE_CLIENTBOUND_TEST_NAME: &str =
+    "play_keep_alive_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_KEEP_ALIVE_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -831,6 +863,7 @@ struct ConfigurationOracleAnswer {
     encoded_body_hex: String,
     encoded_framed_hex: Option<String>,
     decoded_id: Option<i64>,
+    stream_decoded_id: Option<i64>,
     decoded_packet_type: Option<String>,
     decoded_packet_class: Option<String>,
     remaining_after_official_decode: Option<i32>,
@@ -1115,6 +1148,25 @@ struct ConfigurationOracleAnswer {
     input_param: Option<f32>,
     stream_decoded_param: Option<f32>,
     decoded_param: Option<f32>,
+    input_yaw: Option<f32>,
+    stream_decoded_yaw: Option<f32>,
+    decoded_yaw: Option<f32>,
+    input_new_center_x: Option<f64>,
+    decoded_new_center_x: Option<f64>,
+    input_new_center_z: Option<f64>,
+    decoded_new_center_z: Option<f64>,
+    input_old_size: Option<f64>,
+    decoded_old_size: Option<f64>,
+    input_new_size: Option<f64>,
+    decoded_new_size: Option<f64>,
+    input_lerp_time: Option<i64>,
+    decoded_lerp_time: Option<i64>,
+    input_new_absolute_max_size: Option<i32>,
+    decoded_new_absolute_max_size: Option<i32>,
+    input_warning_blocks: Option<i32>,
+    decoded_warning_blocks: Option<i32>,
+    input_warning_time: Option<i32>,
+    decoded_warning_time: Option<i32>,
     input_animation_action_name: Option<String>,
     input_animation_action: Option<i32>,
     decoded_animation_action: Option<i32>,
@@ -7161,6 +7213,214 @@ fn play_mount_screen_open_clientbound_framed_dispatch_body() {
         }
         other => panic!(
             "decoded packet did not preserve Play clientbound mount_screen_open identity: {other:?}"
+        ),
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_hurt_animation_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_hurt_animation_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_hurt_animation_clientbound_framed_dispatch_body)
+        .expect("spawn play_hurt_animation_clientbound oracle stack")
+        .join()
+        .expect("play_hurt_animation_clientbound oracle thread panicked");
+}
+
+fn play_hurt_animation_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_HURT_ANIMATION_CLIENTBOUND_MANIFEST,
+        PLAY_HURT_ANIMATION_CLIENTBOUND_CASE_ID,
+        PLAY_HURT_ANIMATION_CLIENTBOUND_CONTRACT,
+        PLAY_HURT_ANIMATION_CLIENTBOUND_ANSWER,
+        PLAY_HURT_ANIMATION_CLIENTBOUND_TEST_NAME,
+        PLAY_HURT_ANIMATION_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:hurt_animation",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundHurtAnimationPacket")
+    );
+    assert_eq!(
+        oracle.answer.input_entity_id,
+        oracle.answer.stream_decoded_entity_id
+    );
+    assert_eq!(
+        oracle.answer.input_entity_id,
+        oracle.answer.decoded_entity_id
+    );
+    assert_eq!(oracle.answer.input_yaw, oracle.answer.stream_decoded_yaw);
+    assert_eq!(oracle.answer.input_yaw, oracle.answer.decoded_yaw);
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound hurt_animation")
+    .expect("dispatch Play clientbound hurt_animation");
+
+    match decoded {
+        packet::Packet::PlayHurtAnimationClientbound(hurt) => {
+            assert_eq!(hurt.entity_id.0, oracle.answer.decoded_entity_id.unwrap());
+            assert_eq!(hurt.yaw, oracle.answer.decoded_yaw.unwrap());
+        }
+        other => panic!(
+            "decoded packet did not preserve Play clientbound hurt_animation identity: {other:?}"
+        ),
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_initialize_border_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_initialize_border_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_initialize_border_clientbound_framed_dispatch_body)
+        .expect("spawn play_initialize_border_clientbound oracle stack")
+        .join()
+        .expect("play_initialize_border_clientbound oracle thread panicked");
+}
+
+fn play_initialize_border_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_INITIALIZE_BORDER_CLIENTBOUND_MANIFEST,
+        PLAY_INITIALIZE_BORDER_CLIENTBOUND_CASE_ID,
+        PLAY_INITIALIZE_BORDER_CLIENTBOUND_CONTRACT,
+        PLAY_INITIALIZE_BORDER_CLIENTBOUND_ANSWER,
+        PLAY_INITIALIZE_BORDER_CLIENTBOUND_TEST_NAME,
+        PLAY_INITIALIZE_BORDER_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:initialize_border",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundInitializeBorderPacket")
+    );
+    assert_eq!(
+        oracle.answer.input_new_center_x,
+        oracle.answer.decoded_new_center_x
+    );
+    assert_eq!(
+        oracle.answer.input_new_center_z,
+        oracle.answer.decoded_new_center_z
+    );
+    assert_eq!(oracle.answer.input_old_size, oracle.answer.decoded_old_size);
+    assert_eq!(oracle.answer.input_new_size, oracle.answer.decoded_new_size);
+    assert_eq!(
+        oracle.answer.input_lerp_time,
+        oracle.answer.decoded_lerp_time
+    );
+    assert_eq!(
+        oracle.answer.input_new_absolute_max_size,
+        oracle.answer.decoded_new_absolute_max_size
+    );
+    assert_eq!(
+        oracle.answer.input_warning_blocks,
+        oracle.answer.decoded_warning_blocks
+    );
+    assert_eq!(
+        oracle.answer.input_warning_time,
+        oracle.answer.decoded_warning_time
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound initialize_border")
+    .expect("dispatch Play clientbound initialize_border");
+
+    match decoded {
+        packet::Packet::PlayInitializeBorderClientbound(border) => {
+            assert_eq!(
+                border.new_center_x,
+                oracle.answer.decoded_new_center_x.unwrap()
+            );
+            assert_eq!(
+                border.new_center_z,
+                oracle.answer.decoded_new_center_z.unwrap()
+            );
+            assert_eq!(border.old_size, oracle.answer.decoded_old_size.unwrap());
+            assert_eq!(border.new_size, oracle.answer.decoded_new_size.unwrap());
+            assert_eq!(border.lerp_time.0, oracle.answer.decoded_lerp_time.unwrap());
+            assert_eq!(
+                border.new_absolute_max_size.0,
+                oracle.answer.decoded_new_absolute_max_size.unwrap()
+            );
+            assert_eq!(
+                border.warning_blocks.0,
+                oracle.answer.decoded_warning_blocks.unwrap()
+            );
+            assert_eq!(
+                border.warning_time.0,
+                oracle.answer.decoded_warning_time.unwrap()
+            );
+        }
+        other => panic!(
+            "decoded packet did not preserve Play clientbound initialize_border identity: {other:?}"
+        ),
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_keep_alive_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_keep_alive_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_keep_alive_clientbound_framed_dispatch_body)
+        .expect("spawn play_keep_alive_clientbound oracle stack")
+        .join()
+        .expect("play_keep_alive_clientbound oracle thread panicked");
+}
+
+fn play_keep_alive_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_KEEP_ALIVE_CLIENTBOUND_MANIFEST,
+        PLAY_KEEP_ALIVE_CLIENTBOUND_CASE_ID,
+        PLAY_KEEP_ALIVE_CLIENTBOUND_CONTRACT,
+        PLAY_KEEP_ALIVE_CLIENTBOUND_ANSWER,
+        PLAY_KEEP_ALIVE_CLIENTBOUND_TEST_NAME,
+        PLAY_KEEP_ALIVE_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:keep_alive",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ClientboundKeepAlivePacket")
+    );
+    assert_eq!(
+        oracle.answer.input_id,
+        oracle.answer.stream_decoded_id.unwrap()
+    );
+    assert_eq!(oracle.answer.input_id, oracle.answer.decoded_id.unwrap());
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound keep_alive")
+    .expect("dispatch Play clientbound keep_alive");
+
+    match decoded {
+        packet::Packet::KeepAliveClientbound_i64(keep_alive) => {
+            assert_eq!(keep_alive.id, oracle.answer.decoded_id.unwrap());
+        }
+        other => panic!(
+            "decoded packet did not preserve Play clientbound keep_alive identity: {other:?}"
         ),
     }
     assert!(body_slice.is_empty());

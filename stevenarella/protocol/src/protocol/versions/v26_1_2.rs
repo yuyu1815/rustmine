@@ -93,6 +93,9 @@ protocol_packet_ids!(
             0x25 => PlayForgetLevelChunkClientbound
             0x26 => PlayGameEventClientbound
             0x29 => PlayMountScreenOpenClientbound
+            0x2a => PlayHurtAnimationClientbound
+            0x2b => PlayInitializeBorderClientbound
+            0x2c => KeepAliveClientbound_i64
         }
     }
 );

@@ -26,10 +26,11 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayContainerSetContentClientbound, PlayContainerSetSlotClientbound,
     PlayCookieRequestClientbound, PlayCooldownClientbound, PlayCustomChatCompletionsClientbound,
     PlayEntityPositionSyncClientbound, PlayForgetLevelChunkClientbound, PlayGameEventClientbound,
-    PlayMountScreenOpenClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
-    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
-    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
-    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    PlayHurtAnimationClientbound, PlayInitializeBorderClientbound, PlayMountScreenOpenClientbound,
+    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
+    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
+    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
+    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
     SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
     SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
     TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
@@ -519,6 +520,20 @@ state_mapped_packets!(
                 field container_id: i32,
                 field inventory_columns: i32,
                 field entity_id: i32,
+            }
+            packet PlayHurtAnimationClientbound {
+                field entity_id: i32,
+                field yaw: f32,
+            }
+            packet PlayInitializeBorderClientbound {
+                field new_center_x: f64,
+                field new_center_z: f64,
+                field old_size: f64,
+                field new_size: f64,
+                field lerp_time: i64,
+                field new_absolute_max_size: i32,
+                field warning_blocks: i32,
+                field warning_time: i32,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1756,6 +1771,28 @@ impl MappablePacket for packet::Packet {
                         container_id: mount.container_id.0,
                         inventory_columns: mount.inventory_columns.0,
                         entity_id: mount.entity_id,
+                    },
+                )
+            }
+            packet::Packet::PlayHurtAnimationClientbound(hurt) => {
+                mapped_packet::MappedPacket::PlayHurtAnimationClientbound(
+                    PlayHurtAnimationClientbound {
+                        entity_id: hurt.entity_id.0,
+                        yaw: hurt.yaw,
+                    },
+                )
+            }
+            packet::Packet::PlayInitializeBorderClientbound(border) => {
+                mapped_packet::MappedPacket::PlayInitializeBorderClientbound(
+                    PlayInitializeBorderClientbound {
+                        new_center_x: border.new_center_x,
+                        new_center_z: border.new_center_z,
+                        old_size: border.old_size,
+                        new_size: border.new_size,
+                        lerp_time: border.lerp_time.0,
+                        new_absolute_max_size: border.new_absolute_max_size.0,
+                        warning_blocks: border.warning_blocks.0,
+                        warning_time: border.warning_time.0,
                     },
                 )
             }
