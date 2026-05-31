@@ -694,3 +694,21 @@ semantics, resource-pack behavior, render readiness, or client-load completion.
 The next official Play clientbound row after this safe batch is
 `minecraft:respawn` / `0x52`; skipped rows from `0x3f` through `0x51` remain
 deferred in `docs/analysis/protocol/versions/775/play-clientbound-deferred.md`.
+
+`play_player_info_remove_clientbound_framed_dispatch`,
+`play_rotate_head_clientbound_framed_dispatch`,
+`play_select_advancements_tab_clientbound_framed_dispatch`,
+`play_set_chunk_cache_center_clientbound_framed_dispatch`, and
+`play_set_chunk_cache_radius_clientbound_framed_dispatch` extend Play
+clientbound packet-support proof across selected GREEN/BLUE rows from the
+`0x52`-started cartography pass plus the previously confirmed safe `0x45` row:
+`minecraft:player_info_remove` / `0x45`, `minecraft:rotate_head` / `0x53`,
+`minecraft:select_advancements_tab` / `0x55`,
+`minecraft:set_chunk_cache_center` / `0x5e`, and
+`minecraft:set_chunk_cache_radius` / `0x5f`. These proofs are official framed
+dispatch/decode fixtures only. They do not prove GameProfile/session/player-list
+state, entity existence, advancement UI behavior, chunk loading, world
+hydration, render readiness, or client-load completion. The next official Play
+clientbound row after this safe batch is `minecraft:set_cursor_item` / `0x60`;
+the skipped `0x52`-`0x65` rows remain recorded in
+`docs/analysis/protocol/versions/775/play-clientbound-deferred.md`.

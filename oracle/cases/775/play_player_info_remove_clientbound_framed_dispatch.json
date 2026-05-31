@@ -1,0 +1,44 @@
+{
+  "case_id": "play_player_info_remove_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket(List<UUID>)",
+      "authority_note": "Official binary source for constructing the Play clientbound player_info_remove UUID-list fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundPlayerInfoRemovePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound player_info_remove body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and player_info_remove packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:player_info_remove",
+    "packet_class": "ClientboundPlayerInfoRemovePacket",
+    "input_fields": {
+      "profile_ids": [
+        "123e4567-e89b-12d3-a456-426614174045",
+        "00000000-0000-0000-0000-000000000045"
+      ]
+    },
+    "field_notes": {
+      "profile_ids": "UUID list fixture; does not prove GameProfile, session, skin, chat, or player-list state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_player_info_remove_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound player_info_remove packet framing and dispatch/decode for one UUID-list fixture only; do not infer GameProfile/session/player-list state, Play entry, render readiness, or client-load completion."
+}

@@ -528,6 +528,26 @@ and `0x4e`-`0x51` remain parked in `play-clientbound-deferred.md`; the next
 official Play clientbound row after this safe batch is
 `minecraft:respawn` / `0x52`.
 
+`play_player_info_remove_clientbound_framed_dispatch`,
+`play_rotate_head_clientbound_framed_dispatch`,
+`play_select_advancements_tab_clientbound_framed_dispatch`,
+`play_set_chunk_cache_center_clientbound_framed_dispatch`, and
+`play_set_chunk_cache_radius_clientbound_framed_dispatch` are packet-support
+evidence for one official UUID-list or primitive/context-free fixture each.
+They prove the official `minecraft:player_info_remove` / `0x45` frame
+`4502123e4567e89b12d3a45642661417404500000000000000000000000000000045`,
+`minecraft:rotate_head` / `0x53` frame `537b40`,
+`minecraft:select_advancements_tab` / `0x55` frame
+`5501146d696e6563726166743a73746f72792f726f6f74`,
+`minecraft:set_chunk_cache_center` / `0x5e` frame `5e07fdffffff0f`, and
+`minecraft:set_chunk_cache_radius` / `0x5f` frame `5f0c`, with full body
+consumption through Stevenarella dispatch. They do not prove GameProfile or
+player-list state, entity existence, advancement UI behavior, chunk loading,
+world hydration, render readiness, or client-load completion. The skipped
+YELLOW rows through `0x65` remain parked in `play-clientbound-deferred.md`; the
+next official Play clientbound row after this safe batch is
+`minecraft:set_cursor_item` / `0x60`.
+
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary
 plugin-channel handling, payload routing policy, Configuration completion, or

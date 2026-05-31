@@ -108,7 +108,12 @@ protocol_packet_ids!(
             0x40 => PlayerAbilities
             0x42 => PlayPlayerCombatEndClientbound
             0x43 => PlayPlayerCombatEnterClientbound
+            0x45 => PlayPlayerInfoRemoveClientbound
             0x4d => EntityDestroy
+            0x53 => EntityHeadLook
+            0x55 => SelectAdvancementTab
+            0x5e => UpdateViewPosition
+            0x5f => UpdateViewDistance
         }
     }
 );

@@ -663,6 +663,9 @@ state_packets!(
             packet PlayPlayerCombatEnterClientbound {
                 field empty: () =,
             }
+            packet PlayPlayerInfoRemoveClientbound {
+                field profile_ids: LenPrefixed<VarInt, UUID> =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

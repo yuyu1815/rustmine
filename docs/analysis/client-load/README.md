@@ -73,8 +73,13 @@ proofs for `minecraft:level_event` / `0x2e`,
 `minecraft:pong_response` / `0x3e`, `minecraft:player_abilities` / `0x40`,
 `minecraft:player_combat_end` / `0x42`,
 `minecraft:player_combat_enter` / `0x43`, and
-`minecraft:remove_entities` / `0x4d`. The skipped YELLOW rows remain deferred;
-this does not prove chunk/light/world hydration, entity existence, combat
-runtime behavior, player movement/ability semantics, UI behavior, resource-pack
-behavior, render readiness, or client-load completion. The next official Play
-clientbound row after this safe batch is `minecraft:respawn` / `0x52`.
+`minecraft:remove_entities` / `0x4d`, plus `minecraft:player_info_remove` /
+`0x45`, `minecraft:rotate_head` / `0x53`,
+`minecraft:select_advancements_tab` / `0x55`,
+`minecraft:set_chunk_cache_center` / `0x5e`, and
+`minecraft:set_chunk_cache_radius` / `0x5f`. The skipped YELLOW rows remain
+deferred; this does not prove chunk/light/world hydration, entity existence,
+combat runtime behavior, player movement/ability semantics, UI behavior,
+resource-pack behavior, render readiness, or client-load completion. The next
+official Play clientbound row after this safe batch is
+`minecraft:set_cursor_item` / `0x60`.
