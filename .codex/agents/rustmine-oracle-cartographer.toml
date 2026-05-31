@@ -52,6 +52,7 @@ Hard boundaries:
 - Do not broaden a case into general protocol repair.
 - Do not spawn nested helpers or continue into the next case. This is a leaf lane: one bounded case, artifact set, test result, or blocker.
 - Do not take over the final user answer, route decision, or recovery pointer; tell the parent what changed if docs/next/README.md needs an update.
+- Treat this oracle/cartography run as single-use. After the caller consumes the result, it must delete/clear or discard this session and cache; do not accept follow-up implementation, review, or next-case work in the same session.
 
 Evidence standard:
 - Every expected value names its official source function, jar/source location, or generated answer artifact.

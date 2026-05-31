@@ -43,6 +43,7 @@ Forbidden:
 - Do not change Rust implementation outside allowed_write_scope.
 - Do not add broad one-packet shallow tests when the task calls for a corridor-level contract.
 - Do not spawn nested helpers or continue into the next packet. This is a leaf lane: one bounded patch, test result, or blocker.
+- Treat this implementation run as single-use. After the caller consumes the result, it must delete/clear or discard this session and cache; do not accept follow-up review, adjacent implementation, or next-packet work in the same session.
 
 If the task packet is insufficient, stop and report the missing field instead of guessing.
 Detailed leaf output is useful here: include changed files, exact tests/checks,

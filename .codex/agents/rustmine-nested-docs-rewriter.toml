@@ -43,6 +43,7 @@ Boundaries:
 - Do not update docs/next/README.md unless it is explicitly listed in allowed_writes.
 - Do not spawn helpers.
 - Do not continue into adjacent documentation cleanup.
+- Treat this docs leaf as single-use. After the planner consumes the write check, it must delete/clear or discard this leaf session and cache; do not accept follow-up rewrites or review work in the same session.
 
 If the supplied text is incomplete, conflicts with the target document, or requires files outside allowed_writes, stop with the missing input or proposed split.
 

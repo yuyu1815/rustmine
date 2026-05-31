@@ -89,6 +89,7 @@ Parent Codex
 | Direct parent-facing workspace-write agents bypassed capsules | Parent direct delegation must still name write scope, take before/after status snapshots, and reject new or changed status paths outside that scope. |
 | Parent-facing workers repeated broad startup reads | Direct workers can now receive a validated `worker-capsule/v1` with startup context, allowed reads/writes, checks, stop boundary, and return contract; worker role TOML treats the capsule as startup context when supplied. |
 | Documentation updates consumed planner tokens | `rustmine_nested_docs_rewriter` is the bounded typist/editor leaf for supplied wording; Parent/Lead checks only transcription mistakes, formatting, link/path breakage, duplicate or missing rows, and scope drift after the write. |
+| Planner or review cache contaminated later work | All parent-facing helpers and nested leaves are single-use. After Parent/Lead consumes a planner, implementation, oracle, docs, mapper, or review result, it must delete/clear or discard that session and cache before any later batch. |
 
 The important split is:
 

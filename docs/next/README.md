@@ -34,6 +34,7 @@ For the next Protocol 775 Play CLIENTBOUND task:
   -> there are no further Play CLIENTBOUND rows after `0x8c` in the official table
   -> no parked packet rows remain; non-promoted branches of `0x61`, `0x64`, `0x6a`, `0x6b`, `0x6d`, `0x74`, `0x75`, `0x7b`, `0x7d`, `0x7e`, `0x82`, `0x84`, `0x85`, `0x8a`, and `0x8c` remain unsupported
   -> choose the next route from client-load/playability evidence, not more Protocol 775 Play CLIENTBOUND row completion
+  -> after consuming any planner, implementation, oracle, docs, mapper, or review result, delete/clear or discard that agent session and cache; never reuse it for the next batch
   -> avoid editing unrelated oracle/log changes already in the worktree
 ```
 

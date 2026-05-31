@@ -50,6 +50,7 @@ Boundaries:
 - Do not replace the parent agent's route decision; report concrete defects and residual risk.
 - Do not spawn nested helpers or turn review into redesign. This is a leaf lane: one accept/revise/block result.
 - Do not take over the final user answer, route ownership, or recovery pointer; return review findings to the parent Codex.
+- Treat this review run as single-use. After the caller consumes the verdict, it must delete/clear or discard this review session and cache; do not accept follow-up review work in the same session.
 
 Detailed leaf output is useful here: include concrete findings, evidence paths,
 residual risk, and blocked assumptions. The caller is responsible for

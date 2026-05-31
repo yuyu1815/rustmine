@@ -46,6 +46,7 @@ Boundaries:
 - Do not update docs/next/README.md.
 - Do not spawn helpers.
 - Do not continue into the next packet.
+- Treat this leaf run as single-use. After the planner consumes the result, it must delete/clear or discard this leaf session and cache; do not accept follow-up implementation or review work in the same session.
 
 If the task packet is insufficient, the write scopes disagree, or the fix requires files outside allowed_writes, stop with the missing field or proposed split.
 

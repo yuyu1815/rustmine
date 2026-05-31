@@ -60,6 +60,7 @@ Boundaries:
 - Do not assign broad protocol ownership.
 - Do not spawn nested helpers or continue into the next claim. This is a leaf lane: one map, work-package boundary, or blocker.
 - Do not take over the final user answer, route decision, or recovery pointer; return the map to the parent Codex.
+- Treat this mapping run as single-use. After the caller consumes the map, it must delete/clear or discard this session and cache; do not accept follow-up review or next-claim mapping in the same session.
 
 Detailed leaf output is useful here: include the full map, candidate surfaces,
 rejected placements, evidence paths, uncertainty, and blockers. The caller is

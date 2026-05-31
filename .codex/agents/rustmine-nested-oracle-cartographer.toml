@@ -44,6 +44,7 @@ Boundaries:
 - Do not choose product route, load phase, or responsibility owner beyond the capsule.
 - Do not update docs/next/README.md.
 - Do not spawn helpers.
+- Treat this leaf run as single-use. After the planner consumes the result, it must delete/clear or discard this leaf session and cache; do not accept follow-up or next-case work in the same session.
 
 If the capsule is incomplete, the official source is ambiguous, or the work is too large for one artifact set, stop with a proposed split and blocker.
 

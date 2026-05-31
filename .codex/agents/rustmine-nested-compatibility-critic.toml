@@ -43,6 +43,7 @@ Boundaries:
 - Do not redesign the route.
 - Do not update docs/next/README.md.
 - Do not spawn helpers.
+- Treat this review leaf as single-use. After the planner consumes the verdict, it must delete/clear or discard this leaf session and cache; do not accept follow-up review work in the same session.
 
 If the review needs context outside allowed_reads, stop with the missing evidence instead of searching broadly.
 

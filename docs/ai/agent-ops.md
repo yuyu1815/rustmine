@@ -192,6 +192,33 @@ as the total non-parent agent budget, so one Lead plus two leaves is the maximum
 single batch. A Lead must not start a second leaf batch without a fresh parent
 decision.
 
+## Ephemeral Agent Lifecycle
+
+Planner, implementation, oracle, mapping, docs, and review agents are
+single-use workers. Do not reuse an existing planner, worker, or review session
+for a later task, later batch, or follow-up review, even when the role name and
+target area are the same.
+
+```text
+spawn fresh agent with capsule
+  -> wait once for result
+    -> validate result / changed paths
+      -> delete or discard that agent session and its cache
+        -> next batch must spawn fresh agents from fresh capsules
+```
+
+Any helper cache is treated as contaminated after the result is consumed. The
+next task must be reconstructed from durable project files, the new
+`context_capsule` or `worker_capsule`, and the current parent prompt; it must
+not inherit the previous helper's chat memory, scratch state, or cached
+interpretation. This applies equally to implementation workers and review
+workers.
+
+If the platform exposes an explicit delete/close/clear operation for a spawned
+agent, the caller must run it after accepting or blocking the result. If no
+explicit deletion API is available, the caller must drop the session id, mark
+the helper as expired, and never address it again.
+
 ## Middle Reasoning Budget
 
 The planner is the middle layer. It may think enough to split the task, but it
@@ -309,6 +336,7 @@ the tree expands.
 | Write-capable leaf drifts | Parent records `before = git status --porcelain=v1 --untracked-files=all -- .`, runs the leaf, records `after` with the same command, and confirms new or changed status paths in `after - before` are inside the capsule `allowed_writes`. |
 | Rust task scope splits from capsule scope | For Rust leaves, validate the capsule together with the rust-fix task and require `allowed_write_scope` to be a subset of capsule `allowed_writes`. |
 | Leaf omits required return fields | Lead/Parent wraps leaf output in `leaf-result/v1` and runs `python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_leaf_result.py CAPSULE_JSON LEAF_RESULT_JSON` before accepting the result. |
+| Helper cache affects later work | Every planner, implementation worker, docs leaf, mapper, oracle worker, and review worker is single-use; delete/clear or discard the agent session after the result is consumed. |
 | Durable evidence stays in chat | Store durable facts in the owned artifact, `docs/next`, or the relevant `docs/analysis` shard. |
 | Split changes the route | Parent updates `docs/next/README.md` before ending. |
 
@@ -325,6 +353,7 @@ Parent direct write delegation
   -> run one bounded parent-facing agent
   -> record after status with untracked files
   -> accept only after new or changed status paths are inside the named scope
+  -> delete or discard that agent session and cache
 ```
 
 This applies to direct `rustmine_oracle_cartographer` and
