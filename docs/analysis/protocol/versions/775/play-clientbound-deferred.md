@@ -244,6 +244,25 @@ named.
 | `0x6b` | `minecraft:set_passengers` | `ClientboundSetPassengersPacket(Entity)` stores vehicle id and copies `Entity.getPassengers()` ids; the primitive buffer constructor is private. | Entity relationship fixture policy for vehicle/passenger identity without fake runtime entities. |
 | `0x74` | `minecraft:sound_entity` | `ClientboundSoundEntityPacket(Holder<SoundEvent>, SoundSource, Entity, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, entity id, volume, pitch, and seed. | SoundEvent holder policy is now proven by `0x75`, but entity sound context is still missing. |
 
+The entity-context cartography pass after commit `d03c4ca` did not find a safe
+3-row promotion route inside the current oracle harness machinery. `javap`
+evidence shows the three packet classes have public constructors that depend on
+official `Entity` instances, while their primitive buffer constructors are
+private decode paths. `Entity` exposes `getId()`/`setId(int)` and initializes an
+empty passenger list, but using `new Marker(EntityType.MARKER, null)`,
+`Entity.setId(...)`, a fake/minimal `Level`, reflection into passenger fields,
+or private buffer constructors would turn the fixture into a fabricated entity
+context rather than an official initialized entity relationship. Those routes
+are therefore rejected for these final rows.
+
+| Rejected shortcut | Why it does not unlock the rows |
+|---|---|
+| Private `FriendlyByteBuf` / `RegistryFriendlyByteBuf` constructors | They prove decode shape only after hand-naming primitive ids/body bytes; they are not an official public fixture source. |
+| `Entity.setId(...)` on a null-level entity | It yields stable `getId()` bytes, but the identity is selected by the harness rather than by an official spawn/entity context. |
+| Harness-local fake `Level` or mock entity subclass | It creates packet bytes by test scaffolding, not by current official fixture machinery. |
+| Reflection into `Entity.passengers` or `vehicle` | It bypasses official relationship setup and would fabricate passenger topology. |
+| Reusing `0x75` sound body for `0x74` | `0x75` proves the `SoundEvent` holder/source branch only; `0x74` still needs official entity id context. |
+
 All currently safe Protocol 775 Play CLIENTBOUND packet rows from the first
 pass and parked-row promotion passes have been implemented as bounded
 jar-backed proof packages. Remaining support is blocked on the explicit
@@ -258,13 +277,14 @@ exist.
 
 | Blocker policy | Rows unlocked | Official evidence needed | Forbidden shortcuts | Smallest next subagent task | Plausibly yields 3-packet batch? |
 |---|---|---|---|---|---|
-| Entity relationship fixture policy | `0x64`, `0x6b` | Official constructor or harness path that creates real source/vehicle/passenger `Entity` instances and proves stable `getId()`, optional/null link, and empty/non-empty passenger list bytes without private buffer construction. | Do not fabricate entity ids by calling private decode constructors; do not use mock entities; do not treat ids as context-free primitives. | `rustmine_nested_oracle_cartographer`: map official minimal entity setup for link/passenger packet constructors and stop at answer feasibility. | No. It can unlock at most 2 rows by itself. |
-| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; `0x74` still needs an official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | `rustmine_nested_oracle_cartographer`: map official minimal entity setup for sound_entity and stop at answer feasibility. | No. It unlocks 1 row. |
+| Entity relationship fixture policy | `0x64`, `0x6b` | Official initialized-harness path that creates real source/vehicle/passenger `Entity` instances and proves stable ids, optional/null link, and passenger list bytes without private buffer construction, fake `Level`, mock entities, or reflection. | Do not fabricate entity ids by calling private decode constructors or `setId(...)` on null-level entities; do not use mock entities; do not treat ids as context-free primitives. | Build an initialized official harness policy first, then create oracle cases only after it proves real entity construction and relationship setup. | No safe current-harness route. |
+| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; `0x74` still needs an initialized official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | Reuse the future initialized entity fixture policy plus the proven `0x75` SoundEvent holder/source fixture. | No safe current-harness route. |
 
 Recommended next route:
 
 ```text
 Need another final-row batch?
   -> combined registry-holder fixture policy is complete for 0x75 + 0x84 + 0x8c
-  -> remaining route needs entity fixture policy for 0x64 + 0x6b + 0x74
+  -> no safe current-harness entity-context batch exists for 0x64 + 0x6b + 0x74
+  -> next route is an initialized official entity fixture policy, not packet mapping
 ```
