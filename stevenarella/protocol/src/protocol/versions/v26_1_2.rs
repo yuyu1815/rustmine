@@ -144,15 +144,19 @@ protocol_packet_ids!(
             0x7a => PlayTabListClientbound
             0x7b => PlayTagQueryClientbound
             0x7c => CollectItem
+            0x7d => PlayTeleportEntityClientbound
             0x7e => PlayTestInstanceBlockStatusClientbound
             0x7f => PlayTickingStateClientbound
             0x80 => PlayTickingStepClientbound
             0x81 => PlayTransferClientbound
+            0x82 => PlayUpdateAdvancementsClientbound
             0x83 => PlayUpdateAttributesClientbound
+            0x85 => PlayUpdateRecipesClientbound
             0x86 => PlayUpdateTagsClientbound
             0x87 => PlayProjectilePowerClientbound
             0x88 => PlayCustomReportDetailsClientbound
             0x89 => PlayServerLinksClientbound
+            0x8a => PlayWaypointClientbound
             0x8b => PlayClearDialogClientbound
         }
     }

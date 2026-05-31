@@ -760,6 +760,19 @@ state_packets!(
                 field nbt_tag_type: u8 =,
                 field tag: Vec<u8> =,
             }
+            packet PlayTeleportEntityClientbound {
+                field entity_id: VarInt =,
+                field position_x: f64 =,
+                field position_y: f64 =,
+                field position_z: f64 =,
+                field delta_x: f64 =,
+                field delta_y: f64 =,
+                field delta_z: f64 =,
+                field y_rot: f32 =,
+                field x_rot: f32 =,
+                field relative_mask: i32 =,
+                field on_ground: bool =,
+            }
             packet PlayTestInstanceBlockStatusClientbound {
                 field status: format::Component =,
                 field size_present: bool =,
@@ -788,12 +801,27 @@ state_packets!(
                 field entity_id: VarInt =,
                 field attribute_count: VarInt =,
             }
+            packet PlayUpdateAdvancementsClientbound {
+                field reset: bool =,
+                field added_count: VarInt =,
+                field removed_count: VarInt =,
+                field progress_count: VarInt =,
+                field show_advancements: bool =,
+            }
+            packet PlayUpdateRecipesClientbound {
+                field item_set_count: VarInt =,
+                field stonecutter_recipe_count: VarInt =,
+            }
             packet PlayUpdateTagsClientbound {
                 field registry_payload_count: VarInt =,
             }
             packet PlayProjectilePowerClientbound {
                 field entity_id: VarInt =,
                 field acceleration_power: f64 =,
+            }
+            packet PlayWaypointClientbound {
+                field operation_id: VarInt =,
+                field waypoint_payload: Vec<u8> =,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.

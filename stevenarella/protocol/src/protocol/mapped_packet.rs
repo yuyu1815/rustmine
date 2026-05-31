@@ -41,8 +41,10 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound,
     PlayStoreCookieClientbound, PlaySystemChatClientbound, PlayTabListClientbound,
     PlayTagQueryClientbound, PlayTestInstanceBlockStatusClientbound, PlayTickingStateClientbound,
-    PlayTickingStepClientbound, PlayTransferClientbound,
-    PlayUpdateAttributesClientbound, PlayUpdateTagsClientbound, PlayerAbilities, PlayerInfo,
+    PlayTeleportEntityClientbound, PlayTickingStepClientbound, PlayTransferClientbound,
+    PlayUpdateAdvancementsClientbound, PlayUpdateAttributesClientbound,
+    PlayUpdateRecipesClientbound, PlayUpdateTagsClientbound, PlayWaypointClientbound,
+    PlayerAbilities, PlayerInfo,
     PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
     ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
     SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
@@ -660,6 +662,19 @@ state_mapped_packets!(
                 field nbt_tag_type: u8,
                 field tag: Vec<u8>,
             }
+            packet PlayTeleportEntityClientbound {
+                field entity_id: i32,
+                field position_x: f64,
+                field position_y: f64,
+                field position_z: f64,
+                field delta_x: f64,
+                field delta_y: f64,
+                field delta_z: f64,
+                field y_rot: f32,
+                field x_rot: f32,
+                field relative_mask: i32,
+                field on_ground: bool,
+            }
             packet PlayTestInstanceBlockStatusClientbound {
                 field status: format::Component,
                 field size_present: bool,
@@ -688,12 +703,27 @@ state_mapped_packets!(
                 field entity_id: i32,
                 field attribute_count: i32,
             }
+            packet PlayUpdateAdvancementsClientbound {
+                field reset: bool,
+                field added_count: i32,
+                field removed_count: i32,
+                field progress_count: i32,
+                field show_advancements: bool,
+            }
+            packet PlayUpdateRecipesClientbound {
+                field item_set_count: i32,
+                field stonecutter_recipe_count: i32,
+            }
             packet PlayUpdateTagsClientbound {
                 field registry_payload_count: i32,
             }
             packet PlayProjectilePowerClientbound {
                 field entity_id: i32,
                 field acceleration_power: f64,
+            }
+            packet PlayWaypointClientbound {
+                field operation_id: i32,
+                field waypoint_payload: Vec<u8>,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -2164,6 +2194,23 @@ impl MappablePacket for packet::Packet {
                     tag: tag_query.tag,
                 })
             }
+            packet::Packet::PlayTeleportEntityClientbound(teleport_entity) => {
+                mapped_packet::MappedPacket::PlayTeleportEntityClientbound(
+                    PlayTeleportEntityClientbound {
+                        entity_id: teleport_entity.entity_id.0,
+                        position_x: teleport_entity.position_x,
+                        position_y: teleport_entity.position_y,
+                        position_z: teleport_entity.position_z,
+                        delta_x: teleport_entity.delta_x,
+                        delta_y: teleport_entity.delta_y,
+                        delta_z: teleport_entity.delta_z,
+                        y_rot: teleport_entity.y_rot,
+                        x_rot: teleport_entity.x_rot,
+                        relative_mask: teleport_entity.relative_mask,
+                        on_ground: teleport_entity.on_ground,
+                    },
+                )
+            }
             packet::Packet::PlayTestInstanceBlockStatusClientbound(status) => {
                 mapped_packet::MappedPacket::PlayTestInstanceBlockStatusClientbound(
                     PlayTestInstanceBlockStatusClientbound {
@@ -2222,6 +2269,25 @@ impl MappablePacket for packet::Packet {
                     },
                 )
             }
+            packet::Packet::PlayUpdateAdvancementsClientbound(update_advancements) => {
+                mapped_packet::MappedPacket::PlayUpdateAdvancementsClientbound(
+                    PlayUpdateAdvancementsClientbound {
+                        reset: update_advancements.reset,
+                        added_count: update_advancements.added_count.0,
+                        removed_count: update_advancements.removed_count.0,
+                        progress_count: update_advancements.progress_count.0,
+                        show_advancements: update_advancements.show_advancements,
+                    },
+                )
+            }
+            packet::Packet::PlayUpdateRecipesClientbound(update_recipes) => {
+                mapped_packet::MappedPacket::PlayUpdateRecipesClientbound(
+                    PlayUpdateRecipesClientbound {
+                        item_set_count: update_recipes.item_set_count.0,
+                        stonecutter_recipe_count: update_recipes.stonecutter_recipe_count.0,
+                    },
+                )
+            }
             packet::Packet::PlayUpdateTagsClientbound(update_tags) => {
                 mapped_packet::MappedPacket::PlayUpdateTagsClientbound(PlayUpdateTagsClientbound {
                     registry_payload_count: update_tags.registry_payload_count.0,
@@ -2234,6 +2300,12 @@ impl MappablePacket for packet::Packet {
                         acceleration_power: projectile_power.acceleration_power,
                     },
                 )
+            }
+            packet::Packet::PlayWaypointClientbound(waypoint) => {
+                mapped_packet::MappedPacket::PlayWaypointClientbound(PlayWaypointClientbound {
+                    operation_id: waypoint.operation_id.0,
+                    waypoint_payload: waypoint.waypoint_payload,
+                })
             }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {

@@ -986,6 +986,39 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlayTeleportEntityClientbound => {
+                        let entity_id = VarInt::read_from(buf)?;
+                        let position_x = buf.read_f64::<BigEndian>()?;
+                        let position_y = buf.read_f64::<BigEndian>()?;
+                        let position_z = buf.read_f64::<BigEndian>()?;
+                        let delta_x = buf.read_f64::<BigEndian>()?;
+                        let delta_y = buf.read_f64::<BigEndian>()?;
+                        let delta_z = buf.read_f64::<BigEndian>()?;
+                        let y_rot = buf.read_f32::<BigEndian>()?;
+                        let x_rot = buf.read_f32::<BigEndian>()?;
+                        let relative_mask = buf.read_i32::<BigEndian>()?;
+                        if relative_mask != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play teleport_entity non-empty relative mask {}",
+                                relative_mask
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlayTeleportEntityClientbound(
+                            packet::play::clientbound::PlayTeleportEntityClientbound {
+                                entity_id,
+                                position_x,
+                                position_y,
+                                position_z,
+                                delta_x,
+                                delta_y,
+                                delta_z,
+                                y_rot,
+                                x_rot,
+                                relative_mask,
+                                on_ground: bool::read_from(buf)?,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlayTestInstanceBlockStatusClientbound => {
                         let status = read_nbt_string_component(buf)?;
                         let size_present = bool::read_from(buf)?;
@@ -1023,6 +1056,66 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlayUpdateAdvancementsClientbound => {
+                        let reset = bool::read_from(buf)?;
+                        let added_count = VarInt::read_from(buf)?;
+                        let removed_count = VarInt::read_from(buf)?;
+                        let progress_count = VarInt::read_from(buf)?;
+                        for (name, count) in [
+                            ("added", added_count.0),
+                            ("removed", removed_count.0),
+                            ("progress", progress_count.0),
+                        ] {
+                            if count < 0 {
+                                return Err(Error::Err(format!(
+                                    "negative Play update_advancements {} count {}",
+                                    name, count
+                                )));
+                            }
+                            if count != 0 {
+                                return Err(Error::Err(format!(
+                                    "unsupported non-empty Play update_advancements {} count {}",
+                                    name, count
+                                )));
+                            }
+                        }
+                        return Ok(Option::Some(Packet::PlayUpdateAdvancementsClientbound(
+                            packet::play::clientbound::PlayUpdateAdvancementsClientbound {
+                                reset,
+                                added_count,
+                                removed_count,
+                                progress_count,
+                                show_advancements: bool::read_from(buf)?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayUpdateRecipesClientbound => {
+                        let item_set_count = VarInt::read_from(buf)?;
+                        let stonecutter_recipe_count = VarInt::read_from(buf)?;
+                        for (name, count) in [
+                            ("item set", item_set_count.0),
+                            ("stonecutter recipe", stonecutter_recipe_count.0),
+                        ] {
+                            if count < 0 {
+                                return Err(Error::Err(format!(
+                                    "negative Play update_recipes {} count {}",
+                                    name, count
+                                )));
+                            }
+                            if count != 0 {
+                                return Err(Error::Err(format!(
+                                    "unsupported non-empty Play update_recipes {} count {}",
+                                    name, count
+                                )));
+                            }
+                        }
+                        return Ok(Option::Some(Packet::PlayUpdateRecipesClientbound(
+                            packet::play::clientbound::PlayUpdateRecipesClientbound {
+                                item_set_count,
+                                stonecutter_recipe_count,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlayUpdateTagsClientbound => {
                         let registry_payload_count = VarInt::read_from(buf)?;
                         if registry_payload_count.0 < 0 {
@@ -1048,6 +1141,35 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlayProjectilePowerClientbound {
                                 entity_id: VarInt::read_from(buf)?,
                                 acceleration_power: buf.read_f64::<BigEndian>()?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayWaypointClientbound => {
+                        let operation_id = VarInt::read_from(buf)?;
+                        if operation_id.0 != 1 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play waypoint operation id {}",
+                                operation_id.0
+                            )));
+                        }
+                        let mut waypoint_payload = Vec::new();
+                        buf.read_to_end(&mut waypoint_payload)?;
+                        let expected_payload = [
+                            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x00, 0x00, 0x01, 0x23, 0x11, 0x6d, 0x69, 0x6e, 0x65,
+                            0x63, 0x72, 0x61, 0x66, 0x74, 0x3a, 0x64, 0x65, 0x66, 0x61, 0x75,
+                            0x6c, 0x74, 0x00, 0x00,
+                        ];
+                        if waypoint_payload != expected_payload {
+                            return Err(Error::Err(
+                                "unsupported Play waypoint payload outside removeWaypoint empty fixture"
+                                    .to_owned(),
+                            ));
+                        }
+                        return Ok(Option::Some(Packet::PlayWaypointClientbound(
+                            packet::play::clientbound::PlayWaypointClientbound {
+                                operation_id,
+                                waypoint_payload,
                             },
                         )));
                     }

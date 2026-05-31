@@ -140,8 +140,12 @@ public final class OracleCases {
             case "play_ticking_state_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTickingStateClientboundFramedDispatchCase.generate(input);
             case "play_ticking_step_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTickingStepClientboundFramedDispatchCase.generate(input);
             case "play_transfer_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTransferClientboundFramedDispatchCase.generate(input);
+            case "play_teleport_entity_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTeleportEntityClientboundFramedDispatchCase.generate(input);
+            case "play_update_advancements_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateAdvancementsClientboundFramedDispatchCase.generate(input);
             case "play_update_attributes_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateAttributesClientboundFramedDispatchCase.generate(input);
+            case "play_update_recipes_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateRecipesClientboundFramedDispatchCase.generate(input);
             case "play_update_tags_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateTagsClientboundFramedDispatchCase.generate(input);
+            case "play_waypoint_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayWaypointClientboundFramedDispatchCase.generate(input);
             default -> throw new IllegalArgumentException("unsupported oracle case: " + caseId);
         };
     }
