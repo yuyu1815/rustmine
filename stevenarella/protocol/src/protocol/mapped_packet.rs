@@ -36,24 +36,22 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlaySetCursorItemClientbound, PlaySetDefaultSpawnPositionClientbound,
     PlaySetDisplayObjectiveClientbound, PlaySetEntityDataClientbound, PlaySetEquipmentClientbound,
     PlaySetObjectiveClientbound, PlaySetPlayerInventoryClientbound, PlaySetPlayerTeamClientbound,
-    PlaySetScoreClientbound,
-    PlaySetSubtitleTextClientbound, PlaySetTimeClientbound, PlaySetTitleTextClientbound,
-    PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound,
-    PlayStoreCookieClientbound, PlaySystemChatClientbound, PlayTabListClientbound,
-    PlayTagQueryClientbound, PlayTestInstanceBlockStatusClientbound, PlayTickingStateClientbound,
-    PlayTeleportEntityClientbound, PlayTickingStepClientbound, PlayTransferClientbound,
-    PlayUpdateAdvancementsClientbound, PlayUpdateAttributesClientbound,
-    PlayUpdateRecipesClientbound, PlayUpdateTagsClientbound, PlayWaypointClientbound,
-    PlayerAbilities, PlayerInfo,
-    PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
-    ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
-    SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
-    SignEditorOpen, SoundEffect, SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject,
-    SpawnPainting, SpawnPlayer, SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags,
-    Teams, TeleportPlayer, TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity,
-    UpdateHealth, UpdateLight, UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition,
-    VehicleTeleport, WindowClose, WindowItems, WindowOpen, WindowOpenHorse, WindowProperty,
-    WindowSetSlot, WorldBorder,
+    PlaySetScoreClientbound, PlaySetSubtitleTextClientbound, PlaySetTimeClientbound,
+    PlaySetTitleTextClientbound, PlaySetTitlesAnimationClientbound,
+    PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlaySystemChatClientbound,
+    PlayTabListClientbound, PlayTagQueryClientbound, PlayTeleportEntityClientbound,
+    PlayTestInstanceBlockStatusClientbound, PlayTickingStateClientbound,
+    PlayTickingStepClientbound, PlayTransferClientbound, PlayUpdateAdvancementsClientbound,
+    PlayUpdateAttributesClientbound, PlayUpdateRecipesClientbound, PlayUpdateTagsClientbound,
+    PlayWaypointClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
+    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
+    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
+    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
+    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
+    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
+    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
+    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -2974,6 +2972,15 @@ impl MappablePacket for packet::Packet {
                     hide_particles: None,
                 })
             }
+            packet::Packet::PlayUpdateMobEffectClientbound(effect) => {
+                mapped_packet::MappedPacket::EntityEffect(EntityEffect {
+                    entity_id: effect.entity_id.0,
+                    effect_id: effect.effect_holder_id.0 as i8,
+                    amplifier: effect.amplifier.0 as i8,
+                    duration: effect.duration.0,
+                    hide_particles: Some(effect.flags & 0x02 == 0),
+                })
+            }
             packet::Packet::EntityEquipment_Array(equipment) => {
                 mapped_packet::MappedPacket::EntityEquipment_Array(EntityEquipment_Array {
                     entity_id: equipment.entity_id.0,
@@ -3855,6 +3862,12 @@ impl MappablePacket for packet::Packet {
                     data: plugin_msg.data,
                 })
             }
+            packet::Packet::PlayShowDialogClientbound(show_dialog) => {
+                mapped_packet::MappedPacket::PluginMessageClientbound(PluginMessageClientbound {
+                    channel: "ShowDialog".to_owned(),
+                    data: show_dialog.dialog_data,
+                })
+            }
             packet::Packet::PluginMessageClientbound_i16(plugin_msg) => {
                 mapped_packet::MappedPacket::PluginMessageClientbound(PluginMessageClientbound {
                     channel: plugin_msg.channel,
@@ -4356,6 +4369,17 @@ impl MappablePacket for packet::Packet {
                 mapped_packet::MappedPacket::SoundEffect(SoundEffect {
                     name: sound.name.0,
                     category: sound.category.0,
+                    x: sound.x,
+                    y: sound.y,
+                    z: sound.z,
+                    volume: sound.volume,
+                    pitch: sound.pitch,
+                })
+            }
+            packet::Packet::PlaySoundClientbound(sound) => {
+                mapped_packet::MappedPacket::SoundEffect(SoundEffect {
+                    name: sound.sound_holder_id.0,
+                    category: sound.source.0,
                     x: sound.x,
                     y: sound.y,
                     z: sound.z,

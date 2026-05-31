@@ -100,6 +100,7 @@ official jar function
 | `play_set_score_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-score-clientbound-framed-dispatch.md` |
 | `play_set_time_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-time-clientbound-framed-dispatch.md` |
 | `play_set_titles_animation_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-titles-animation-clientbound-framed-dispatch.md` |
+| `play_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-sound-clientbound-framed-dispatch.md` |
 | `play_start_configuration_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-start-configuration-clientbound-framed-dispatch.md` |
 | `play_stop_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-stop-sound-clientbound-framed-dispatch.md` |
 | `play_store_cookie_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-store-cookie-clientbound-framed-dispatch.md` |
@@ -109,6 +110,8 @@ official jar function
 | `play_transfer_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-transfer-clientbound-framed-dispatch.md` |
 | `play_clear_dialog_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-clear-dialog-clientbound-framed-dispatch.md` |
 | `play_update_tags_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-update-tags-clientbound-framed-dispatch.md` |
+| `play_update_mob_effect_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-update-mob-effect-clientbound-framed-dispatch.md` |
+| `play_show_dialog_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-show-dialog-clientbound-framed-dispatch.md` |
 | `play_ping_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ping-clientbound-framed-dispatch.md` |
 | Oracle workbench router | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 | Oracle case package workflow | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
@@ -628,15 +631,23 @@ runtime behavior, tick-manager runtime behavior, transfer handling, Play
 readiness, or client-load completion.
 
 `play_custom_report_details_clientbound_framed_dispatch`,
-`play_server_links_clientbound_framed_dispatch`, and
-`play_clear_dialog_clientbound_framed_dispatch` have official jar-backed
+`play_server_links_clientbound_framed_dispatch`,
+`play_clear_dialog_clientbound_framed_dispatch`,
+`play_sound_clientbound_framed_dispatch`,
+`play_update_mob_effect_clientbound_framed_dispatch`, and
+`play_show_dialog_clientbound_framed_dispatch` have official jar-backed
 answers for `minecraft:custom_report_details` / `0x88`,
-`minecraft:server_links` / `0x89`, and `minecraft:clear_dialog` / `0x8b`.
+`minecraft:server_links` / `0x89`, `minecraft:clear_dialog` / `0x8b`,
+`minecraft:sound` / `0x75`, `minecraft:update_mob_effect` / `0x84`, and
+`minecraft:show_dialog` / `0x8c`.
 Their exact Rust oracle tests pass against the current Leafish checkout. These
 proofs are scoped to an empty report-details map, an empty server-links list,
-and the clear-dialog singleton body; they do not prove non-empty entry
-semantics, link UI behavior, dialog UI behavior, `show_dialog`, Play readiness,
-or client-load completion.
+the clear-dialog singleton body, one SoundEvents.AMBIENT_CAVE world-position
+sound fixture, one MobEffects.SPEED update fixture, and one direct
+NoticeDialog show-dialog fixture; they do not prove non-empty entry semantics,
+link UI behavior, arbitrary sound/effect/dialog holders, world sound playback,
+entity effect runtime state, dialog UI behavior, Play readiness, or
+client-load completion.
 
 `play_set_display_objective_clientbound_framed_dispatch`,
 `play_set_score_clientbound_framed_dispatch`,

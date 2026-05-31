@@ -130,6 +130,7 @@ public final class OracleCases {
             case "play_set_title_text_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitleTextClientboundFramedDispatchCase.generate(input);
             case "play_set_titles_animation_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitlesAnimationClientboundFramedDispatchCase.generate(input);
             case "play_start_configuration_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStartConfigurationClientboundFramedDispatchCase.generate(input);
+            case "play_sound_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySoundClientboundFramedDispatchCase.generate(input);
             case "play_stop_sound_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStopSoundClientboundFramedDispatchCase.generate(input);
             case "play_store_cookie_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStoreCookieClientboundFramedDispatchCase.generate(input);
             case "play_system_chat_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySystemChatClientboundFramedDispatchCase.generate(input);
@@ -143,9 +144,11 @@ public final class OracleCases {
             case "play_teleport_entity_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTeleportEntityClientboundFramedDispatchCase.generate(input);
             case "play_update_advancements_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateAdvancementsClientboundFramedDispatchCase.generate(input);
             case "play_update_attributes_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateAttributesClientboundFramedDispatchCase.generate(input);
+            case "play_update_mob_effect_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateMobEffectClientboundFramedDispatchCase.generate(input);
             case "play_update_recipes_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateRecipesClientboundFramedDispatchCase.generate(input);
             case "play_update_tags_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateTagsClientboundFramedDispatchCase.generate(input);
             case "play_waypoint_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayWaypointClientboundFramedDispatchCase.generate(input);
+            case "play_show_dialog_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayShowDialogClientboundFramedDispatchCase.generate(input);
             default -> throw new IllegalArgumentException("unsupported oracle case: " + caseId);
         };
     }

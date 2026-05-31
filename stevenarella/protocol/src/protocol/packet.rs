@@ -797,9 +797,29 @@ state_packets!(
             packet PlayClearDialogClientbound {
                 field empty: () =,
             }
+            packet PlayShowDialogClientbound {
+                field dialog_data: Vec<u8> =,
+            }
+            packet PlaySoundClientbound {
+                field sound_holder_id: VarInt =,
+                field source: VarInt =,
+                field x: i32 =,
+                field y: i32 =,
+                field z: i32 =,
+                field volume: f32 =,
+                field pitch: f32 =,
+                field seed: i64 =,
+            }
             packet PlayUpdateAttributesClientbound {
                 field entity_id: VarInt =,
                 field attribute_count: VarInt =,
+            }
+            packet PlayUpdateMobEffectClientbound {
+                field entity_id: VarInt =,
+                field effect_holder_id: VarInt =,
+                field amplifier: VarInt =,
+                field duration: VarInt =,
+                field flags: u8 =,
             }
             packet PlayUpdateAdvancementsClientbound {
                 field reset: bool =,

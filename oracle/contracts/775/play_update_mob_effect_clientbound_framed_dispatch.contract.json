@@ -1,0 +1,31 @@
+{
+  "contract_id": "play_update_mob_effect_clientbound_framed_dispatch_contract",
+  "case_id": "play_update_mob_effect_clientbound_framed_dispatch",
+  "scope": "codec",
+  "official_functions": [
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundUpdateMobEffectPacket(int, MobEffectInstance, boolean)",
+      "role": "Construct the official Play clientbound update_mob_effect fixture"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "MobEffects.SPEED; MobEffect.STREAM_CODEC; ByteBufCodecs.holderRegistry",
+      "role": "Encode/decode the bounded MobEffect holder through official registry-holder policy"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "MobEffectInstance constructor and ClientboundUpdateMobEffectPacket flag derivation",
+      "role": "Provide the amplifier, duration, ambient, visible, icon, and blend flag bytes"
+    }
+  ],
+  "invariants": [
+    "The official Play clientbound protocol codec writes the packet table id before the update_mob_effect body.",
+    "The official fixture preserves entity id, MobEffect holder, amplifier, duration, and flags through stream decode and framed dispatch decode.",
+    "This contract does not prove entity existence, effect application, HUD/particle behavior, or arbitrary MobEffect registry ids."
+  ],
+  "answer_path": "oracle/answers/775/play_update_mob_effect_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "test_topology_note": "rust_test_target names the current case adapter only; the manifest owns the runnable test topology.",
+  "stop_boundary": "Do not use this packet-support contract to infer entity/effect runtime state or arbitrary MobEffect holder behavior."
+}

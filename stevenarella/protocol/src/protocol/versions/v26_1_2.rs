@@ -137,6 +137,7 @@ protocol_packet_ids!(
             0x71 => PlaySetTimeClientbound
             0x72 => PlaySetTitleTextClientbound
             0x73 => PlaySetTitlesAnimationClientbound
+            0x75 => PlaySoundClientbound
             0x76 => PlayStartConfigurationClientbound
             0x77 => StopSound
             0x78 => PlayStoreCookieClientbound
@@ -151,6 +152,7 @@ protocol_packet_ids!(
             0x81 => PlayTransferClientbound
             0x82 => PlayUpdateAdvancementsClientbound
             0x83 => PlayUpdateAttributesClientbound
+            0x84 => PlayUpdateMobEffectClientbound
             0x85 => PlayUpdateRecipesClientbound
             0x86 => PlayUpdateTagsClientbound
             0x87 => PlayProjectilePowerClientbound
@@ -158,6 +160,7 @@ protocol_packet_ids!(
             0x89 => PlayServerLinksClientbound
             0x8a => PlayWaypointClientbound
             0x8b => PlayClearDialogClientbound
+            0x8c => PlayShowDialogClientbound
         }
     }
 );

@@ -67,7 +67,7 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x71` | `minecraft:set_time` | promoted BLUE | Official `ClientboundSetTimePacket(long, Map.of())` generated a jar-backed Play answer with one long and a zero clock-update map count. | Promoted only for the empty clock-update map fixture; do not infer `WorldClock`, `ClockNetworkState`, or time runtime semantics. |
 | `0x72` | `minecraft:set_title_text` | promoted BLUE | Official `ClientboundSetTitleTextPacket(Component.literal("rustmine title"))` generated a jar-backed Play answer with a simple NBT string Component body. | Promoted only for the `Component.literal(String)` simple string fixture; do not infer rich Component, title UI, or title runtime behavior. |
 | `0x74` | `minecraft:sound_entity` | deferred YELLOW | Official `ClientboundSoundEntityPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, entity id, volume, pitch, and seed. | Do not invent sound registry holder values or entity runtime context. |
-| `0x75` | `minecraft:sound` | deferred YELLOW | Official `ClientboundSoundPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, position ints, volume, pitch, and seed. | Do not invent sound registry holder values or world sound context. |
+| `0x75` | `minecraft:sound` | promoted BLUE | Official `ClientboundSoundPacket(SoundEvents.AMBIENT_CAVE, SoundSource.MASTER, 1.25, 64.5, -2.75, 0.75F, 1.25F, 123456789L)` generated a jar-backed Play answer with SoundEvent holder id `8`, source id `0`, quantized position ints, volume, pitch, and seed. | Promoted only for the bounded SoundEvents.AMBIENT_CAVE/Master holder fixture; reject unsupported SoundEvent holder/source variants. Do not infer world sound playback or sound asset readiness. |
 | `0x77` | `minecraft:stop_sound` | promoted GREEN | Official `ClientboundStopSoundPacket(null, null)` generated a jar-backed Play answer with one flags byte `0`; no registry holder was required for that fixture. | Promoted only for the null/null fixture; do not infer named source or named sound behavior. |
 | `0x78` | `minecraft:store_cookie` | promoted BLUE | Official Play row uses common `ClientboundStoreCookiePacket` with Identifier plus bounded byte-array payload; a Play-specific answer and Rust mapping now prove one fixture. | Do not infer runtime cookie storage policy from this packet-support proof. |
 | `0x79` | `minecraft:system_chat` | promoted BLUE | Official `ClientboundSystemChatPacket(Component.literal("rustmine system chat"), false)` generated a jar-backed Play answer with a simple NBT string Component body plus false overlay byte. | Promoted only for the `Component.literal(String)` plus `overlay=false` fixture; do not infer rich Component, signed chat, chat HUD, or overlay-true behavior. |
@@ -80,7 +80,7 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x81` | `minecraft:transfer` | promoted BLUE | Official Play row uses common `ClientboundTransferPacket` with host string and port VarInt; a Play-specific answer and Rust mapping now prove one fixture. | Do not infer runtime transfer/reconnect handling from this packet-support proof. |
 | `0x82` | `minecraft:update_advancements` | promoted BLUE | Official `ClientboundUpdateAdvancementsPacket(false, List.of(), Set.of(), Map.of(), false)` generated a jar-backed Play answer with reset false, three zero collection/map counts, and showAdvancements false; no advancement holder/progress payload is entered. | Promoted only for empty added/removed/progress collections; reject non-zero counts before holder/progress decoding. Do not infer advancement tree, progress, or UI behavior. |
 | `0x83` | `minecraft:update_attributes` | promoted BLUE | Official `ClientboundUpdateAttributesPacket(12345, List.of())` generated a jar-backed Play answer with entity id plus zero attribute-list count; no `AttributeSnapshot.STREAM_CODEC`, attribute registry holder, or modifier payload is entered for the empty list. | Promoted only for the empty attribute list fixture; reject non-zero attribute counts before attribute registry/modifier decoding. Do not infer entity existence or attribute behavior. |
-| `0x84` | `minecraft:update_mob_effect` | deferred YELLOW | Official codec uses entity id plus `MobEffect.STREAM_CODEC`, amplifier, duration, and flags. | Do not invent mob-effect registry holders or entity/effect state. |
+| `0x84` | `minecraft:update_mob_effect` | promoted BLUE | Official `ClientboundUpdateMobEffectPacket(12345, new MobEffectInstance(MobEffects.SPEED, 200, 1, false, true, true), false)` generated a jar-backed Play answer with entity id, MobEffect holder id `0`, amplifier, duration, and flags. | Promoted only for the bounded MobEffects.SPEED fixture; reject unsupported MobEffect holder variants. Do not infer entity existence or effect runtime state. |
 | `0x85` | `minecraft:update_recipes` | promoted BLUE | Official `ClientboundUpdateRecipesPacket(Map.of(), SelectableRecipe.SingleInputSet.empty())` generated a jar-backed Play answer with two zero counts; no recipe property set, item, SlotDisplay, or recipe payload is entered. | Promoted only for empty itemSets and empty stonecutter recipe list; reject non-zero counts before recipe/item/display decoding. Do not infer recipe, item, display, or registry behavior. |
 | `0x86` | `minecraft:update_tags` | promoted BLUE | Official Play row uses common `ClientboundUpdateTagsPacket`; `Map.of()` generated a jar-backed Play answer with a zero registry payload count. | Promoted only for the empty registry tag map fixture; do not infer registry keys, tag payloads, or registry reload behavior. |
 | `0x87` | `minecraft:projectile_power` | promoted GREEN | Official `ClientboundProjectilePowerPacket(12345, 2.5)` generated a jar-backed Play answer with entity id VarInt plus acceleration power double; no projectile entity object, registry holder, or world state is needed to construct the packet. | Promoted only as primitive packet support; do not infer projectile entity existence or acceleration behavior. |
@@ -88,7 +88,7 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x89` | `minecraft:server_links` | promoted BLUE | Official Play row uses common `ClientboundServerLinksPacket`; the empty list fixture generated a jar-backed Play answer with a zero count body. | Promoted only for the empty list fixture; do not infer non-empty server link entry semantics or UI behavior. |
 | `0x8a` | `minecraft:waypoint` | promoted BLUE | Official `ClientboundTrackedWaypointPacket.removeWaypoint(UUID)` generated a jar-backed Play answer with `Operation.UNTRACK` plus `TrackedWaypoint.empty(UUID)`; no track/update, position, chunk, or azimuth constructor is entered. | Promoted only for the selected removeWaypoint empty fixture UUID; reject other operations/payloads. Do not infer waypoint tracking/update, position, chunk, azimuth, icon, or world behavior. |
 | `0x8b` | `minecraft:clear_dialog` | promoted BLUE | Official Play row uses common `ClientboundClearDialogPacket.INSTANCE`; singleton fixture generated a jar-backed Play answer with an empty body. | Promoted only as packet support; do not infer dialog UI behavior or `show_dialog` semantics. |
-| `0x8c` | `minecraft:show_dialog` | deferred YELLOW | Official `ClientboundShowDialogPacket` uses a dialog holder/stream codec and context-free dialog codec, requiring dialog fixture policy. | Do not invent dialog holder, dialog contents, or UI behavior. |
+| `0x8c` | `minecraft:show_dialog` | promoted BLUE | Official `ClientboundShowDialogPacket(Holder.direct(NoticeDialog))` generated a jar-backed Play answer with a direct Dialog holder marker plus a bounded NoticeDialog body. | Promoted only for the direct NoticeDialog fixture; reject claims about registry-backed dialogs, custom actions, and dialog UI behavior. |
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
@@ -176,9 +176,9 @@ official Play clientbound table end at `0x8c`.
 | Empty map / absent optional / clear field | `0x62`, `0x6e`, `0x71`, `0x86` | Official constructor must generate an empty/absent body branch and Rust must reject unsupported non-empty variants. | Promoted in the parked-row follow-up batch. |
 | ItemStack / item component | non-empty recipe-bearing branches of `0x85` | Simple empty ItemStack rows `0x60`, `0x66`, and `0x6c` have been promoted only for `ItemStack.EMPTY` fixtures. Empty `0x85` has been promoted only for empty recipe structures. | Partly promoted; non-empty recipe/item/display branches still parked. |
 | Scoreboard and teams beyond no-optional field packets | add/change/join/leave branches of `0x6a`, `0x6d` | Remove branches for `0x6a` and `0x6d` have been promoted because official write branches omit Component/number-format/team-parameter/player-list payloads. | Partly promoted; non-remove scoreboard/team branches still parked. |
-| Entity relationship / metadata / movement / projectile | `0x64`, `0x6b`, `0x74`, `0x84` plus non-empty-relative branches of `0x7d` | Empty metadata `0x63`, empty attributes `0x83`, primitive projectile power `0x87`, and primitive empty-relative teleport `0x7d` have been promoted with bounded fixture policy. Remaining rows still need initialized entity, registry, sound/effect, relationship, or broader movement fixture evidence. | Partly promoted; relationship/sound/effect/non-empty-relative rows still parked. |
-| Trusted Component / NBT / UI text | `0x8c` plus non-empty/present branches of `0x7b`, `0x7e` | Empty `tag_query` and absent-size `test_instance_block_status` have been promoted. `show_dialog` still needs dialog holder/codec fixture policy. | Partly promoted; dialog and non-empty/present branches still parked. |
-| Registry / world / game data | `0x75` plus non-empty branches of `0x82`, `0x85`, `0x8a`, and non-default branches of `0x61` | `LevelData.RespawnData.DEFAULT` for `0x61`, empty `0x82`, empty `0x85`, and remove-only `0x8a` have been promoted as bounded fixtures. | Partly promoted; sound and non-empty/non-default advancement/recipe/waypoint/spawn semantics still parked. |
+| Entity relationship / metadata / movement / projectile | `0x64`, `0x6b`, `0x74` plus non-empty-relative branches of `0x7d` | Empty metadata `0x63`, empty attributes `0x83`, primitive projectile power `0x87`, primitive empty-relative teleport `0x7d`, and bounded `0x84` mob-effect holder have been promoted with bounded fixture policy. Remaining rows still need initialized entity relationship/context evidence. | Partly promoted; relationship/entity-sound/non-empty-relative rows still parked. |
+| Trusted Component / NBT / UI text | non-empty/present branches of `0x7b`, `0x7e` | Empty `tag_query`, absent-size `test_instance_block_status`, and direct `0x8c` NoticeDialog have been promoted. | Partly promoted; non-empty/present branches still parked. |
+| Registry / world / game data | non-empty branches of `0x82`, `0x85`, `0x8a`, and non-default branches of `0x61` | `LevelData.RespawnData.DEFAULT` for `0x61`, empty `0x82`, empty `0x85`, remove-only `0x8a`, and bounded `0x75` sound holder have been promoted as bounded fixtures. | Partly promoted; non-empty/non-default advancement/recipe/waypoint/spawn semantics still parked. |
 
 The parked-row follow-up batch promoted only `0x62` clear
 `set_display_objective`, `0x6e` no-optional `set_score`, `0x71` empty-map
@@ -232,20 +232,17 @@ behavior was inferred.
 
 ## Final Parked Packet Audit
 
-After commit `c9a4cf6`, an explicit official-jar cartography pass rechecked the
-last six parked Play CLIENTBOUND rows. No row exposed a singleton, empty,
-remove, or default fixture branch that avoids fabricated entity/world objects,
-registry holders, or dialog content. Because fewer than three safe rows remain,
-no Rust/oracle implementation batch should be forced from this set.
+After the combined registry-holder fixture policy pass, `0x75`, `0x84`, and
+`0x8c` moved to bounded jar-backed BLUE fixtures. The remaining parked Play
+CLIENTBOUND rows are `0x64`, `0x6b`, and `0x74`, all still blocked on an
+entity relationship/context policy before safe packet-support bytes can be
+named.
 
 | Row | Packet | Official evidence | Blocker policy needed |
 |---|---|---|---|
 | `0x64` | `minecraft:set_entity_link` | `ClientboundSetEntityLinkPacket(Entity, Entity)` stores `source.getId()` and optional destination entity id; the primitive buffer constructor is private. | Entity fixture policy for source entity identity and link/leash semantics. |
 | `0x6b` | `minecraft:set_passengers` | `ClientboundSetPassengersPacket(Entity)` stores vehicle id and copies `Entity.getPassengers()` ids; the primitive buffer constructor is private. | Entity relationship fixture policy for vehicle/passenger identity without fake runtime entities. |
-| `0x74` | `minecraft:sound_entity` | `ClientboundSoundEntityPacket(Holder<SoundEvent>, SoundSource, Entity, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, entity id, volume, pitch, and seed. | SoundEvent holder policy plus entity sound context. |
-| `0x75` | `minecraft:sound` | `ClientboundSoundPacket(Holder<SoundEvent>, SoundSource, double, double, double, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, quantized position ints, volume, pitch, and seed. | SoundEvent holder and world sound-position fixture policy. |
-| `0x84` | `minecraft:update_mob_effect` | `ClientboundUpdateMobEffectPacket(int, MobEffectInstance, boolean)` extracts a `MobEffect` holder, amplifier, duration, and flags; decode/write use `MobEffect.STREAM_CODEC`. | MobEffect holder/effect-state fixture policy. |
-| `0x8c` | `minecraft:show_dialog` | `ClientboundShowDialogPacket(Holder<Dialog>)` uses `Dialog.STREAM_CODEC`; its context-free codec still requires a concrete `Dialog` encoded by dialog type and `CommonDialogData`. | Dialog holder/content/UI fixture policy. |
+| `0x74` | `minecraft:sound_entity` | `ClientboundSoundEntityPacket(Holder<SoundEvent>, SoundSource, Entity, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, entity id, volume, pitch, and seed. | SoundEvent holder policy is now proven by `0x75`, but entity sound context is still missing. |
 
 All currently safe Protocol 775 Play CLIENTBOUND packet rows from the first
 pass and parked-row promotion passes have been implemented as bounded
@@ -254,27 +251,20 @@ policies above, not on packet-id cartography.
 
 ## Final Blocker Policy Route Map
 
-Use this table before spawning any worker for the six remaining rows. The first
-successful policy should produce a small oracle-cartography package first; Rust
-work only follows after jar-backed answers and rust-fix tasks exist.
+Use this table before spawning any worker for the three remaining rows. The
+first successful policy should produce a small oracle-cartography package
+first; Rust work only follows after jar-backed answers and rust-fix tasks
+exist.
 
 | Blocker policy | Rows unlocked | Official evidence needed | Forbidden shortcuts | Smallest next subagent task | Plausibly yields 3-packet batch? |
 |---|---|---|---|---|---|
 | Entity relationship fixture policy | `0x64`, `0x6b` | Official constructor or harness path that creates real source/vehicle/passenger `Entity` instances and proves stable `getId()`, optional/null link, and empty/non-empty passenger list bytes without private buffer construction. | Do not fabricate entity ids by calling private decode constructors; do not use mock entities; do not treat ids as context-free primitives. | `rustmine_nested_oracle_cartographer`: map official minimal entity setup for link/passenger packet constructors and stop at answer feasibility. | No. It can unlock at most 2 rows by itself. |
-| SoundEvent holder fixture policy | `0x74`, `0x75` | Official holder source for a named `SoundEvent`, exact `SoundEvent.STREAM_CODEC` wire bytes under registry-friendly encoding, and for `0x74` an official entity fixture from the entity policy. | Do not invent registry ids; do not use direct `SoundEvent` values as holder ids; do not pick a sound from names or previous-version tables. | `rustmine_nested_oracle_cartographer`: prove one official `Holder<SoundEvent>` fixture and classify whether entity-sound must wait for entity policy. | No by itself. With entity policy, could contribute 2 rows. |
-| World sound-position fixture policy | `0x75` | Official position quantization evidence for `ClientboundSoundPacket` plus SoundEvent holder fixture and bounded `SoundSource`, volume, pitch, seed values. | Do not claim sound playback/world behavior; do not fabricate world context; do not generalize beyond one holder/source/position fixture. | `rustmine_nested_oracle_cartographer`: build a sound-position fixture feasibility note after SoundEvent holder evidence exists. | No. It unlocks 1 row. |
-| MobEffect holder/effect-state policy | `0x84` | Official `Holder<MobEffect>` source, `MobEffectInstance` constructor fixture, exact `MobEffect.STREAM_CODEC` bytes, amplifier, duration, and flag derivation. | Do not invent mob-effect registry ids; do not skip `MobEffectInstance`; do not infer effect behavior from packet fields. | `rustmine_nested_oracle_cartographer`: prove one bounded `MobEffectInstance` fixture and identify unsupported variants. | No. It unlocks 1 row. |
-| Dialog holder/content policy | `0x8c` | Official concrete `Dialog` type fixture, `CommonDialogData` defaults/required fields, holder or context-free codec bytes, and proof that the fixture is content-bounded. | Do not invent dialog UI contents; do not reuse `clear_dialog`; do not treat context-free codec as empty or holder-free support without concrete dialog evidence. | `rustmine_nested_oracle_cartographer`: map the smallest official dialog object that can be encoded and whether it requires registry holder policy. | No. It unlocks 1 row. |
-| Combined registry-holder fixture policy | `0x74`, `0x75`, `0x84`, `0x8c` | Shared official process for safe `Holder<T>` fixtures across `SoundEvent`, `MobEffect`, and `Dialog`, including whether direct holders are valid witnesses for network bytes or whether registry-backed holders are required. | Do not assume all holders share the same wire policy; do not substitute built-in registry ids without jar-backed byte answers. | High-capacity planner then up to two `rustmine_nested_oracle_cartographer` leaves: one for sound/effect holders, one for dialog holder/content. | Possibly, but only if it proves at least sound, mob-effect, and dialog fixtures. |
+| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; `0x74` still needs an official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | `rustmine_nested_oracle_cartographer`: map official minimal entity setup for sound_entity and stop at answer feasibility. | No. It unlocks 1 row. |
 
 Recommended next route:
 
 ```text
-Need a 3-packet batch?
-  -> first try combined registry-holder fixture policy
-      -> if it proves SoundEvent + MobEffect + Dialog fixtures:
-           candidate batch = 0x75 + 0x84 + 0x8c
-      -> if it also proves entity fixture policy:
-           candidate batch can include 0x74, 0x64, or 0x6b
-      -> otherwise no remaining Protocol 775 Play CLIENTBOUND batch is safe
+Need another final-row batch?
+  -> combined registry-holder fixture policy is complete for 0x75 + 0x84 + 0x8c
+  -> remaining route needs entity fixture policy for 0x64 + 0x6b + 0x74
 ```

@@ -1,0 +1,41 @@
+{
+  "case_id": "play_sound_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play -> Spawn -> Move -> Interact",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundSoundPacket(Holder<SoundEvent>, SoundSource, double, double, double, float, float, long)",
+      "authority_note": "Official binary source for constructing the Play clientbound sound fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.sounds.SoundEvents.AMBIENT_CAVE; net.minecraft.sounds.SoundEvent.STREAM_CODEC; net.minecraft.network.codec.ByteBufCodecs.holder",
+      "authority_note": "Official binary source for the bounded SoundEvent holder fixture and network holder encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE",
+      "authority_note": "Official binary source for Play clientbound framed packet encoding and packet table id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:sound",
+    "packet_class": "ClientboundSoundPacket",
+    "input_fields": {
+      "fixture": "ClientboundSoundPacket(SoundEvents.AMBIENT_CAVE, SoundSource.MASTER, 1.25, 64.5, -2.75, 0.75F, 1.25F, 123456789L)"
+    },
+    "field_notes": {
+      "fixture": "Smallest official SoundEvent holder packet-support fixture for world-position sound bytes; it does not prove world sound playback behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_sound_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves one Play clientbound sound framed dispatch/decode fixture only; do not infer general sound registry ids, arbitrary holders, world sound playback, sound asset readiness, or runtime behavior."
+}

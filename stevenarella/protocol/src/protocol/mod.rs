@@ -944,6 +944,44 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlayShowDialogClientbound => {
+                        let mut dialog_data = Vec::new();
+                        buf.read_to_end(&mut dialog_data)?;
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "ShowDialog".to_owned(),
+                                data: dialog_data,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySoundClientbound => {
+                        let sound_holder_id = VarInt::read_from(buf)?;
+                        if sound_holder_id.0 != 8 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound SoundEvent holder id {}",
+                                sound_holder_id.0
+                            )));
+                        }
+                        let source = VarInt::read_from(buf)?;
+                        if source.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound source id {}",
+                                source.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySoundClientbound(
+                            packet::play::clientbound::PlaySoundClientbound {
+                                sound_holder_id,
+                                source,
+                                x: i32::read_from(buf)?,
+                                y: i32::read_from(buf)?,
+                                z: i32::read_from(buf)?,
+                                volume: f32::read_from(buf)?,
+                                pitch: f32::read_from(buf)?,
+                                seed: i64::read_from(buf)?,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlaySystemChatClientbound => {
                         let content = read_nbt_string_component(buf)?;
                         let overlay = bool::read_from(buf)?;
@@ -1086,6 +1124,25 @@ macro_rules! state_packets {
                                 removed_count,
                                 progress_count,
                                 show_advancements: bool::read_from(buf)?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayUpdateMobEffectClientbound => {
+                        let entity_id = VarInt::read_from(buf)?;
+                        let effect_holder_id = VarInt::read_from(buf)?;
+                        if effect_holder_id.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play update_mob_effect MobEffect holder id {}",
+                                effect_holder_id.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlayUpdateMobEffectClientbound(
+                            packet::play::clientbound::PlayUpdateMobEffectClientbound {
+                                entity_id,
+                                effect_holder_id,
+                                amplifier: VarInt::read_from(buf)?,
+                                duration: VarInt::read_from(buf)?,
+                                flags: u8::read_from(buf)?,
                             },
                         )));
                     }

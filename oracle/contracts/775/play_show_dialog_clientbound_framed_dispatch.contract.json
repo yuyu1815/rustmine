@@ -1,0 +1,31 @@
+{
+  "contract_id": "play_show_dialog_clientbound_framed_dispatch_contract",
+  "case_id": "play_show_dialog_clientbound_framed_dispatch",
+  "scope": "codec",
+  "official_functions": [
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundShowDialogPacket(Holder<Dialog>)",
+      "role": "Construct the official Play clientbound show_dialog fixture"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundShowDialogPacket.STREAM_CODEC; Dialog.STREAM_CODEC; ByteBufCodecs.holder",
+      "role": "Encode/decode the direct Dialog holder marker and direct NoticeDialog body"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.bind(...).codec().encode/decode(ClientboundShowDialogPacket)",
+      "role": "Write and dispatch the full Play clientbound framed packet"
+    }
+  ],
+  "invariants": [
+    "The official Play clientbound protocol table registers show_dialog with the registry-friendly common show_dialog codec.",
+    "The direct NoticeDialog fixture preserves dialog type, title, empty body/input counts, and common flags.",
+    "This contract does not prove dialog UI display behavior, screen flow, registry-backed dialogs, custom actions, or runtime behavior."
+  ],
+  "answer_path": "oracle/answers/775/play_show_dialog_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "test_topology_note": "rust_test_target names the current case adapter only; the manifest owns the runnable test topology.",
+  "stop_boundary": "Do not use this packet-support contract to infer dialog UI behavior or registry-backed dialog support."
+}
