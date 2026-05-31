@@ -20,6 +20,7 @@ protocol_packet_ids!(
             0x04 => ConfigurationKeepAliveClientbound_i64
             0x05 => ConfigurationPingClientbound_i32
             0x06 => ConfigurationResetChatClientbound
+            0x07 => ConfigurationRegistryDataClientbound
         }
     }
 );

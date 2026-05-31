@@ -1,0 +1,67 @@
+{
+  "case_id": "configuration_registry_data_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.core.registries.Registries.DIMENSION_TYPE",
+      "authority_note": "Official binary source for the registry key used by the minimal packet-support fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundRegistryDataPacket(ResourceKey, List)",
+      "authority_note": "Official binary source for constructing the Configuration clientbound registry_data packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundRegistryDataPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for Configuration clientbound registry_data body encoding and decoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(ClientboundRegistryDataPacket)",
+      "authority_note": "Official binary source for Configuration clientbound registry_data framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound registry_data framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ClientboundRegistryDataPacket.registry(), ClientboundRegistryDataPacket.entries()",
+      "authority_note": "Official binary source for reading decoded registry_data fields."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:registry_data",
+    "packet_class": "ClientboundRegistryDataPacket",
+    "input_fields": {
+      "registry_key": "minecraft:dimension_type",
+      "entries": []
+    },
+    "field_notes": {
+      "registry_key": "The fixture uses the official Registries.DIMENSION_TYPE ResourceKey.",
+      "entries": "The fixture deliberately uses List.of() so the packet-support proof does not invent registry entries, NBT payloads, or initialized registry contents. The generated answer owns the resulting bytes."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_registry_data_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration clientbound registry_data packet framing and dispatch/decode for an official DIMENSION_TYPE registry-key fixture with an official empty entry list only; do not infer real registry contents, RegistrySynchronization.packRegistries output, registry hydration, Configuration completion, Play entry, world load, render readiness, or runtime behavior."
+}

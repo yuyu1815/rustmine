@@ -2566,6 +2566,7 @@ pub mod configuration {
             pub const ConfigurationKeepAliveClientbound_i64: i32 = 1;
             pub const ConfigurationPingClientbound_i32: i32 = 2;
             pub const ConfigurationResetChatClientbound: i32 = 6;
+            pub const ConfigurationRegistryDataClientbound: i32 = 7;
         }
 
         #[derive(Default, Debug)]
@@ -2654,6 +2655,30 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.empty.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationRegistryDataClientbound {
+            pub registry: String,
+            pub data: Vec<u8>,
+        }
+
+        impl PacketType for ConfigurationRegistryDataClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationRegistryDataClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.registry.write_to(buf)?;
+                self.data.write_to(buf)?;
                 Ok(())
             }
         }
