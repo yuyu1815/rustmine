@@ -70,6 +70,7 @@ protocol_packet_ids!(
             0x04 => PlayBlockChangedAckClientbound
             0x05 => PlayBlockDestructionClientbound
             0x06 => PlayBlockEntityDataClientbound
+            0x07 => PlayBlockEventClientbound
         }
     }
 );
