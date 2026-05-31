@@ -1,0 +1,48 @@
+{
+  "case_id": "play_change_difficulty_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the change_difficulty packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundChangeDifficultyPacket(Difficulty, boolean), ClientboundChangeDifficultyPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for constructing, decoding, and writing the change_difficulty body without initialized game state."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "Difficulty.STREAM_CODEC, ByteBufCodecs.BOOL",
+      "authority_note": "Official binary source for the difficulty and locked body shape."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound change_difficulty frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:change_difficulty",
+    "packet_class": "ClientboundChangeDifficultyPacket",
+    "input_fields": {
+      "difficulty": "HARD",
+      "locked": true
+    },
+    "field_notes": {
+      "fixture": "Uses official ClientboundChangeDifficultyPacket(Difficulty, boolean). The fixture is a context-free record constructor and does not require an initialized Level or game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_change_difficulty_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound change_difficulty packet framing and dispatch/decode for one official difficulty/locked fixture only; do not infer difficulty UI behavior, hardcore semantics, initialized game state, spawn readiness, world load, render readiness, or client-load completion."
+}

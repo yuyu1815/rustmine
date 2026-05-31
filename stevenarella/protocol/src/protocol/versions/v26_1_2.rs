@@ -73,6 +73,7 @@ protocol_packet_ids!(
             0x07 => PlayBlockEventClientbound
             0x08 => PlayBlockUpdateClientbound
             0x09 => BossBar
+            0x0a => ServerDifficulty_Locked
         }
     }
 );
