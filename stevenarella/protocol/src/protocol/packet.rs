@@ -590,6 +590,12 @@ state_packets!(
                 field length: VarInt =,
                 field suggestion_count: VarInt =,
             }
+            packet PlayContainerSetContentClientbound {
+                field container_id: VarInt =,
+                field state_id: VarInt =,
+                field items: LenPrefixed<VarInt, Option<item::Stack>> =,
+                field carried_item: Option<item::Stack> =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

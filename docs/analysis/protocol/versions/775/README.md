@@ -66,6 +66,7 @@ official jar function
 | `play_animate_clientbound_framed_dispatch` case note | [cases/play-animate-clientbound-framed-dispatch.md](cases/play-animate-clientbound-framed-dispatch.md) |
 | `play_award_stats_clientbound_framed_dispatch` case note | [cases/play-award-stats-clientbound-framed-dispatch.md](cases/play-award-stats-clientbound-framed-dispatch.md) |
 | `play_block_changed_ack_clientbound_framed_dispatch` case note | [cases/play-block-changed-ack-clientbound-framed-dispatch.md](cases/play-block-changed-ack-clientbound-framed-dispatch.md) |
+| `play_container_set_content_clientbound_framed_dispatch` case note | [cases/play-container-set-content-clientbound-framed-dispatch.md](cases/play-container-set-content-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -108,9 +109,23 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `configuration_finish_framed_terminal`,
 `play_bundle_delimiter_clientbound_framed_dispatch`,
 `play_add_entity_clientbound_framed_dispatch`,
-`play_animate_clientbound_framed_dispatch`, and
-`play_award_stats_clientbound_framed_dispatch`, and
-`play_block_changed_ack_clientbound_framed_dispatch` are the passing jar-backed
+`play_animate_clientbound_framed_dispatch`,
+`play_award_stats_clientbound_framed_dispatch`,
+`play_block_changed_ack_clientbound_framed_dispatch`,
+`play_block_destruction_clientbound_framed_dispatch`,
+`play_block_entity_data_clientbound_framed_dispatch`,
+`play_block_event_clientbound_framed_dispatch`,
+`play_block_update_clientbound_framed_dispatch`,
+`play_boss_event_clientbound_framed_dispatch`,
+`play_change_difficulty_clientbound_framed_dispatch`,
+`play_chunk_batch_finished_clientbound_framed_dispatch`,
+`play_chunk_batch_start_clientbound_framed_dispatch`,
+`play_chunks_biomes_clientbound_framed_dispatch`,
+`play_clear_titles_clientbound_framed_dispatch`,
+`play_command_suggestions_clientbound_framed_dispatch`,
+`play_commands_clientbound_framed_dispatch`,
+`play_container_close_clientbound_framed_dispatch`, and
+`play_container_set_content_clientbound_framed_dispatch` are the passing jar-backed
 answer rows in this 775 shard. Their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout.
@@ -278,6 +293,18 @@ not prove block entity semantics, NBT schema, world/chunk state, initialized
 game state, spawn readiness, world load, render readiness, or client-load
 completion. The next packet-support target by the same ordering rule is Play
 clientbound `minecraft:block_event` / `0x07`.
+
+`play_container_set_content_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound container_set_content empty-items
+fixture only. It proves the official `minecraft:container_set_content` /
+`0x12` row, body shape as containerId, stateId, ItemStack optional-list count,
+and carried ItemStack optional marker, fixture container id `7`, state id
+`123`, zero item entries, empty carried stack, framed bytes `12077b0000`, and
+full body consumption through Stevenarella dispatch. It does not prove
+non-empty ItemStack/component registry handling, menu lifecycle behavior,
+screen close behavior, inventory state, runtime Play entry, world load, render
+readiness, or client-load completion. The next packet-support target by the
+same ordering rule is Play clientbound `minecraft:container_set_data` / `0x13`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary
