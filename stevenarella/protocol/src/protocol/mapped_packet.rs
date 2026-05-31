@@ -22,7 +22,7 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayBlockChangedAckClientbound, PlayBlockDestructionClientbound,
     PlayBlockEntityDataClientbound, PlayBlockEventClientbound, PlayBlockUpdateClientbound,
     PlayChunkBatchFinishedClientbound, PlayChunkBatchStartClientbound, PlayChunksBiomesClientbound,
-    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
+    PlayClearTitlesClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
     PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
     SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
     SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
@@ -459,6 +459,9 @@ state_mapped_packets!(
             }
             packet PlayChunksBiomesClientbound {
                 field chunk_biome_data: Vec<packet::ChunkBiomeData>,
+            }
+            packet PlayClearTitlesClientbound {
+                field reset_times: bool,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1600,6 +1603,13 @@ impl MappablePacket for packet::Packet {
                 mapped_packet::MappedPacket::PlayChunksBiomesClientbound(
                     PlayChunksBiomesClientbound {
                         chunk_biome_data: chunks_biomes.chunk_biome_data.data,
+                    },
+                )
+            }
+            packet::Packet::PlayClearTitlesClientbound(clear_titles) => {
+                mapped_packet::MappedPacket::PlayClearTitlesClientbound(
+                    PlayClearTitlesClientbound {
+                        reset_times: clear_titles.reset_times,
                     },
                 )
             }

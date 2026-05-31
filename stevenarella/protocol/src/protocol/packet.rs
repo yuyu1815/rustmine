@@ -581,6 +581,9 @@ state_packets!(
             packet PlayChunksBiomesClientbound {
                 field chunk_biome_data: LenPrefixed<VarInt, packet::ChunkBiomeData> =,
             }
+            packet PlayClearTitlesClientbound {
+                field reset_times: bool =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

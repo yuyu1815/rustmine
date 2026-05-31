@@ -1,0 +1,29 @@
+{
+  "task_id": "play_clear_titles_clientbound_framed_dispatch_rust_fix",
+  "case_id": "play_clear_titles_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "failure_packet": "oracle/failures/775/play_clear_titles_clientbound_framed_dispatch.why-what-answer.jsonl",
+  "contract_path": "oracle/contracts/775/play_clear_titles_clientbound_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/play_clear_titles_clientbound_framed_dispatch.answer.jsonl",
+  "test_manifest_path": "oracle/test-manifests/775/play_clear_titles_clientbound_framed_dispatch.test-manifest.json",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "play_clear_titles_clientbound_framed_dispatch_matches_official_oracle_answer",
+  "allowed_write_scope": [
+    "stevenarella/protocol/src/protocol/packet.rs",
+    "stevenarella/protocol/src/protocol/mapped_packet.rs",
+    "stevenarella/protocol/src/protocol/versions/v26_1_2.rs"
+  ],
+  "required_behavior": "Dispatch Protocol 775 Play clientbound minecraft:clear_titles / 0x0e to a decoder for the official resetTimes boolean body, preserve resetTimes=true from the generated answer artifact, and fully consume the official one-byte body.",
+  "official_answer_summary": {
+    "packet_type": "minecraft:clear_titles",
+    "packet_id": 14,
+    "body_shape": "One FriendlyByteBuf boolean resetTimes field.",
+    "fixture": "ClientboundClearTitlesPacket(boolean) resetTimes=true",
+    "encoded_body_hex": "01",
+    "encoded_framed_hex": "0e01"
+  },
+  "verification": [
+    "cargo test --manifest-path oracle/rust-tests/Cargo.toml --test oracle_contracts play_clear_titles_clientbound_framed_dispatch_matches_official_oracle_answer -- --exact passes"
+  ],
+  "stop_boundary": "Do not edit oracle answers/contracts or infer title UI clearing behavior, title timing reset behavior, initialized client screen/title state, runtime Play entry, world load, render readiness, or client-load completion."
+}
