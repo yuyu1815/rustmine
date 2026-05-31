@@ -687,6 +687,10 @@ state_packets!(
             packet PlaySetCursorItemClientbound {
                 field item: Option<item::Stack> =,
             }
+            packet PlaySetEntityDataClientbound {
+                field entity_id: VarInt =,
+                field packed_item_count: VarInt =,
+            }
             packet PlaySetDisplayObjectiveClientbound {
                 field slot: VarInt =,
                 field objective_name: String =,
@@ -757,8 +761,16 @@ state_packets!(
             packet PlayClearDialogClientbound {
                 field empty: () =,
             }
+            packet PlayUpdateAttributesClientbound {
+                field entity_id: VarInt =,
+                field attribute_count: VarInt =,
+            }
             packet PlayUpdateTagsClientbound {
                 field registry_payload_count: VarInt =,
+            }
+            packet PlayProjectilePowerClientbound {
+                field entity_id: VarInt =,
+                field acceleration_power: f64 =,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.

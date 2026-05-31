@@ -112,6 +112,7 @@ public final class OracleCases {
             case "play_set_cursor_item_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetCursorItemClientboundFramedDispatchCase.generate(input);
             case "play_set_display_objective_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetDisplayObjectiveClientboundFramedDispatchCase.generate(input);
             case "play_set_equipment_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEquipmentClientboundFramedDispatchCase.generate(input);
+            case "play_set_entity_data_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEntityDataClientboundFramedDispatchCase.generate(input);
             case "play_set_entity_motion_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEntityMotionClientboundFramedDispatchCase.generate(input);
             case "play_set_experience_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetExperienceClientboundFramedDispatchCase.generate(input);
             case "play_set_health_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHealthClientboundFramedDispatchCase.generate(input);
@@ -119,6 +120,7 @@ public final class OracleCases {
             case "play_set_player_inventory_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetPlayerInventoryClientboundFramedDispatchCase.generate(input);
             case "play_set_score_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetScoreClientboundFramedDispatchCase.generate(input);
             case "play_set_simulation_distance_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSimulationDistanceClientboundFramedDispatchCase.generate(input);
+            case "play_projectile_power_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayProjectilePowerClientboundFramedDispatchCase.generate(input);
             case "play_server_links_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayServerLinksClientboundFramedDispatchCase.generate(input);
             case "play_set_subtitle_text_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSubtitleTextClientboundFramedDispatchCase.generate(input);
             case "play_set_time_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTimeClientboundFramedDispatchCase.generate(input);
@@ -133,6 +135,7 @@ public final class OracleCases {
             case "play_ticking_state_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTickingStateClientboundFramedDispatchCase.generate(input);
             case "play_ticking_step_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTickingStepClientboundFramedDispatchCase.generate(input);
             case "play_transfer_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTransferClientboundFramedDispatchCase.generate(input);
+            case "play_update_attributes_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateAttributesClientboundFramedDispatchCase.generate(input);
             case "play_update_tags_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayUpdateTagsClientboundFramedDispatchCase.generate(input);
             default -> throw new IllegalArgumentException("unsupported oracle case: " + caseId);
         };

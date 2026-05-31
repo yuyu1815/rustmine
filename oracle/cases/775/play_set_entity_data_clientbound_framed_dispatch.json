@@ -1,0 +1,43 @@
+{
+  "case_id": "play_set_entity_data_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetEntityDataPacket(int, List.of())",
+      "authority_note": "Official binary source for constructing the Play clientbound set_entity_data empty metadata fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetEntityDataPacket.STREAM_CODEC; ClientboundSetEntityDataPacket.pack/unpack; SynchedEntityData.DataValue EOF marker 255",
+      "authority_note": "Official binary source for the entity id plus empty metadata body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_entity_data packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_entity_data",
+    "packet_class": "ClientboundSetEntityDataPacket",
+    "input_fields": {
+      "entity_id": 12345,
+      "packed_items": []
+    },
+    "field_notes": {
+      "entity_id": "Primitive entity id fixture; does not prove entity existence.",
+      "packed_items": "Empty metadata list fixture only. Official codec writes EOF marker 255 and avoids SynchedEntityData serializer payloads."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_entity_data_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_entity_data packet framing and dispatch/decode for one entity id plus empty metadata list only; do not infer entity existence, metadata serializers, metadata values, runtime entity state, or client-load completion."
+}

@@ -770,6 +770,22 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlaySetCursorItemClientbound { item: None },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlaySetEntityDataClientbound => {
+                        let entity_id = VarInt::read_from(buf)?;
+                        let marker = u8::read_from(buf)?;
+                        if marker != 0xff {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play set_entity_data metadata marker {}",
+                                marker
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetEntityDataClientbound(
+                            packet::play::clientbound::PlaySetEntityDataClientbound {
+                                entity_id,
+                                packed_item_count: VarInt(0),
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlaySetEquipmentClientbound => {
                         let entity_id = VarInt::read_from(buf)?;
                         let equipment_slot = u8::read_from(buf)?;
@@ -897,6 +913,28 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlayUpdateAttributesClientbound => {
+                        let entity_id = VarInt::read_from(buf)?;
+                        let attribute_count = VarInt::read_from(buf)?;
+                        if attribute_count.0 < 0 {
+                            return Err(Error::Err(format!(
+                                "negative Play update_attributes attribute count {}",
+                                attribute_count.0
+                            )));
+                        }
+                        if attribute_count.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play update_attributes attribute count {}",
+                                attribute_count.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlayUpdateAttributesClientbound(
+                            packet::play::clientbound::PlayUpdateAttributesClientbound {
+                                entity_id,
+                                attribute_count,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlayUpdateTagsClientbound => {
                         let registry_payload_count = VarInt::read_from(buf)?;
                         if registry_payload_count.0 < 0 {
@@ -914,6 +952,14 @@ macro_rules! state_packets {
                         return Ok(Option::Some(Packet::PlayUpdateTagsClientbound(
                             packet::play::clientbound::PlayUpdateTagsClientbound {
                                 registry_payload_count,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayProjectilePowerClientbound => {
+                        return Ok(Option::Some(Packet::PlayProjectilePowerClientbound(
+                            packet::play::clientbound::PlayProjectilePowerClientbound {
+                                entity_id: VarInt::read_from(buf)?,
+                                acceleration_power: buf.read_f64::<BigEndian>()?,
                             },
                         )));
                     }

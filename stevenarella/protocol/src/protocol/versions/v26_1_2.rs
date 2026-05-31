@@ -121,6 +121,7 @@ protocol_packet_ids!(
             0x5f => UpdateViewDistance
             0x60 => PlaySetCursorItemClientbound
             0x62 => PlaySetDisplayObjectiveClientbound
+            0x63 => PlaySetEntityDataClientbound
             0x65 => EntityVelocity
             0x66 => PlaySetEquipmentClientbound
             0x67 => SetExperience
@@ -142,7 +143,9 @@ protocol_packet_ids!(
             0x7f => PlayTickingStateClientbound
             0x80 => PlayTickingStepClientbound
             0x81 => PlayTransferClientbound
+            0x83 => PlayUpdateAttributesClientbound
             0x86 => PlayUpdateTagsClientbound
+            0x87 => PlayProjectilePowerClientbound
             0x88 => PlayCustomReportDetailsClientbound
             0x89 => PlayServerLinksClientbound
             0x8b => PlayClearDialogClientbound

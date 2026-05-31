@@ -30,15 +30,16 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayInitializeBorderClientbound, PlayLowDiskSpaceWarningClientbound,
     PlayMountScreenOpenClientbound, PlayPingClientbound, PlayPlayerCombatEndClientbound,
     PlayPlayerCombatEnterClientbound, PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound,
-    PlayServerLinksClientbound, PlaySetBorderCenterClientbound, PlaySetBorderLerpSizeClientbound,
-    PlaySetBorderSizeClientbound, PlaySetBorderWarningDelayClientbound,
-    PlaySetBorderWarningDistanceClientbound, PlaySetCursorItemClientbound,
-    PlaySetDisplayObjectiveClientbound, PlaySetEquipmentClientbound,
-    PlaySetPlayerInventoryClientbound, PlaySetScoreClientbound, PlaySetSubtitleTextClientbound,
-    PlaySetTimeClientbound, PlaySetTitleTextClientbound, PlaySetTitlesAnimationClientbound,
-    PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlaySystemChatClientbound,
-    PlayTabListClientbound, PlayTickingStateClientbound, PlayTickingStepClientbound,
-    PlayTransferClientbound, PlayUpdateTagsClientbound, PlayerAbilities, PlayerInfo,
+    PlayProjectilePowerClientbound, PlayServerLinksClientbound, PlaySetBorderCenterClientbound,
+    PlaySetBorderLerpSizeClientbound, PlaySetBorderSizeClientbound,
+    PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound,
+    PlaySetCursorItemClientbound, PlaySetDisplayObjectiveClientbound, PlaySetEntityDataClientbound,
+    PlaySetEquipmentClientbound, PlaySetPlayerInventoryClientbound, PlaySetScoreClientbound,
+    PlaySetSubtitleTextClientbound, PlaySetTimeClientbound, PlaySetTitleTextClientbound,
+    PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound,
+    PlayStoreCookieClientbound, PlaySystemChatClientbound, PlayTabListClientbound,
+    PlayTickingStateClientbound, PlayTickingStepClientbound, PlayTransferClientbound,
+    PlayUpdateAttributesClientbound, PlayUpdateTagsClientbound, PlayerAbilities, PlayerInfo,
     PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
     ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
     SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
@@ -583,6 +584,10 @@ state_mapped_packets!(
             packet PlaySetCursorItemClientbound {
                 field item: Option<item::Stack>,
             }
+            packet PlaySetEntityDataClientbound {
+                field entity_id: i32,
+                field packed_item_count: i32,
+            }
             packet PlaySetDisplayObjectiveClientbound {
                 field slot: i32,
                 field objective_name: String,
@@ -653,8 +658,16 @@ state_mapped_packets!(
             packet PlayClearDialogClientbound {
                 field empty: (),
             }
+            packet PlayUpdateAttributesClientbound {
+                field entity_id: i32,
+                field attribute_count: i32,
+            }
             packet PlayUpdateTagsClientbound {
                 field registry_payload_count: i32,
+            }
+            packet PlayProjectilePowerClientbound {
+                field entity_id: i32,
+                field acceleration_power: f64,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -2013,6 +2026,14 @@ impl MappablePacket for packet::Packet {
                     },
                 )
             }
+            packet::Packet::PlaySetEntityDataClientbound(entity_data) => {
+                mapped_packet::MappedPacket::PlaySetEntityDataClientbound(
+                    PlaySetEntityDataClientbound {
+                        entity_id: entity_data.entity_id.0,
+                        packed_item_count: entity_data.packed_item_count.0,
+                    },
+                )
+            }
             packet::Packet::PlaySetEquipmentClientbound(equipment) => {
                 mapped_packet::MappedPacket::PlaySetEquipmentClientbound(
                     PlaySetEquipmentClientbound {
@@ -2126,10 +2147,26 @@ impl MappablePacket for packet::Packet {
                     },
                 )
             }
+            packet::Packet::PlayUpdateAttributesClientbound(update_attributes) => {
+                mapped_packet::MappedPacket::PlayUpdateAttributesClientbound(
+                    PlayUpdateAttributesClientbound {
+                        entity_id: update_attributes.entity_id.0,
+                        attribute_count: update_attributes.attribute_count.0,
+                    },
+                )
+            }
             packet::Packet::PlayUpdateTagsClientbound(update_tags) => {
                 mapped_packet::MappedPacket::PlayUpdateTagsClientbound(PlayUpdateTagsClientbound {
                     registry_payload_count: update_tags.registry_payload_count.0,
                 })
+            }
+            packet::Packet::PlayProjectilePowerClientbound(projectile_power) => {
+                mapped_packet::MappedPacket::PlayProjectilePowerClientbound(
+                    PlayProjectilePowerClientbound {
+                        entity_id: projectile_power.entity_id.0,
+                        acceleration_power: projectile_power.acceleration_power,
+                    },
+                )
             }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {

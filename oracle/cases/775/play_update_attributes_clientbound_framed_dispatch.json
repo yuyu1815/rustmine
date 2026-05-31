@@ -1,0 +1,43 @@
+{
+  "case_id": "play_update_attributes_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundUpdateAttributesPacket(int, List.of())",
+      "authority_note": "Official binary source for constructing the Play clientbound update_attributes empty attribute fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundUpdateAttributesPacket.STREAM_CODEC; ByteBufCodecs.list(AttributeSnapshot.STREAM_CODEC)",
+      "authority_note": "Official binary source for the entity id plus empty attribute list body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and update_attributes packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:update_attributes",
+    "packet_class": "ClientboundUpdateAttributesPacket",
+    "input_fields": {
+      "entity_id": 12345,
+      "attributes": []
+    },
+    "field_notes": {
+      "entity_id": "Primitive entity id fixture; does not prove entity existence.",
+      "attributes": "Empty attribute list fixture only. Official codec writes zero list length and avoids attribute registry holder and modifier payloads."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_update_attributes_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound update_attributes packet framing and dispatch/decode for one entity id plus empty attribute list only; do not infer entity existence, attribute registry holders, modifiers, initialized attributes, or client-load completion."
+}
