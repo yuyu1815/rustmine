@@ -263,10 +263,32 @@ are therefore rejected for these final rows.
 | Reflection into `Entity.passengers` or `vehicle` | It bypasses official relationship setup and would fabricate passenger topology. |
 | Reusing `0x75` sound body for `0x74` | `0x75` proves the `SoundEvent` holder/source branch only; `0x74` still needs official entity id context. |
 
-All currently safe Protocol 775 Play CLIENTBOUND packet rows from the first
-pass and parked-row promotion passes have been implemented as bounded
-jar-backed proof packages. Remaining support is blocked on the explicit
-policies above, not on packet-id cartography.
+The entity-fixture policy investigation after commit `7f07499` found a safe
+official initialization route, but did not yet convert it into normal oracle
+case/answer/test packages. The new harness probe registers a custom GameTest
+function with `TestFunctionLoader.registerLoader(...)`, adds a temporary
+datapack `test_instance`, boots the official `GameTestMainUtil` server, uses
+`GameTestHelper.spawn(...)` in a real `ServerLevel`, and encodes packets through
+`GameProtocols.CLIENTBOUND_TEMPLATE`. It does not call private packet
+constructors, `Entity.setId(...)`, fake/null-level entities, mocks, reflection,
+or hand-built primitive bodies.
+
+Probe verification:
+
+```text
+oracle/harness/java/scripts/run_entity_fixture_policy_probe.sh <tmp-jsonl>
+  -> GameTest server passes 1 required test
+  -> source pig id 1, destination armor stand id 2
+  -> minecart vehicle id 3, passenger pig id 4, vehicle passenger count 1
+  -> set_entity_link frame 640000000100000002
+  -> set_passengers frame 6b030104
+  -> sound_entity frame 740800013f4000003fa0000000000000075bcd15
+```
+
+Two repeat runs emitted the same entity ids and packet bytes. This promotes the
+entity fixture policy itself from RED to feasible BLUE evidence, but the three
+packet rows remain unsupported in Rust until the probe is integrated into
+case/contract/answer/test-manifest generation and scoped mappings are added.
 
 ## Final Blocker Policy Route Map
 
@@ -277,14 +299,14 @@ exist.
 
 | Blocker policy | Rows unlocked | Official evidence needed | Forbidden shortcuts | Smallest next subagent task | Plausibly yields 3-packet batch? |
 |---|---|---|---|---|---|
-| Entity relationship fixture policy | `0x64`, `0x6b` | Official initialized-harness path that creates real source/vehicle/passenger `Entity` instances and proves stable ids, optional/null link, and passenger list bytes without private buffer construction, fake `Level`, mock entities, or reflection. | Do not fabricate entity ids by calling private decode constructors or `setId(...)` on null-level entities; do not use mock entities; do not treat ids as context-free primitives. | Build an initialized official harness policy first, then create oracle cases only after it proves real entity construction and relationship setup. | No safe current-harness route. |
-| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; `0x74` still needs an initialized official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | Reuse the future initialized entity fixture policy plus the proven `0x75` SoundEvent holder/source fixture. | No safe current-harness route. |
+| Entity relationship fixture policy | `0x64`, `0x6b` | Official GameTest probe creates real source/destination/vehicle/passenger `Entity` instances in `ServerLevel` and proves stable ids plus passenger list bytes without private buffer construction, fake `Level`, mock entities, or reflection. | Do not fabricate entity ids by calling private decode constructors or `setId(...)` on null-level entities; do not use mock entities; do not treat ids as context-free primitives. | Integrate the process-owned GameTest probe into oracle case generation, then promote `0x64` and `0x6b` with jar-backed answers. | Yes, after runner integration. |
+| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; the GameTest probe now proves an initialized official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | Reuse the GameTest entity fixture plus the proven `0x75` SoundEvent holder/source fixture in a `0x74` oracle case. | Yes, after runner integration. |
 
 Recommended next route:
 
 ```text
 Need another final-row batch?
   -> combined registry-holder fixture policy is complete for 0x75 + 0x84 + 0x8c
-  -> no safe current-harness entity-context batch exists for 0x64 + 0x6b + 0x74
-  -> next route is an initialized official entity fixture policy, not packet mapping
+  -> official GameTest entity fixture policy is now proven for 0x64 + 0x6b + 0x74
+  -> next route is process-isolated oracle runner integration, then the 3-row batch
 ```
