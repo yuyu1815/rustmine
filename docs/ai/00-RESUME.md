@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `login_compression_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Login clientbound `minecraft:login_compression` answer for one `compressionThreshold=0` fixture and decodes it through `packet::packet_by_id(775, State::Login, Direction::Clientbound, official id, body)` with full body consumption. The generated 26.1.2 Configuration clientbound and serverbound packet tables are complete through their current official rows; the Handshaking serverbound table has its official `minecraft:intention` / `0x00` row; Login serverbound packet-support is complete through current official rows: `minecraft:hello` / `0x00`, `minecraft:key` / `0x01`, `minecraft:custom_query_answer` / `0x02`, `minecraft:login_acknowledged` / `0x03`, and `minecraft:cookie_response` / `0x04`; Login clientbound packet-support now has `minecraft:login_disconnect` / `0x00`, `minecraft:hello` / `0x01`, `minecraft:login_finished` / `0x02`, and `minecraft:login_compression` / `0x03`. |
+| Current location | Protocol 775 `login_custom_query_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Login clientbound `minecraft:custom_query` answer for one `transactionId=0`, `payloadId=a:a`, empty `DiscardedQueryPayload` fixture and decodes it through `packet::packet_by_id(775, State::Login, Direction::Clientbound, official id, body)` with full body consumption. The generated 26.1.2 Configuration clientbound and serverbound packet tables are complete through their current official rows; the Handshaking serverbound table has its official `minecraft:intention` / `0x00` row; Login serverbound packet-support is complete through current official rows: `minecraft:hello` / `0x00`, `minecraft:key` / `0x01`, `minecraft:custom_query_answer` / `0x02`, `minecraft:login_acknowledged` / `0x03`, and `minecraft:cookie_response` / `0x04`; Login clientbound packet-support now has `minecraft:login_disconnect` / `0x00`, `minecraft:hello` / `0x01`, `minecraft:login_finished` / `0x02`, `minecraft:login_compression` / `0x03`, and `minecraft:custom_query` / `0x04`. |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{packet.rs,mapped_packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `login_compression_clientbound_framed_dispatch` proves only Login clientbound login_compression packet id/body dispatch for one official `compressionThreshold=0` fixture. It does not prove compression negotiation policy, connection compression activation, Login-to-Configuration state transition handling, Configuration entry, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `login_custom_query_clientbound_framed_dispatch` proves only Login clientbound custom_query packet id/body dispatch for one official `transactionId=0`, `payloadId=a:a`, empty `DiscardedQueryPayload` fixture. It does not prove plugin channel handling, custom query semantics, login acknowledgement behavior, Login-to-Configuration state transition handling, Configuration entry, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -43,10 +43,11 @@ For future work:
              minecraft:cookie_response / 0x04, plus Login clientbound proof
              for minecraft:login_disconnect / 0x00, minecraft:hello / 0x01,
              minecraft:login_finished / 0x02, and
-             minecraft:login_compression / 0x03
+             minecraft:login_compression / 0x03, and
+             minecraft:custom_query / 0x04
             -> Login serverbound packet-support is complete through current
                official rows; next packet-support target is Login clientbound
-               minecraft:custom_query / 0x04, using
+               minecraft:cookie_request / 0x05, using
                LoginProtocols.CLIENTBOUND_TEMPLATE official table evidence first
               -> do not move to Play packet work until Handshake/Login packet
                  table gaps are audited or explicitly bounded

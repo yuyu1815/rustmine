@@ -19,6 +19,7 @@ protocol_packet_ids!(
             0x01 => EncryptionRequest_ShouldAuthenticate
             0x02 => LoginSuccess_UUID
             0x03 => SetInitialCompression
+            0x04 => LoginPluginRequest
         }
     }
     configuration Configuration {

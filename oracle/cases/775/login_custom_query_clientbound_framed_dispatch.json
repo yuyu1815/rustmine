@@ -1,0 +1,73 @@
+{
+  "case_id": "login_custom_query_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Handshake -> Login -> Configuration",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.resources.Identifier.parse(String)",
+      "authority_note": "Official binary source for constructing the custom query payload Identifier fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.custom.DiscardedQueryPayload(Identifier)",
+      "authority_note": "Official binary source for the empty login custom query payload fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.ClientboundCustomQueryPacket(int, CustomQueryPayload)",
+      "authority_note": "Official binary source for constructing the Login clientbound custom_query packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.ClientboundCustomQueryPacket.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for Login clientbound custom_query packet body encoding through transactionId, payload Identifier, and payload body."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND.codec().encode(ClientboundCustomQueryPacket)",
+      "authority_note": "Official binary source for Login clientbound custom_query framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Login clientbound custom_query framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Login clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundCustomQueryPacket.transactionId(), ClientboundCustomQueryPacket.payload(), DiscardedQueryPayload.id(), ClientLoginPacketListener.handleCustomQuery(ClientboundCustomQueryPacket)",
+      "authority_note": "Official binary source for reading decoded custom_query fields and confirming the Login listener clientbound surface."
+    }
+  ],
+  "question": {
+    "state": "Login",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:custom_query",
+    "packet_class": "ClientboundCustomQueryPacket",
+    "input_fields": {
+      "transaction_id": 0,
+      "payload_id": "a:a"
+    },
+    "field_notes": {
+      "transaction_id": "Smallest VarInt transaction id fixture accepted by ClientboundCustomQueryPacket(int, CustomQueryPayload) without initialized Minecraft state.",
+      "payload_id": "Smallest one-character namespace and path Identifier fixture accepted by Identifier.parse(String) without initialized Minecraft state; DiscardedQueryPayload writes an empty payload body."
+    }
+  },
+  "answer_path": "oracle/answers/775/login_custom_query_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Login clientbound custom_query packet framing and dispatch/decode for one official transactionId=0, payloadId=a:a, empty DiscardedQueryPayload fixture only; do not infer plugin channel handling, custom query semantics, login acknowledgement behavior, Login-to-Configuration state transition handling, Configuration entry, Play readiness, or client-load completion."
+}

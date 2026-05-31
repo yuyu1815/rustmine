@@ -32,6 +32,7 @@ official jar function
 | `login_hello_clientbound_framed_dispatch` case note | [cases/login-hello-clientbound-framed-dispatch.md](cases/login-hello-clientbound-framed-dispatch.md) |
 | `login_finished_clientbound_framed_dispatch` case note | [cases/login-finished-clientbound-framed-dispatch.md](cases/login-finished-clientbound-framed-dispatch.md) |
 | `login_compression_clientbound_framed_dispatch` case note | [cases/login-compression-clientbound-framed-dispatch.md](cases/login-compression-clientbound-framed-dispatch.md) |
+| `login_custom_query_clientbound_framed_dispatch` case note | [cases/login-custom-query-clientbound-framed-dispatch.md](cases/login-custom-query-clientbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -73,6 +74,7 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `login_hello_clientbound_framed_dispatch`,
 `login_finished_clientbound_framed_dispatch`,
 `login_compression_clientbound_framed_dispatch`,
+`login_custom_query_clientbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -173,9 +175,17 @@ official `minecraft:login_compression` / `0x03` row, one VarInt
 `compressionThreshold` field, and full body consumption through Stevenarella
 dispatch. It does not prove compression negotiation policy, connection
 compression activation, Login-to-Configuration state transition handling,
-Configuration entry, Play readiness, or client-load completion. The next
-missing Login clientbound packet-support target is `minecraft:custom_query` /
-`0x04`.
+Configuration entry, Play readiness, or client-load completion.
+
+`login_custom_query_clientbound_framed_dispatch` is packet-support evidence
+for one official Login clientbound custom_query fixture only. It proves the
+official `minecraft:custom_query` / `0x04` row, transactionId VarInt, payload
+Identifier, empty `DiscardedQueryPayload` body, and full body consumption
+through Stevenarella dispatch. It does not prove plugin channel handling,
+custom query semantics, login acknowledgement behavior,
+Login-to-Configuration state transition handling, Configuration entry, Play
+readiness, or client-load completion. The next missing Login clientbound
+packet-support target is `minecraft:cookie_request` / `0x05`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

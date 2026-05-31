@@ -26,10 +26,12 @@ import net.minecraft.network.protocol.handshake.HandshakeProtocols;
 import net.minecraft.network.protocol.handshake.ServerHandshakePacketListener;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.login.ClientLoginPacketListener;
+import net.minecraft.network.protocol.login.ClientboundCustomQueryPacket;
 import net.minecraft.network.protocol.login.ClientboundHelloPacket;
 import net.minecraft.network.protocol.login.ClientboundLoginCompressionPacket;
 import net.minecraft.network.protocol.login.ClientboundLoginDisconnectPacket;
 import net.minecraft.network.protocol.login.ClientboundLoginFinishedPacket;
+import net.minecraft.network.protocol.login.custom.DiscardedQueryPayload;
 import net.minecraft.network.protocol.login.ServerboundCustomQueryAnswerPacket;
 import net.minecraft.network.protocol.login.ServerLoginPacketListener;
 import net.minecraft.network.protocol.login.ServerboundHelloPacket;
@@ -257,6 +259,10 @@ public final class OracleHarness {
         }
         if ("login_compression_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, loginCompressionClientboundFramedDispatch(input));
+            return;
+        }
+        if ("login_custom_query_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, loginCustomQueryClientboundFramedDispatch(input));
             return;
         }
 
@@ -2997,6 +3003,80 @@ public final class OracleHarness {
         return answer;
     }
 
+    private static Map<String, Object> loginCustomQueryClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        int transactionId = inputFields.get("transaction_id").getAsInt();
+        String payloadIdText = inputFields.get("payload_id").getAsString();
+        Identifier payloadId = Identifier.parse(payloadIdText);
+        DiscardedQueryPayload payload = new DiscardedQueryPayload(payloadId);
+        ClientboundCustomQueryPacket packet =
+            new ClientboundCustomQueryPacket(transactionId, payload);
+
+        FriendlyByteBuf framedOut = new FriendlyByteBuf(Unpooled.buffer());
+        LoginProtocols.CLIENTBOUND.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+
+        FriendlyByteBuf framedIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(framed));
+        Packet<? super ClientLoginPacketListener> decodedPacket =
+            LoginProtocols.CLIENTBOUND.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundCustomQueryPacket decodedCustomQuery)) {
+            throw new IllegalStateException(
+                "expected ClientboundCustomQueryPacket, got " + decodedPacket.getClass().getName()
+            );
+        }
+
+        FriendlyByteBuf bodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundCustomQueryPacket.STREAM_CODEC.encode(bodyOut, packet);
+        byte[] body = readableBytes(bodyOut);
+        byte[] payloadBody = bytesAfterVarIntAndIdentifierPrefix(body);
+
+        List<Map<String, Object>> loginClientboundPackets = new ArrayList<>();
+        LoginProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((type, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", type.id().toString());
+            row.put("flow", type.flow().id());
+            loginClientboundPackets.add(row);
+        });
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "Identifier.parse(String), DiscardedQueryPayload(Identifier), ClientboundCustomQueryPacket(int, CustomQueryPayload), ClientboundCustomQueryPacket.STREAM_CODEC, FriendlyByteBuf.readVarInt/writeVarInt, FriendlyByteBuf.readIdentifier/writeIdentifier, LoginProtocols.CLIENTBOUND.codec().encode/decode(ClientboundCustomQueryPacket), LoginProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundCustomQueryPacket.transactionId(), ClientboundCustomQueryPacket.payload(), DiscardedQueryPayload.id(), CustomQueryPayload.write(FriendlyByteBuf), ClientLoginPacketListener.handleCustomQuery(ClientboundCustomQueryPacket)",
+            "bytecode_source_command", "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.login.ClientboundCustomQueryPacket net.minecraft.network.protocol.login.LoginProtocols net.minecraft.network.protocol.login.LoginPacketTypes net.minecraft.network.protocol.login.ClientLoginPacketListener net.minecraft.network.protocol.login.custom.CustomQueryPayload net.minecraft.network.protocol.login.custom.DiscardedQueryPayload"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Login");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:custom_query");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("input_transaction_id", transactionId);
+        answerBody.put("decoded_transaction_id", decodedCustomQuery.transactionId());
+        answerBody.put("input_payload_id", payload.id().toString());
+        answerBody.put("decoded_payload_id", decodedCustomQuery.payload().id().toString());
+        answerBody.put("input_payload_class", payload.getClass().getName());
+        answerBody.put("decoded_payload_class", decodedCustomQuery.payload().getClass().getName());
+        answerBody.put("input_payload_length", payloadBody.length);
+        answerBody.put("decoded_payload_length", payloadBody.length);
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("encoded_payload_body_hex", HexFormat.of().formatHex(payloadBody));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("login_clientbound_packet_table", loginClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
     private static byte[] readableBytes(FriendlyByteBuf buffer) {
         byte[] bytes = new byte[buffer.readableBytes()];
         buffer.getBytes(buffer.readerIndex(), bytes);
@@ -3017,6 +3097,42 @@ public final class OracleHarness {
         byte[] body = new byte[framed.length - offset];
         System.arraycopy(framed, offset, body, 0, body.length);
         return body;
+    }
+
+    private static byte[] bytesAfterVarIntAndIdentifierPrefix(byte[] body) {
+        int offset = varIntPrefixLength(body, 0);
+        int identifierLengthPrefix = varIntPrefixLength(body, offset);
+        int identifierLength = readVarInt(body, offset);
+        offset += identifierLengthPrefix + identifierLength;
+        if (offset > body.length) {
+            throw new IllegalStateException("identifier length extends past body");
+        }
+        byte[] payloadBody = new byte[body.length - offset];
+        System.arraycopy(body, offset, payloadBody, 0, payloadBody.length);
+        return payloadBody;
+    }
+
+    private static int varIntPrefixLength(byte[] bytes, int offset) {
+        for (int i = offset; i < bytes.length && i < offset + 5; i += 1) {
+            if ((bytes[i] & 0x80) == 0) {
+                return i - offset + 1;
+            }
+        }
+        throw new IllegalStateException("missing complete VarInt prefix");
+    }
+
+    private static int readVarInt(byte[] bytes, int offset) {
+        int value = 0;
+        int shift = 0;
+        for (int i = offset; i < bytes.length && i < offset + 5; i += 1) {
+            int current = bytes[i] & 0xFF;
+            value |= (current & 0x7F) << shift;
+            if ((current & 0x80) == 0) {
+                return value;
+            }
+            shift += 7;
+        }
+        throw new IllegalStateException("missing complete VarInt value");
     }
 
     private static Map<String, Object> finishDirectionAnswer(
