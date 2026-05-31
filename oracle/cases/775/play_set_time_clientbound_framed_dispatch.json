@@ -1,0 +1,36 @@
+{
+  "case_id": "play_set_time_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetTimePacket(long, Map<Holder<WorldClock>, ClockNetworkState>), ClientboundSetTimePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for set_time body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_time packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_time",
+    "packet_class": "ClientboundSetTimePacket",
+    "input_fields": {
+      "game_time": 123456789,
+      "clock_update_count": 0
+    },
+    "field_notes": {
+      "scope": "Primitive gameTime plus empty clock update map fixture only."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_time_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_time packet framing and dispatch/decode for one empty clock update map fixture only; does not infer WorldClock, ClockNetworkState, or time runtime behavior."
+}

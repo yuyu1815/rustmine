@@ -114,12 +114,15 @@ include!("oracle_contracts/cases/play/play_set_border_warning_delay_clientbound_
 include!("oracle_contracts/cases/play/play_set_border_warning_distance_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_chunk_cache_center_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_chunk_cache_radius_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_set_display_objective_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_entity_motion_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_experience_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_health_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_held_slot_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_set_score_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_simulation_distance_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_server_links_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_set_time_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_titles_animation_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_start_configuration_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_stop_sound_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
@@ -128,3 +131,4 @@ include!("oracle_contracts/cases/play/play_take_item_entity_clientbound_framed_d
 include!("oracle_contracts/cases/play/play_ticking_state_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_ticking_step_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_transfer_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_update_tags_clientbound_framed_dispatch_matches_official_oracle_answer.rs");

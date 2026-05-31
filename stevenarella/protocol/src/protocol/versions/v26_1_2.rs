@@ -119,11 +119,14 @@ protocol_packet_ids!(
             0x5c => PlaySetBorderWarningDistanceClientbound
             0x5e => UpdateViewPosition
             0x5f => UpdateViewDistance
+            0x62 => PlaySetDisplayObjectiveClientbound
             0x65 => EntityVelocity
             0x67 => SetExperience
             0x68 => UpdateHealth
             0x69 => SetCurrentHotbarSlot
+            0x6e => PlaySetScoreClientbound
             0x6f => UpdateViewDistance
+            0x71 => PlaySetTimeClientbound
             0x73 => PlaySetTitlesAnimationClientbound
             0x76 => PlayStartConfigurationClientbound
             0x77 => StopSound
@@ -132,6 +135,7 @@ protocol_packet_ids!(
             0x7f => PlayTickingStateClientbound
             0x80 => PlayTickingStepClientbound
             0x81 => PlayTransferClientbound
+            0x86 => PlayUpdateTagsClientbound
             0x88 => PlayCustomReportDetailsClientbound
             0x89 => PlayServerLinksClientbound
             0x8b => PlayClearDialogClientbound

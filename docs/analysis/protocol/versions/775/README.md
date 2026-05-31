@@ -96,6 +96,9 @@ official jar function
 | `play_set_held_slot_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-held-slot-clientbound-framed-dispatch.md` |
 | `play_set_simulation_distance_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-simulation-distance-clientbound-framed-dispatch.md` |
 | `play_server_links_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-server-links-clientbound-framed-dispatch.md` |
+| `play_set_display_objective_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-display-objective-clientbound-framed-dispatch.md` |
+| `play_set_score_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-score-clientbound-framed-dispatch.md` |
+| `play_set_time_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-time-clientbound-framed-dispatch.md` |
 | `play_set_titles_animation_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-titles-animation-clientbound-framed-dispatch.md` |
 | `play_start_configuration_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-start-configuration-clientbound-framed-dispatch.md` |
 | `play_stop_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-stop-sound-clientbound-framed-dispatch.md` |
@@ -105,6 +108,7 @@ official jar function
 | `play_ticking_step_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ticking-step-clientbound-framed-dispatch.md` |
 | `play_transfer_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-transfer-clientbound-framed-dispatch.md` |
 | `play_clear_dialog_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-clear-dialog-clientbound-framed-dispatch.md` |
+| `play_update_tags_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-update-tags-clientbound-framed-dispatch.md` |
 | `play_ping_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ping-clientbound-framed-dispatch.md` |
 | Oracle workbench router | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 | Oracle case package workflow | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
@@ -633,6 +637,20 @@ proofs are scoped to an empty report-details map, an empty server-links list,
 and the clear-dialog singleton body; they do not prove non-empty entry
 semantics, link UI behavior, dialog UI behavior, `show_dialog`, Play readiness,
 or client-load completion.
+
+`play_set_display_objective_clientbound_framed_dispatch`,
+`play_set_score_clientbound_framed_dispatch`,
+`play_set_time_clientbound_framed_dispatch`, and
+`play_update_tags_clientbound_framed_dispatch` have official jar-backed
+answers for `minecraft:set_display_objective` / `0x62`,
+`minecraft:set_score` / `0x6e`, `minecraft:set_time` / `0x71`, and
+`minecraft:update_tags` / `0x86`. Their exact Rust oracle tests pass against
+the current Leafish checkout. These proofs are scoped to clear display
+objective with null Objective, set_score with absent optional display and
+number format, set_time with an empty clock update map, and update_tags with
+an empty registry tag map; they do not prove scoreboard lifecycle, optional
+Component payloads, number-format payloads, WorldClock or ClockNetworkState
+entries, registry tag contents, Play readiness, or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

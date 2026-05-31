@@ -32,18 +32,19 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayPlayerCombatEnterClientbound, PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound,
     PlayServerLinksClientbound, PlaySetBorderCenterClientbound, PlaySetBorderLerpSizeClientbound,
     PlaySetBorderSizeClientbound, PlaySetBorderWarningDelayClientbound,
-    PlaySetBorderWarningDistanceClientbound, PlaySetTitlesAnimationClientbound,
+    PlaySetBorderWarningDistanceClientbound, PlaySetDisplayObjectiveClientbound,
+    PlaySetScoreClientbound, PlaySetTimeClientbound, PlaySetTitlesAnimationClientbound,
     PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlayTickingStateClientbound,
-    PlayTickingStepClientbound, PlayTransferClientbound, PlayerAbilities, PlayerInfo,
-    PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
-    ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
-    SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
-    SignEditorOpen, SoundEffect, SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject,
-    SpawnPainting, SpawnPlayer, SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags,
-    Teams, TeleportPlayer, TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity,
-    UpdateHealth, UpdateLight, UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition,
-    VehicleTeleport, WindowClose, WindowItems, WindowOpen, WindowOpenHorse, WindowProperty,
-    WindowSetSlot, WorldBorder,
+    PlayTickingStepClientbound, PlayTransferClientbound, PlayUpdateTagsClientbound,
+    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
+    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
+    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
+    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
+    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
+    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
+    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
+    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -576,6 +577,21 @@ state_mapped_packets!(
             packet PlayPlayerInfoRemoveClientbound {
                 field profile_ids: Vec<UUID>,
             }
+            packet PlaySetDisplayObjectiveClientbound {
+                field slot: i32,
+                field objective_name: String,
+            }
+            packet PlaySetScoreClientbound {
+                field owner: String,
+                field objective_name: String,
+                field score: i32,
+                field display_present: bool,
+                field number_format_present: bool,
+            }
+            packet PlaySetTimeClientbound {
+                field game_time: i64,
+                field clock_update_count: i32,
+            }
             packet PlaySetTitlesAnimationClientbound {
                 field fade_in: i32,
                 field stay: i32,
@@ -607,6 +623,9 @@ state_mapped_packets!(
             }
             packet PlayClearDialogClientbound {
                 field empty: (),
+            }
+            packet PlayUpdateTagsClientbound {
+                field registry_payload_count: i32,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1941,6 +1960,29 @@ impl MappablePacket for packet::Packet {
                     },
                 )
             }
+            packet::Packet::PlaySetDisplayObjectiveClientbound(display_objective) => {
+                mapped_packet::MappedPacket::PlaySetDisplayObjectiveClientbound(
+                    PlaySetDisplayObjectiveClientbound {
+                        slot: display_objective.slot.0,
+                        objective_name: display_objective.objective_name,
+                    },
+                )
+            }
+            packet::Packet::PlaySetScoreClientbound(score) => {
+                mapped_packet::MappedPacket::PlaySetScoreClientbound(PlaySetScoreClientbound {
+                    owner: score.owner,
+                    objective_name: score.objective_name,
+                    score: score.score.0,
+                    display_present: score.display_present,
+                    number_format_present: score.number_format_present,
+                })
+            }
+            packet::Packet::PlaySetTimeClientbound(time) => {
+                mapped_packet::MappedPacket::PlaySetTimeClientbound(PlaySetTimeClientbound {
+                    game_time: time.game_time,
+                    clock_update_count: time.clock_update_count.0,
+                })
+            }
             packet::Packet::PlaySetTitlesAnimationClientbound(set_titles_animation) => {
                 mapped_packet::MappedPacket::PlaySetTitlesAnimationClientbound(
                     PlaySetTitlesAnimationClientbound {
@@ -2006,6 +2048,11 @@ impl MappablePacket for packet::Packet {
                         empty: clear_dialog.empty,
                     },
                 )
+            }
+            packet::Packet::PlayUpdateTagsClientbound(update_tags) => {
+                mapped_packet::MappedPacket::PlayUpdateTagsClientbound(PlayUpdateTagsClientbound {
+                    registry_payload_count: update_tags.registry_payload_count.0,
+                })
             }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {

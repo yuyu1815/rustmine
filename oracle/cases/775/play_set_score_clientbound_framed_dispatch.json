@@ -1,0 +1,39 @@
+{
+  "case_id": "play_set_score_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetScorePacket(String, String, int, Optional<Component>, Optional<NumberFormat>), ClientboundSetScorePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for set_score body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_score packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_score",
+    "packet_class": "ClientboundSetScorePacket",
+    "input_fields": {
+      "owner": "rustmine_owner",
+      "objective_name": "rustmine_objective",
+      "score": 42,
+      "display_present": false,
+      "number_format_present": false
+    },
+    "field_notes": {
+      "scope": "Plain owner/objective strings with absent optional Component display and absent optional number format."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_score_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_score packet framing and dispatch/decode for one no-optional scoreboard field fixture only; does not infer scoreboard lifecycle or display behavior."
+}

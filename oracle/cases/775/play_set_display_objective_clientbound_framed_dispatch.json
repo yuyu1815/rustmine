@@ -1,0 +1,36 @@
+{
+  "case_id": "play_set_display_objective_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetDisplayObjectivePacket(DisplaySlot, Objective), ClientboundSetDisplayObjectivePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for set_display_objective clear-slot body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_display_objective packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_display_objective",
+    "packet_class": "ClientboundSetDisplayObjectivePacket",
+    "input_fields": {
+      "slot": "LIST",
+      "objective_present": false
+    },
+    "field_notes": {
+      "scope": "Clear display slot fixture only: DisplaySlot.LIST with null Objective."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_display_objective_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_display_objective packet framing and dispatch/decode for a clear-slot fixture only; does not infer scoreboard Objective state."
+}

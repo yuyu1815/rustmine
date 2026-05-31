@@ -684,6 +684,21 @@ state_packets!(
             packet PlayPlayerInfoRemoveClientbound {
                 field profile_ids: LenPrefixed<VarInt, UUID> =,
             }
+            packet PlaySetDisplayObjectiveClientbound {
+                field slot: VarInt =,
+                field objective_name: String =,
+            }
+            packet PlaySetScoreClientbound {
+                field owner: String =,
+                field objective_name: String =,
+                field score: VarInt =,
+                field display_present: bool =,
+                field number_format_present: bool =,
+            }
+            packet PlaySetTimeClientbound {
+                field game_time: i64 =,
+                field clock_update_count: VarInt =,
+            }
             packet PlaySetTitlesAnimationClientbound {
                 field fade_in: i32 =,
                 field stay: i32 =,
@@ -715,6 +730,9 @@ state_packets!(
             }
             packet PlayClearDialogClientbound {
                 field empty: () =,
+            }
+            packet PlayUpdateTagsClientbound {
+                field registry_payload_count: VarInt =,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.

@@ -711,6 +711,70 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlaySetDisplayObjectiveClientbound => {
+                        let slot = VarInt::read_from(buf)?;
+                        let objective_name = String::read_from(buf)?;
+                        if !objective_name.is_empty() {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play set_display_objective objective name {:?}",
+                                objective_name
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetDisplayObjectiveClientbound(
+                            packet::play::clientbound::PlaySetDisplayObjectiveClientbound {
+                                slot,
+                                objective_name,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetScoreClientbound => {
+                        let owner = String::read_from(buf)?;
+                        let objective_name = String::read_from(buf)?;
+                        let score = VarInt::read_from(buf)?;
+                        let display_present = bool::read_from(buf)?;
+                        if display_present {
+                            return Err(Error::Err(
+                                "unsupported Play set_score optional display Component".to_owned(),
+                            ));
+                        }
+                        let number_format_present = bool::read_from(buf)?;
+                        if number_format_present {
+                            return Err(Error::Err(
+                                "unsupported Play set_score optional number format".to_owned(),
+                            ));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetScoreClientbound(
+                            packet::play::clientbound::PlaySetScoreClientbound {
+                                owner,
+                                objective_name,
+                                score,
+                                display_present,
+                                number_format_present,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetTimeClientbound => {
+                        let game_time = i64::read_from(buf)?;
+                        let clock_update_count = VarInt::read_from(buf)?;
+                        if clock_update_count.0 < 0 {
+                            return Err(Error::Err(format!(
+                                "negative Play set_time clock update count {}",
+                                clock_update_count.0
+                            )));
+                        }
+                        if clock_update_count.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play set_time clock update count {}",
+                                clock_update_count.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetTimeClientbound(
+                            packet::play::clientbound::PlaySetTimeClientbound {
+                                game_time,
+                                clock_update_count,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlayCustomReportDetailsClientbound => {
                         let detail_count = VarInt::read_from(buf)?;
                         if detail_count.0 < 0 {
@@ -753,6 +817,26 @@ macro_rules! state_packets {
                         return Ok(Option::Some(Packet::PlayClearDialogClientbound(
                             packet::play::clientbound::PlayClearDialogClientbound {
                                 empty: Serializable::read_from(buf)?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayUpdateTagsClientbound => {
+                        let registry_payload_count = VarInt::read_from(buf)?;
+                        if registry_payload_count.0 < 0 {
+                            return Err(Error::Err(format!(
+                                "negative Play update_tags registry payload count {}",
+                                registry_payload_count.0
+                            )));
+                        }
+                        if registry_payload_count.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play update_tags registry payload count {}",
+                                registry_payload_count.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlayUpdateTagsClientbound(
+                            packet::play::clientbound::PlayUpdateTagsClientbound {
+                                registry_payload_count,
                             },
                         )));
                     }
