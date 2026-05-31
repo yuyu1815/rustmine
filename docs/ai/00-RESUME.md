@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 Play clientbound packet-support now passes through `minecraft:custom_payload` / `0x18`. The latest batch added jar-backed official answers and exact Rust oracle tests for `play_cooldown_clientbound_framed_dispatch` (`minecraft:cooldown` / `0x16`, body `03613a617b`, framed `1603613a617b`), `play_custom_chat_completions_clientbound_framed_dispatch` (`minecraft:custom_chat_completions` / `0x17`, body `000105616c706861`, framed `17000105616c706861`), and `play_custom_payload_clientbound_framed_dispatch` (`minecraft:custom_payload` / `0x18`, BrandPayload body, framed `180f6d696e6563726166743a6272616e641a727573746d696e652d706c61792d6f7261636c652d6272616e64`). Play clientbound rows `minecraft:bundle_delimiter` / `0x00` through `minecraft:cookie_request` / `0x15` also pass. The generated 26.1.2 Play table audit observed 141 clientbound rows and 69 serverbound rows from `GameProtocols.CLIENTBOUND_TEMPLATE` / `SERVERBOUND_TEMPLATE`; the next official Play clientbound row is `minecraft:damage_event` / `0x19`. Configuration clientbound/serverbound, Handshaking serverbound, Login serverbound, and Login clientbound packet-support are complete through their current official rows. |
+| Current location | Protocol 775 Play clientbound packet-support now has a safe GREEN/BLUE batch beyond `minecraft:custom_payload` / `0x18`. A deferred ledger parks `minecraft:damage_event` / `0x19` and intervening YELLOW/RED rows `0x1a`-`0x1f`, `0x21`-`0x22`, `0x24`, and `0x27`-`0x28` until official fixture evidence exists. The latest batch added jar-backed official answers and exact Rust oracle tests for `play_disconnect_clientbound_framed_dispatch` (`minecraft:disconnect` / `0x20`, body `080000`, framed `20080000`), `play_entity_position_sync_clientbound_framed_dispatch` (`minecraft:entity_position_sync` / `0x23`), `play_forget_level_chunk_clientbound_framed_dispatch` (`minecraft:forget_level_chunk` / `0x25`, body `fffffff90000000c`, framed `25fffffff90000000c`), `play_game_event_clientbound_framed_dispatch` (`minecraft:game_event` / `0x26`, body `013f000000`, framed `26013f000000`), and `play_mount_screen_open_clientbound_framed_dispatch` (`minecraft:mount_screen_open` / `0x29`, body `07050000007b`, framed `2907050000007b`). Play clientbound rows `minecraft:bundle_delimiter` / `0x00` through `minecraft:custom_payload` / `0x18` also pass where their case artifacts exist. The generated 26.1.2 Play table audit observed 141 clientbound rows and 69 serverbound rows from `GameProtocols.CLIENTBOUND_TEMPLATE` / `SERVERBOUND_TEMPLATE`; the next official Play clientbound row after this safe batch is `minecraft:hurt_animation` / `0x2a`. Configuration clientbound/serverbound, Handshaking serverbound, Login serverbound, and Login clientbound packet-support are complete through their current official rows. |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{packet.rs,mapped_packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | The Play clientbound proofs through `minecraft:custom_payload` / `0x18` are packet id/body dispatch evidence for one fixture per row only. They do not prove item cooldown semantics, chat UI behavior, arbitrary plugin-channel handling, payload routing policy, initialized client/server state, runtime Configuration-to-Play transition, successful Play entry, world load, spawn readiness, render readiness, or client-load completion. |
+| Explicit uncertainty | The Play clientbound proofs through this safe batch are packet id/body dispatch evidence for one fixture per implemented row only. They do not prove item cooldown semantics, chat UI behavior, arbitrary plugin-channel handling, payload routing policy, UI disconnect handling, entity position semantics, chunk unload behavior, game event semantics, initialized Level/player/weather state, mount entity existence, initialized client/server state, runtime Configuration-to-Play transition, successful Play entry, world load, spawn readiness, render readiness, or client-load completion. Deferred rows are not rejected; they need official fixture evidence before implementation. |
 
 ## Recovery Flow
 
@@ -58,13 +58,18 @@ For future work:
              minecraft:cookie_request / 0x15 plus
              minecraft:cooldown / 0x16 plus
              minecraft:custom_chat_completions / 0x17 plus
-             minecraft:custom_payload / 0x18 proofs pass
+             minecraft:custom_payload / 0x18 plus safe GREEN/BLUE proofs for
+             minecraft:disconnect / 0x20 plus
+             minecraft:entity_position_sync / 0x23 plus
+             minecraft:forget_level_chunk / 0x25 plus
+             minecraft:game_event / 0x26 plus
+             minecraft:mount_screen_open / 0x29 proofs pass; deferred ledger
+             covers minecraft:damage_event / 0x19 and intervening YELLOW/RED
+             rows until official fixture evidence exists
             -> next packet-support target by the same official Play
-               clientbound table order is minecraft:damage_event / 0x19
-              -> first determine whether a smallest official damage_event
-                 fixture can be generated without initialized registry/game
-                 state; stop with a registry/initialized-harness blocker if it
-                 cannot
+               clientbound table order is minecraft:hurt_animation / 0x2a
+              -> first confirm official class/API/body shape and fixture
+                 feasibility from the official jar before adding artifacts
 ```
 
 ## Stop Boundary

@@ -25,10 +25,11 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayClearTitlesClientbound, PlayCommandSuggestionsClientbound,
     PlayContainerSetContentClientbound, PlayContainerSetSlotClientbound,
     PlayCookieRequestClientbound, PlayCooldownClientbound, PlayCustomChatCompletionsClientbound,
-    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
-    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
-    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
-    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    PlayEntityPositionSyncClientbound, PlayForgetLevelChunkClientbound, PlayGameEventClientbound,
+    PlayMountScreenOpenClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
+    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
+    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
+    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
     SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
     SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
     TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
@@ -494,6 +495,30 @@ state_mapped_packets!(
             packet PlayCustomChatCompletionsClientbound {
                 field action: i32,
                 field entries: Vec<String>,
+            }
+            packet PlayEntityPositionSyncClientbound {
+                field entity_id: i32,
+                field x: f64,
+                field y: f64,
+                field z: f64,
+                field delta_x: f64,
+                field delta_y: f64,
+                field delta_z: f64,
+                field y_rot: f32,
+                field x_rot: f32,
+                field on_ground: bool,
+            }
+            packet PlayForgetLevelChunkClientbound {
+                field chunk_pos: i64,
+            }
+            packet PlayGameEventClientbound {
+                field event: u8,
+                field param: f32,
+            }
+            packet PlayMountScreenOpenClientbound {
+                field container_id: i32,
+                field inventory_columns: i32,
+                field entity_id: i32,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1693,6 +1718,44 @@ impl MappablePacket for packet::Packet {
                     PlayCustomChatCompletionsClientbound {
                         action: completions.action.0,
                         entries: completions.entries.data,
+                    },
+                )
+            }
+            packet::Packet::PlayEntityPositionSyncClientbound(sync) => {
+                mapped_packet::MappedPacket::PlayEntityPositionSyncClientbound(
+                    PlayEntityPositionSyncClientbound {
+                        entity_id: sync.entity_id.0,
+                        x: sync.x,
+                        y: sync.y,
+                        z: sync.z,
+                        delta_x: sync.delta_x,
+                        delta_y: sync.delta_y,
+                        delta_z: sync.delta_z,
+                        y_rot: sync.y_rot,
+                        x_rot: sync.x_rot,
+                        on_ground: sync.on_ground,
+                    },
+                )
+            }
+            packet::Packet::PlayForgetLevelChunkClientbound(forget) => {
+                mapped_packet::MappedPacket::PlayForgetLevelChunkClientbound(
+                    PlayForgetLevelChunkClientbound {
+                        chunk_pos: forget.chunk_pos,
+                    },
+                )
+            }
+            packet::Packet::PlayGameEventClientbound(game_event) => {
+                mapped_packet::MappedPacket::PlayGameEventClientbound(PlayGameEventClientbound {
+                    event: game_event.event,
+                    param: game_event.param,
+                })
+            }
+            packet::Packet::PlayMountScreenOpenClientbound(mount) => {
+                mapped_packet::MappedPacket::PlayMountScreenOpenClientbound(
+                    PlayMountScreenOpenClientbound {
+                        container_id: mount.container_id.0,
+                        inventory_columns: mount.inventory_columns.0,
+                        entity_id: mount.entity_id,
                     },
                 )
             }

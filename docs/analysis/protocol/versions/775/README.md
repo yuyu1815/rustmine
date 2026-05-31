@@ -73,6 +73,12 @@ official jar function
 | `play_cooldown_clientbound_framed_dispatch` case note | [cases/play-cooldown-clientbound-framed-dispatch.md](cases/play-cooldown-clientbound-framed-dispatch.md) |
 | `play_custom_chat_completions_clientbound_framed_dispatch` case note | [cases/play-custom-chat-completions-clientbound-framed-dispatch.md](cases/play-custom-chat-completions-clientbound-framed-dispatch.md) |
 | `play_custom_payload_clientbound_framed_dispatch` case note | [cases/play-custom-payload-clientbound-framed-dispatch.md](cases/play-custom-payload-clientbound-framed-dispatch.md) |
+| Protocol 775 Play clientbound deferred rows | [play-clientbound-deferred.md](play-clientbound-deferred.md) |
+| `play_disconnect_clientbound_framed_dispatch` case note | [cases/play-disconnect-clientbound-framed-dispatch.md](cases/play-disconnect-clientbound-framed-dispatch.md) |
+| `play_entity_position_sync_clientbound_framed_dispatch` case note | [cases/play-entity-position-sync-clientbound-framed-dispatch.md](cases/play-entity-position-sync-clientbound-framed-dispatch.md) |
+| `play_forget_level_chunk_clientbound_framed_dispatch` case note | [cases/play-forget-level-chunk-clientbound-framed-dispatch.md](cases/play-forget-level-chunk-clientbound-framed-dispatch.md) |
+| `play_game_event_clientbound_framed_dispatch` case note | [cases/play-game-event-clientbound-framed-dispatch.md](cases/play-game-event-clientbound-framed-dispatch.md) |
+| `play_mount_screen_open_clientbound_framed_dispatch` case note | [cases/play-mount-screen-open-clientbound-framed-dispatch.md](cases/play-mount-screen-open-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -137,7 +143,12 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `play_cookie_request_clientbound_framed_dispatch`,
 `play_cooldown_clientbound_framed_dispatch`,
 `play_custom_chat_completions_clientbound_framed_dispatch`, and
-`play_custom_payload_clientbound_framed_dispatch` are the passing jar-backed
+`play_custom_payload_clientbound_framed_dispatch`,
+`play_disconnect_clientbound_framed_dispatch`,
+`play_entity_position_sync_clientbound_framed_dispatch`,
+`play_forget_level_chunk_clientbound_framed_dispatch`,
+`play_game_event_clientbound_framed_dispatch`, and
+`play_mount_screen_open_clientbound_framed_dispatch` are the passing jar-backed
 answer rows in this 775 shard. Their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout.
@@ -372,8 +383,54 @@ proves the official `minecraft:custom_payload` / `0x18` row, payload id
 `180f6d696e6563726166743a6272616e641a727573746d696e652d706c61792d6f7261636c652d6272616e64`,
 and full body consumption through Stevenarella dispatch. It does not prove
 arbitrary plugin-channel handling, payload routing policy, runtime Play entry,
-world load, spawn readiness, render readiness, or client-load completion. The
-next official Play clientbound row is `minecraft:damage_event` / `0x19`.
+world load, spawn readiness, render readiness, or client-load completion.
+`play-clientbound-deferred.md` parks `minecraft:damage_event` / `0x19` and
+the intervening YELLOW/RED rows that require registry, chat, debug, entity,
+particle/sound/world, or game-rule evidence before fixture selection.
+
+`play_disconnect_clientbound_framed_dispatch` is packet-support evidence for
+one official Play clientbound disconnect empty literal Component reason fixture
+only. It proves the official `minecraft:disconnect` / `0x20` row,
+`ComponentSerialization.TRUSTED_CONTEXT_FREE_STREAM_CODEC` body, framed bytes
+`20080000`, body bytes `080000`, and full body consumption through
+Stevenarella dispatch. It does not prove UI disconnect handling, screen flow,
+runtime Play entry, world load, spawn readiness, render readiness, or
+client-load completion.
+
+`play_entity_position_sync_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound entity_position_sync primitive
+fixture only. It proves the official `minecraft:entity_position_sync` /
+`0x23` row, entity id `123`, position `(1.25, 64.5, -2.75)`, delta movement
+`(0.125, 0.0, -0.25)`, rotations `45.0` and `-10.0`, `onGround=true`, and
+full body consumption through Stevenarella dispatch. It does not prove
+initialized `Entity`/`Level` behavior, entity existence, spawn readiness,
+render readiness, or client-load completion.
+
+`play_forget_level_chunk_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound forget_level_chunk fixture only. It
+proves the official `minecraft:forget_level_chunk` / `0x25` row, chunk
+position `x=12, z=-7`, framed bytes `25fffffff90000000c`, body bytes
+`fffffff90000000c`, and full body consumption through Stevenarella dispatch.
+It does not prove chunk unload behavior, client world state, world load,
+render readiness, or client-load completion.
+
+`play_game_event_clientbound_framed_dispatch` is packet-support evidence for
+one official Play clientbound game_event START_RAINING fixture only. It proves
+the official `minecraft:game_event` / `0x26` row, unsigned-byte event id `1`,
+float parameter `0.5`, framed bytes `26013f000000`, body bytes `013f000000`,
+and full body consumption through Stevenarella dispatch. It does not prove game
+event semantics, initialized `Level`/player/weather state, render readiness,
+or client-load completion.
+
+`play_mount_screen_open_clientbound_framed_dispatch` is packet-support evidence
+for one official Play clientbound mount_screen_open primitive fixture only. It
+proves the official `minecraft:mount_screen_open` / `0x29` row, container id
+`7`, inventory columns `5`, entity id `123`, framed bytes `2907050000007b`,
+body bytes `07050000007b`, and full body consumption through Stevenarella
+dispatch. It does not prove mount entity existence, inventory/menu semantics,
+screen behavior, render readiness, or client-load completion. The next
+official Play clientbound row after this safe batch is
+`minecraft:hurt_animation` / `0x2a`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

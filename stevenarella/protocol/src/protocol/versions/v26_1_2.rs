@@ -88,6 +88,11 @@ protocol_packet_ids!(
             0x16 => PlayCooldownClientbound
             0x17 => PlayCustomChatCompletionsClientbound
             0x18 => PluginMessageClientbound
+            0x20 => Disconnect
+            0x23 => PlayEntityPositionSyncClientbound
+            0x25 => PlayForgetLevelChunkClientbound
+            0x26 => PlayGameEventClientbound
+            0x29 => PlayMountScreenOpenClientbound
         }
     }
 );

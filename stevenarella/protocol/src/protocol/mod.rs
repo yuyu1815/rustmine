@@ -699,6 +699,19 @@ macro_rules! state_packets {
                 }
             }
 
+            if let (775, State::Play, Direction::Clientbound) = (version, state, dir) {
+                let internal_id = packet::versions::translate_internal_packet_id_for_version(
+                    version, state, dir, id, true,
+                );
+                if internal_id == packet::play::clientbound::internal_ids::Disconnect {
+                    return Ok(Option::Some(Packet::Disconnect(
+                        packet::play::clientbound::Disconnect {
+                            reason: read_nbt_string_component(buf)?,
+                        },
+                    )));
+                }
+            }
+
             legacy_packet_by_id(version, state, dir, id, buf)
         }
 

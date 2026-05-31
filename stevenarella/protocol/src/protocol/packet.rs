@@ -613,6 +613,30 @@ state_packets!(
                 field action: VarInt =,
                 field entries: LenPrefixed<VarInt, String> =,
             }
+            packet PlayEntityPositionSyncClientbound {
+                field entity_id: VarInt =,
+                field x: f64 =,
+                field y: f64 =,
+                field z: f64 =,
+                field delta_x: f64 =,
+                field delta_y: f64 =,
+                field delta_z: f64 =,
+                field y_rot: f32 =,
+                field x_rot: f32 =,
+                field on_ground: bool =,
+            }
+            packet PlayForgetLevelChunkClientbound {
+                field chunk_pos: i64 =,
+            }
+            packet PlayGameEventClientbound {
+                field event: u8 =,
+                field param: f32 =,
+            }
+            packet PlayMountScreenOpenClientbound {
+                field container_id: VarInt =,
+                field inventory_columns: VarInt =,
+                field entity_id: i32 =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {
