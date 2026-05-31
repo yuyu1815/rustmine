@@ -33,6 +33,7 @@ import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
 import net.minecraft.network.protocol.common.ClientboundPingPacket;
 import net.minecraft.network.protocol.common.ClientboundResourcePackPopPacket;
+import net.minecraft.network.protocol.common.ClientboundResourcePackPushPacket;
 import net.minecraft.network.protocol.common.ServerboundClientInformationPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomClickActionPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
@@ -120,6 +121,10 @@ public final class OracleHarness {
         }
         if ("configuration_resource_pack_pop_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, configurationResourcePackPopClientboundFramedDispatch(input));
+            return;
+        }
+        if ("configuration_resource_pack_push_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, configurationResourcePackPushClientboundFramedDispatch(input));
             return;
         }
         if ("configuration_resource_pack_response_framed_dispatch".equals(caseId)) {
@@ -1139,6 +1144,81 @@ public final class OracleHarness {
         answerBody.put("decoded_uuid_present", decodedResourcePackPop.id().isPresent());
         answerBody.put("input_uuid", id.toString());
         answerBody.put("decoded_uuid", decodedResourcePackPop.id().map(UUID::toString).orElse(""));
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("configuration_clientbound_packet_table", configurationClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> configurationResourcePackPushClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        UUID id = UUID.fromString(inputFields.get("id").getAsString());
+        String url = inputFields.get("url").getAsString();
+        String hash = inputFields.get("hash").getAsString();
+        boolean required = inputFields.get("required").getAsBoolean();
+        Optional<Component> prompt = Optional.empty();
+        ClientboundResourcePackPushPacket packet =
+            new ClientboundResourcePackPushPacket(id, url, hash, required, prompt);
+
+        FriendlyByteBuf framedOut = new FriendlyByteBuf(Unpooled.buffer());
+        ConfigurationProtocols.CLIENTBOUND.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+
+        FriendlyByteBuf framedIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(framed));
+        Packet<? super ClientConfigurationPacketListener> decodedPacket =
+            ConfigurationProtocols.CLIENTBOUND.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundResourcePackPushPacket decodedResourcePackPush)) {
+            throw new IllegalStateException(
+                "expected ClientboundResourcePackPushPacket, got " + decodedPacket.getClass().getName()
+            );
+        }
+
+        FriendlyByteBuf bodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundResourcePackPushPacket.STREAM_CODEC.encode(bodyOut, packet);
+        byte[] body = readableBytes(bodyOut);
+
+        List<Map<String, Object>> configurationClientboundPackets = new ArrayList<>();
+        ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((type, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", type.id().toString());
+            row.put("flow", type.flow().id());
+            configurationClientboundPackets.add(row);
+        });
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "ClientboundResourcePackPushPacket(UUID, String, String, boolean, Optional<Component>), ClientboundResourcePackPushPacket.STREAM_CODEC, ConfigurationProtocols.CLIENTBOUND.codec().encode/decode(ClientboundResourcePackPushPacket), ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundResourcePackPushPacket.id(), url(), hash(), required(), prompt()",
+            "bytecode_source_command", "_tools/java/jdk-25-full/Contents/Home/bin/javap -classpath _analysis/minecraft-26.1.2/client.jar -c -p net.minecraft.network.protocol.common.ClientboundResourcePackPushPacket net.minecraft.network.protocol.configuration.ConfigurationProtocols"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Configuration");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:resource_pack_push");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("input_uuid", id.toString());
+        answerBody.put("decoded_uuid", decodedResourcePackPush.id().toString());
+        answerBody.put("input_url", url);
+        answerBody.put("decoded_url", decodedResourcePackPush.url());
+        answerBody.put("input_hash", hash);
+        answerBody.put("decoded_hash", decodedResourcePackPush.hash());
+        answerBody.put("input_required", required);
+        answerBody.put("decoded_required", decodedResourcePackPush.required());
+        answerBody.put("input_prompt_present", prompt.isPresent());
+        answerBody.put("decoded_prompt_present", decodedResourcePackPush.prompt().isPresent());
         answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
         answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
         answerBody.put("remaining_after_official_decode", framedIn.readableBytes());

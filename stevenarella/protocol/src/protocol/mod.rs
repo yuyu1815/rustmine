@@ -374,6 +374,31 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationResourcePackPushClientbound => {
+                        let id: UUID = Serializable::read_from(buf)?;
+                        let url: String = Serializable::read_from(buf)?;
+                        let hash: String = Serializable::read_from(buf)?;
+                        let required: bool = Serializable::read_from(buf)?;
+                        let prompt_present: bool = Serializable::read_from(buf)?;
+                        let _packet = packet::configuration::clientbound::ConfigurationResourcePackPushClientbound {
+                            id,
+                            url,
+                            hash,
+                            required,
+                            prompt_present,
+                            prompt_data: if prompt_present {
+                                Serializable::read_from(buf)?
+                            } else {
+                                Vec::new()
+                            },
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "ResourcePackPush".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(

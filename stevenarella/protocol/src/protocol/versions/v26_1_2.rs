@@ -22,6 +22,7 @@ protocol_packet_ids!(
             0x06 => ConfigurationResetChatClientbound
             0x07 => ConfigurationRegistryDataClientbound
             0x08 => ConfigurationResourcePackPopClientbound
+            0x09 => ConfigurationResourcePackPushClientbound
         }
     }
 );
