@@ -70,6 +70,9 @@ official jar function
 | `play_container_set_data_clientbound_framed_dispatch` case note | [cases/play-container-set-data-clientbound-framed-dispatch.md](cases/play-container-set-data-clientbound-framed-dispatch.md) |
 | `play_container_set_slot_clientbound_framed_dispatch` case note | [cases/play-container-set-slot-clientbound-framed-dispatch.md](cases/play-container-set-slot-clientbound-framed-dispatch.md) |
 | `play_cookie_request_clientbound_framed_dispatch` case note | [cases/play-cookie-request-clientbound-framed-dispatch.md](cases/play-cookie-request-clientbound-framed-dispatch.md) |
+| `play_cooldown_clientbound_framed_dispatch` case note | [cases/play-cooldown-clientbound-framed-dispatch.md](cases/play-cooldown-clientbound-framed-dispatch.md) |
+| `play_custom_chat_completions_clientbound_framed_dispatch` case note | [cases/play-custom-chat-completions-clientbound-framed-dispatch.md](cases/play-custom-chat-completions-clientbound-framed-dispatch.md) |
+| `play_custom_payload_clientbound_framed_dispatch` case note | [cases/play-custom-payload-clientbound-framed-dispatch.md](cases/play-custom-payload-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -130,8 +133,11 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `play_container_close_clientbound_framed_dispatch`, and
 `play_container_set_content_clientbound_framed_dispatch`,
 `play_container_set_data_clientbound_framed_dispatch`, and
-`play_container_set_slot_clientbound_framed_dispatch`, and
-`play_cookie_request_clientbound_framed_dispatch` are the passing jar-backed
+`play_container_set_slot_clientbound_framed_dispatch`,
+`play_cookie_request_clientbound_framed_dispatch`,
+`play_cooldown_clientbound_framed_dispatch`,
+`play_custom_chat_completions_clientbound_framed_dispatch`, and
+`play_custom_payload_clientbound_framed_dispatch` are the passing jar-backed
 answer rows in this 775 shard. Their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout.
@@ -338,8 +344,36 @@ framed bytes `1503613a61`, body bytes `03613a61`, and full body consumption
 through Stevenarella dispatch. It does not prove cookie storage policy, cookie
 request/response runtime behavior, initialized client/server state, runtime
 Play entry, world load, spawn readiness, render readiness, or client-load
-completion. The next packet-support target by the same ordering rule is Play
-clientbound `minecraft:cooldown` / `0x16`.
+completion.
+
+`play_cooldown_clientbound_framed_dispatch` is packet-support evidence for one
+official Play clientbound cooldown Identifier/duration fixture only. It proves
+the official `minecraft:cooldown` / `0x16` row, body shape as Identifier
+cooldown group plus VarInt duration, fixture key `a:a`, duration `123`, framed
+bytes `1603613a617b`, body bytes `03613a617b`, and full body consumption
+through Stevenarella dispatch. It does not prove item cooldown semantics, item
+registry contents, UI cooldown behavior, runtime Play entry, world load, spawn
+readiness, render readiness, or client-load completion.
+
+`play_custom_chat_completions_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound custom_chat_completions ADD/string
+fixture only. It proves the official `minecraft:custom_chat_completions` /
+`0x17` row, body shape as enum action plus VarInt UTF-8 string list, fixture
+action `ADD`, entry `alpha`, framed bytes `17000105616c706861`, body bytes
+`000105616c706861`, and full body consumption through Stevenarella dispatch.
+It does not prove chat UI behavior, command context behavior, completion
+lifecycle semantics, runtime Play entry, world load, spawn readiness, render
+readiness, or client-load completion.
+
+`play_custom_payload_clientbound_framed_dispatch` is packet-support evidence
+for one official Play clientbound custom_payload BrandPayload fixture only. It
+proves the official `minecraft:custom_payload` / `0x18` row, payload id
+`minecraft:brand`, brand `rustmine-play-oracle-brand`, framed bytes
+`180f6d696e6563726166743a6272616e641a727573746d696e652d706c61792d6f7261636c652d6272616e64`,
+and full body consumption through Stevenarella dispatch. It does not prove
+arbitrary plugin-channel handling, payload routing policy, runtime Play entry,
+world load, spawn readiness, render readiness, or client-load completion. The
+next official Play clientbound row is `minecraft:damage_event` / `0x19`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

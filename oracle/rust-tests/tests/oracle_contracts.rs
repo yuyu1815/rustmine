@@ -377,6 +377,38 @@ const PLAY_COOKIE_REQUEST_CLIENTBOUND_ANSWER: &str =
 const PLAY_COOKIE_REQUEST_CLIENTBOUND_TEST_NAME: &str =
     "play_cookie_request_clientbound_framed_dispatch_matches_official_oracle_answer";
 const PLAY_COOKIE_REQUEST_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_COOLDOWN_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_cooldown_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_COOLDOWN_CLIENTBOUND_CASE_ID: &str = "play_cooldown_clientbound_framed_dispatch";
+const PLAY_COOLDOWN_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_cooldown_clientbound_framed_dispatch.contract.json";
+const PLAY_COOLDOWN_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_cooldown_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_COOLDOWN_CLIENTBOUND_TEST_NAME: &str =
+    "play_cooldown_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_COOLDOWN_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_custom_chat_completions_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_CASE_ID: &str =
+    "play_custom_chat_completions_clientbound_framed_dispatch";
+const PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_custom_chat_completions_clientbound_framed_dispatch.contract.json";
+const PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_custom_chat_completions_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_TEST_NAME: &str =
+    "play_custom_chat_completions_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_custom_payload_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_CASE_ID: &str =
+    "play_custom_payload_clientbound_framed_dispatch";
+const PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_custom_payload_clientbound_framed_dispatch.contract.json";
+const PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_custom_payload_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_TEST_NAME: &str =
+    "play_custom_payload_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -759,6 +791,18 @@ struct ConfigurationOracleAnswer {
     input_key: Option<String>,
     stream_decoded_key: Option<String>,
     decoded_key: Option<String>,
+    input_cooldown_group: Option<String>,
+    stream_decoded_cooldown_group: Option<String>,
+    decoded_cooldown_group: Option<String>,
+    input_duration: Option<i32>,
+    stream_decoded_duration: Option<i32>,
+    decoded_duration: Option<i32>,
+    stream_decoded_action: Option<String>,
+    input_action_ordinal: Option<i32>,
+    decoded_action_ordinal: Option<i32>,
+    input_entries: Option<Vec<String>>,
+    stream_decoded_entries: Option<Vec<String>>,
+    decoded_entries: Option<Vec<String>>,
     input_payload_hex: Option<String>,
     decoded_payload_hex: Option<String>,
     input_payload_length: Option<usize>,
@@ -6247,6 +6291,360 @@ fn play_cookie_request_clientbound_framed_dispatch_body() {
         body_slice.is_empty(),
         "decoded Play clientbound cookie_request packet did not consume the official body bytes"
     );
+}
+
+#[test]
+fn play_cooldown_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_cooldown_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_cooldown_clientbound_framed_dispatch_body)
+        .expect("spawn play_cooldown_clientbound oracle stack")
+        .join()
+        .expect("play_cooldown_clientbound oracle thread panicked");
+}
+
+fn play_cooldown_clientbound_framed_dispatch_body() {
+    let manifest: TestManifest = read_json(PLAY_COOLDOWN_CLIENTBOUND_MANIFEST);
+    assert_eq!(manifest.case_id, PLAY_COOLDOWN_CLIENTBOUND_CASE_ID);
+    assert_eq!(manifest.contract_path, PLAY_COOLDOWN_CLIENTBOUND_CONTRACT);
+    assert_eq!(manifest.answer_path, PLAY_COOLDOWN_CLIENTBOUND_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(manifest.rust_test_name, PLAY_COOLDOWN_CLIENTBOUND_TEST_NAME);
+    assert_eq!(
+        manifest.comparison_surface,
+        PLAY_COOLDOWN_CLIENTBOUND_COMPARISON_SURFACE
+    );
+    assert_runner_scope(PLAY_COOLDOWN_CLIENTBOUND_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:cooldown")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:cooldown")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundCooldownPacket")
+    );
+    assert_eq!(
+        oracle.answer.input_cooldown_group,
+        oracle.answer.decoded_cooldown_group
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_cooldown_group,
+        oracle.answer.decoded_cooldown_group
+    );
+    assert_eq!(oracle.answer.input_duration, oracle.answer.decoded_duration);
+    assert_eq!(
+        oracle.answer.stream_decoded_duration,
+        oracle.answer.decoded_duration
+    );
+    assert_eq!(oracle.answer.remaining_after_packet_stream_decode, Some(0));
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.play_clientbound_packet_table,
+        "minecraft:cooldown",
+    );
+    let framed = decode_hex(
+        oracle
+            .answer
+            .encoded_framed_hex
+            .as_deref()
+            .expect("play_cooldown answer missing encoded_framed_hex"),
+        "encoded_framed_hex",
+    );
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let fixture_body = decode_hex(
+        oracle
+            .answer
+            .fixture_body_hex
+            .as_deref()
+            .expect("play_cooldown answer missing fixture_body_hex"),
+        "fixture_body_hex",
+    );
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+    assert_eq!(body, fixture_body);
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound cooldown")
+    .expect("dispatch Play clientbound cooldown");
+
+    match decoded {
+        packet::Packet::PlayCooldownClientbound(cooldown) => {
+            assert_eq!(
+                cooldown.cooldown_group,
+                oracle.answer.decoded_cooldown_group.unwrap_or_default()
+            );
+            assert_eq!(
+                cooldown.duration.0,
+                oracle
+                    .answer
+                    .decoded_duration
+                    .expect("missing decoded_duration")
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound cooldown identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_custom_chat_completions_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_custom_chat_completions_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_custom_chat_completions_clientbound_framed_dispatch_body)
+        .expect("spawn play_custom_chat_completions_clientbound oracle stack")
+        .join()
+        .expect("play_custom_chat_completions_clientbound oracle thread panicked");
+}
+
+fn play_custom_chat_completions_clientbound_framed_dispatch_body() {
+    let manifest: TestManifest = read_json(PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_MANIFEST);
+    assert_eq!(
+        manifest.case_id,
+        PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_CASE_ID
+    );
+    assert_eq!(
+        manifest.contract_path,
+        PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_CONTRACT
+    );
+    assert_eq!(
+        manifest.answer_path,
+        PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_ANSWER
+    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_COMPARISON_SURFACE
+    );
+    assert_runner_scope(PLAY_CUSTOM_CHAT_COMPLETIONS_CLIENTBOUND_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:custom_chat_completions")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:custom_chat_completions")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket")
+    );
+    assert_eq!(oracle.answer.input_action, oracle.answer.decoded_action);
+    assert_eq!(
+        oracle.answer.stream_decoded_action,
+        oracle.answer.decoded_action
+    );
+    assert_eq!(
+        oracle.answer.input_action_ordinal,
+        oracle.answer.decoded_action_ordinal
+    );
+    assert_eq!(oracle.answer.input_entries, oracle.answer.decoded_entries);
+    assert_eq!(
+        oracle.answer.stream_decoded_entries,
+        oracle.answer.decoded_entries
+    );
+    assert_eq!(oracle.answer.remaining_after_packet_stream_decode, Some(0));
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.play_clientbound_packet_table,
+        "minecraft:custom_chat_completions",
+    );
+    let framed = decode_hex(
+        oracle
+            .answer
+            .encoded_framed_hex
+            .as_deref()
+            .expect("play_custom_chat_completions answer missing encoded_framed_hex"),
+        "encoded_framed_hex",
+    );
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let fixture_body = decode_hex(
+        oracle
+            .answer
+            .fixture_body_hex
+            .as_deref()
+            .expect("play_custom_chat_completions answer missing fixture_body_hex"),
+        "fixture_body_hex",
+    );
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+    assert_eq!(body, fixture_body);
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound custom_chat_completions")
+    .expect("dispatch Play clientbound custom_chat_completions");
+
+    match decoded {
+        packet::Packet::PlayCustomChatCompletionsClientbound(completions) => {
+            assert_eq!(
+                completions.action.0,
+                oracle
+                    .answer
+                    .decoded_action_ordinal
+                    .expect("missing decoded_action_ordinal")
+            );
+            assert_eq!(
+                completions.entries.data,
+                oracle.answer.decoded_entries.unwrap_or_default()
+            );
+        }
+        other => panic!(
+            "decoded packet did not preserve Play clientbound custom_chat_completions identity: {other:?}"
+        ),
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_custom_payload_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_custom_payload_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_custom_payload_clientbound_framed_dispatch_body)
+        .expect("spawn play_custom_payload_clientbound oracle stack")
+        .join()
+        .expect("play_custom_payload_clientbound oracle thread panicked");
+}
+
+fn play_custom_payload_clientbound_framed_dispatch_body() {
+    let manifest: TestManifest = read_json(PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_MANIFEST);
+    assert_eq!(manifest.case_id, PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_CASE_ID);
+    assert_eq!(
+        manifest.contract_path,
+        PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_CONTRACT
+    );
+    assert_eq!(manifest.answer_path, PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_COMPARISON_SURFACE
+    );
+    assert_runner_scope(PLAY_CUSTOM_PAYLOAD_CLIENTBOUND_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:custom_payload")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:custom_payload")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket")
+    );
+    assert_eq!(
+        oracle.answer.input_custom_payload_id,
+        oracle.answer.decoded_custom_payload_id
+    );
+    assert_eq!(oracle.answer.input_brand, oracle.answer.decoded_brand);
+    assert_eq!(oracle.answer.remaining_after_packet_stream_decode, Some(0));
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.play_clientbound_packet_table,
+        "minecraft:custom_payload",
+    );
+    let framed = decode_hex(
+        oracle
+            .answer
+            .encoded_framed_hex
+            .as_deref()
+            .expect("play_custom_payload answer missing encoded_framed_hex"),
+        "encoded_framed_hex",
+    );
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let fixture_body = decode_hex(
+        oracle
+            .answer
+            .fixture_body_hex
+            .as_deref()
+            .expect("play_custom_payload answer missing fixture_body_hex"),
+        "fixture_body_hex",
+    );
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+    assert_eq!(body, fixture_body);
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound custom_payload")
+    .expect("dispatch Play clientbound custom_payload");
+
+    let expected_channel = oracle
+        .answer
+        .decoded_custom_payload_id
+        .as_deref()
+        .expect("play_custom_payload answer missing decoded_custom_payload_id");
+    let expected_payload = decode_hex(
+        oracle
+            .answer
+            .encoded_payload_body_hex
+            .as_deref()
+            .expect("play_custom_payload answer missing encoded_payload_body_hex"),
+        "encoded_payload_body_hex",
+    );
+    match decoded {
+        packet::Packet::PluginMessageClientbound(packet) => {
+            assert_eq!(packet.channel, expected_channel);
+            assert_eq!(packet.data, expected_payload);
+        }
+        other => panic!(
+            "decoded packet did not preserve Play clientbound custom_payload identity: {other:?}"
+        ),
+    }
+    assert!(body_slice.is_empty());
 }
 
 #[test]

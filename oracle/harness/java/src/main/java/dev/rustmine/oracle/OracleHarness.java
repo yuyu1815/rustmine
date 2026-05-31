@@ -59,6 +59,8 @@ import net.minecraft.network.protocol.game.ClientboundContainerClosePacket;
 import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
 import net.minecraft.network.protocol.game.ClientboundContainerSetDataPacket;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
+import net.minecraft.network.protocol.game.ClientboundCooldownPacket;
+import net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket;
 import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.login.ClientLoginPacketListener;
@@ -400,6 +402,18 @@ public final class OracleHarness {
         }
         if ("play_cookie_request_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, playCookieRequestClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_cooldown_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playCooldownClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_custom_chat_completions_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playCustomChatCompletionsClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_custom_payload_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playCustomPayloadClientboundFramedDispatch(input));
             return;
         }
 
@@ -4965,6 +4979,257 @@ public final class OracleHarness {
         return answer;
     }
 
+    private static Map<String, Object> playCooldownClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        Identifier cooldownGroup = Identifier.parse(inputFields.get("cooldown_group").getAsString());
+        int duration = inputFields.get("duration").getAsInt();
+        ClientboundCooldownPacket packet = new ClientboundCooldownPacket(cooldownGroup, duration);
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        RegistryFriendlyByteBuf fixtureBodyOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        ClientboundCooldownPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        RegistryFriendlyByteBuf packetIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody), registryAccess);
+        ClientboundCooldownPacket streamDecoded =
+            ClientboundCooldownPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:cooldown");
+
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundCooldownPacket decodedCooldown)) {
+            throw new IllegalStateException(
+                "decoded Play cooldown as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "Identifier.parse(String), ClientboundCooldownPacket(Identifier, int), ClientboundCooldownPacket.STREAM_CODEC, Identifier.STREAM_CODEC, ByteBufCodecs.VAR_INT, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundCooldownPacket), ClientboundCooldownPacket.cooldownGroup(), ClientboundCooldownPacket.duration()",
+            "bytecode_source_command", "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundCooldownPacket net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Play");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:cooldown");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("fixture", "official ClientboundCooldownPacket(Identifier, int) constructor fixture with cooldown group a:a and duration from the case; no initialized ItemStack, item registry entry, player, level, or game state");
+        answerBody.put("official_body_shape", "cooldownGroup encoded by Identifier.STREAM_CODEC and duration encoded by ByteBufCodecs.VAR_INT through ClientboundCooldownPacket.STREAM_CODEC");
+        answerBody.put("input_cooldown_group", cooldownGroup.toString());
+        answerBody.put("stream_decoded_cooldown_group", streamDecoded.cooldownGroup().toString());
+        answerBody.put("decoded_cooldown_group", decodedCooldown.cooldownGroup().toString());
+        answerBody.put("input_duration", duration);
+        answerBody.put("stream_decoded_duration", streamDecoded.duration());
+        answerBody.put("decoded_duration", decodedCooldown.duration());
+        answerBody.put("official_packet_id", packetId);
+        answerBody.put("remaining_after_packet_stream_decode", packetIn.readableBytes());
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("fixture_body_hex", HexFormat.of().formatHex(fixtureBody));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("play_clientbound_packet_table", playClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playCustomChatCompletionsClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        ClientboundCustomChatCompletionsPacket.Action action =
+            ClientboundCustomChatCompletionsPacket.Action.valueOf(inputFields.get("action").getAsString());
+        List<String> entries = List.of(inputFields.get("entry").getAsString());
+        ClientboundCustomChatCompletionsPacket packet =
+            new ClientboundCustomChatCompletionsPacket(action, entries);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundCustomChatCompletionsPacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundCustomChatCompletionsPacket streamDecoded =
+            ClientboundCustomChatCompletionsPacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:custom_chat_completions");
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundCustomChatCompletionsPacket decodedCompletions)) {
+            throw new IllegalStateException(
+                "decoded Play custom_chat_completions as unexpected packet "
+                    + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "ClientboundCustomChatCompletionsPacket(Action, List<String>), ClientboundCustomChatCompletionsPacket.STREAM_CODEC, FriendlyByteBuf.writeEnum/readEnum, FriendlyByteBuf.writeCollection/readList with UTF-8 strings, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundCustomChatCompletionsPacket), ClientboundCustomChatCompletionsPacket.action(), ClientboundCustomChatCompletionsPacket.entries()",
+            "bytecode_source_command", "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket 'net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket$Action' net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Play");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:custom_chat_completions");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("fixture", "official ClientboundCustomChatCompletionsPacket(Action, List<String>) constructor fixture with one chat completion entry; no initialized chat UI, command context, player, level, registry, or game state");
+        answerBody.put("official_body_shape", "action encoded by FriendlyByteBuf.writeEnum/readEnum and entries encoded as a VarInt list of UTF-8 strings through ClientboundCustomChatCompletionsPacket.STREAM_CODEC");
+        answerBody.put("input_action", action.name());
+        answerBody.put("stream_decoded_action", streamDecoded.action().name());
+        answerBody.put("decoded_action", decodedCompletions.action().name());
+        answerBody.put("input_action_ordinal", action.ordinal());
+        answerBody.put("decoded_action_ordinal", decodedCompletions.action().ordinal());
+        answerBody.put("input_entries", entries);
+        answerBody.put("stream_decoded_entries", streamDecoded.entries());
+        answerBody.put("decoded_entries", decodedCompletions.entries());
+        answerBody.put("input_entry_count", entries.size());
+        answerBody.put("decoded_entry_count", decodedCompletions.entries().size());
+        answerBody.put("official_packet_id", packetId);
+        answerBody.put("remaining_after_packet_stream_decode", packetIn.readableBytes());
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("fixture_body_hex", HexFormat.of().formatHex(fixtureBody));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("play_clientbound_packet_table", playClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playCustomPayloadClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        BrandPayload payload = new BrandPayload(inputFields.get("brand").getAsString());
+        ClientboundCustomPayloadPacket packet = new ClientboundCustomPayloadPacket(payload);
+
+        FriendlyByteBuf payloadBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        BrandPayload.STREAM_CODEC.encode(payloadBodyOut, payload);
+        byte[] payloadBody = readableBytes(payloadBodyOut);
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        RegistryFriendlyByteBuf fixtureBodyOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        ClientboundCustomPayloadPacket.GAMEPLAY_STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        RegistryFriendlyByteBuf packetIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody), registryAccess);
+        ClientboundCustomPayloadPacket streamDecoded =
+            ClientboundCustomPayloadPacket.GAMEPLAY_STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = playClientboundPacketTable();
+        int packetId = requirePacketId(playClientboundPackets, "minecraft:custom_payload");
+
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundCustomPayloadPacket decodedCustomPayload)) {
+            throw new IllegalStateException(
+                "decoded Play custom_payload as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+        BrandPayload decodedPayload = requireBrandPayload(decodedCustomPayload.payload());
+        BrandPayload streamDecodedPayload = requireBrandPayload(streamDecoded.payload());
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "BrandPayload(String), BrandPayload.STREAM_CODEC, ClientboundCustomPayloadPacket(CustomPacketPayload), ClientboundCustomPayloadPacket.GAMEPLAY_STREAM_CODEC, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(ClientboundCustomPayloadPacket), ClientboundCustomPayloadPacket.payload(), BrandPayload.type(), BrandPayload.brand()",
+            "bytecode_source_command", "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket net.minecraft.network.protocol.common.custom.BrandPayload net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.GamePacketTypes"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Play");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:custom_payload");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("input_payload_class", payload.getClass().getName());
+        answerBody.put("stream_decoded_payload_class", streamDecodedPayload.getClass().getName());
+        answerBody.put("decoded_payload_class", decodedPayload.getClass().getName());
+        answerBody.put("fixture", "official Play ClientboundCustomPayloadPacket with BrandPayload fixture; no arbitrary plugin channel, initialized client, level, registry contents beyond the official payload codec, or game state");
+        answerBody.put("official_body_shape", "payload id encoded by CustomPacketPayload.codec in ClientboundCustomPayloadPacket.GAMEPLAY_STREAM_CODEC followed by the BrandPayload body encoded by BrandPayload.STREAM_CODEC");
+        answerBody.put("input_custom_payload_id", payload.type().id().toString());
+        answerBody.put("stream_decoded_custom_payload_id", streamDecodedPayload.type().id().toString());
+        answerBody.put("decoded_custom_payload_id", decodedPayload.type().id().toString());
+        answerBody.put("input_brand", payload.brand());
+        answerBody.put("stream_decoded_brand", streamDecodedPayload.brand());
+        answerBody.put("decoded_brand", decodedPayload.brand());
+        answerBody.put("encoded_payload_body_hex", HexFormat.of().formatHex(payloadBody));
+        answerBody.put("official_packet_id", packetId);
+        answerBody.put("remaining_after_packet_stream_decode", packetIn.readableBytes());
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("fixture_body_hex", HexFormat.of().formatHex(fixtureBody));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("play_clientbound_packet_table", playClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
     private static Map<String, Object> configurationSelectKnownPacksFramedDispatch(JsonObject input) {
         JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
         String vanillaPackId = inputFields.get("vanilla_pack_id").getAsString();
@@ -5665,6 +5930,34 @@ public final class OracleHarness {
 
     private static List<String> identifierStrings(Set<Identifier> identifiers) {
         return identifiers.stream().map(Identifier::toString).sorted().toList();
+    }
+
+    private static List<Map<String, Object>> playClientboundPacketTable() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((packetType, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", packetType.id().toString());
+            row.put("flow", packetType.flow().id());
+            rows.add(row);
+        });
+        return rows;
+    }
+
+    private static int requirePacketId(List<Map<String, Object>> packetTable, String packetType) {
+        for (Map<String, Object> row : packetTable) {
+            if (packetType.equals(row.get("packet_type"))) {
+                return (Integer) row.get("packet_id");
+            }
+        }
+        throw new IllegalStateException("missing official packet id for " + packetType);
+    }
+
+    private static BrandPayload requireBrandPayload(Object payload) {
+        if (payload instanceof BrandPayload brandPayload) {
+            return brandPayload;
+        }
+        throw new IllegalStateException("expected BrandPayload, got " + payload.getClass().getName());
     }
 
     private static byte[] hexToBytes(String value) {

@@ -85,6 +85,9 @@ protocol_packet_ids!(
             0x13 => WindowProperty
             0x14 => PlayContainerSetSlotClientbound
             0x15 => PlayCookieRequestClientbound
+            0x16 => PlayCooldownClientbound
+            0x17 => PlayCustomChatCompletionsClientbound
+            0x18 => PluginMessageClientbound
         }
     }
 );

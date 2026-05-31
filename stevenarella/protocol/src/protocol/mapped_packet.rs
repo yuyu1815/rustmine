@@ -24,10 +24,11 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayChunkBatchFinishedClientbound, PlayChunkBatchStartClientbound, PlayChunksBiomesClientbound,
     PlayClearTitlesClientbound, PlayCommandSuggestionsClientbound,
     PlayContainerSetContentClientbound, PlayContainerSetSlotClientbound,
-    PlayCookieRequestClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
-    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
-    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
-    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    PlayCookieRequestClientbound, PlayCooldownClientbound, PlayCustomChatCompletionsClientbound,
+    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
+    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
+    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
+    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
     SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
     SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
     TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
@@ -485,6 +486,14 @@ state_mapped_packets!(
             }
             packet PlayCookieRequestClientbound {
                 field key: String,
+            }
+            packet PlayCooldownClientbound {
+                field cooldown_group: String,
+                field duration: i32,
+            }
+            packet PlayCustomChatCompletionsClientbound {
+                field action: i32,
+                field entries: Vec<String>,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1670,6 +1679,20 @@ impl MappablePacket for packet::Packet {
                 mapped_packet::MappedPacket::PlayCookieRequestClientbound(
                     PlayCookieRequestClientbound {
                         key: cookie_request.key,
+                    },
+                )
+            }
+            packet::Packet::PlayCooldownClientbound(cooldown) => {
+                mapped_packet::MappedPacket::PlayCooldownClientbound(PlayCooldownClientbound {
+                    cooldown_group: cooldown.cooldown_group,
+                    duration: cooldown.duration.0,
+                })
+            }
+            packet::Packet::PlayCustomChatCompletionsClientbound(completions) => {
+                mapped_packet::MappedPacket::PlayCustomChatCompletionsClientbound(
+                    PlayCustomChatCompletionsClientbound {
+                        action: completions.action.0,
+                        entries: completions.entries.data,
                     },
                 )
             }

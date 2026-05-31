@@ -605,6 +605,14 @@ state_packets!(
             packet PlayCookieRequestClientbound {
                 field key: String =,
             }
+            packet PlayCooldownClientbound {
+                field cooldown_group: String =,
+                field duration: VarInt =,
+            }
+            packet PlayCustomChatCompletionsClientbound {
+                field action: VarInt =,
+                field entries: LenPrefixed<VarInt, String> =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

@@ -423,9 +423,36 @@ through Stevenarella dispatch. The fixture uses
 initialized client, server, level, registry contents, cookie store, or game
 state. It does not prove cookie storage policy, cookie request/response runtime
 behavior, initialized client/server state, runtime Play entry, world load,
-spawn readiness, render readiness, or client-load completion. The next
+spawn readiness, render readiness, or client-load completion.
+
+`play_cooldown_clientbound_framed_dispatch` is packet-support evidence for one
+official Play clientbound cooldown Identifier/duration fixture only. It proves
+the official `minecraft:cooldown` / `0x16` row, body shape as Identifier
+cooldown group plus VarInt duration, fixture key `a:a`, duration `123`, framed
+bytes `1603613a617b`, body bytes `03613a617b`, and full body consumption
+through Stevenarella dispatch. It does not prove item cooldown semantics, item
+registry contents, UI cooldown behavior, runtime Play entry, world load, spawn
+readiness, render readiness, or client-load completion.
+
+`play_custom_chat_completions_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound custom_chat_completions ADD/string
+fixture only. It proves the official `minecraft:custom_chat_completions` /
+`0x17` row, body shape as enum action plus VarInt UTF-8 string list, fixture
+action `ADD`, entry `alpha`, framed bytes `17000105616c706861`, body bytes
+`000105616c706861`, and full body consumption through Stevenarella dispatch.
+It does not prove chat UI behavior, command context behavior, completion
+lifecycle semantics, runtime Play entry, world load, spawn readiness, render
+readiness, or client-load completion.
+
+`play_custom_payload_clientbound_framed_dispatch` is packet-support evidence
+for one official Play clientbound custom_payload BrandPayload fixture only. It
+proves the official `minecraft:custom_payload` / `0x18` row, payload id
+`minecraft:brand`, brand `rustmine-play-oracle-brand`, and full body
+consumption through Stevenarella dispatch. It does not prove arbitrary
+plugin-channel handling, payload routing policy, runtime Play entry, world
+load, spawn readiness, render readiness, or client-load completion. The next
 packet-support target by official Play clientbound table order is
-`minecraft:cooldown` / `0x16`.
+`minecraft:damage_event` / `0x19`.
 
 `configuration_cookie_response_framed_dispatch` is packet-support evidence for
 one non-null payload fixture only. It does not prove cookie storage policy,
