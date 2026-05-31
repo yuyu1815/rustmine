@@ -59,16 +59,16 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x64` | `minecraft:set_entity_link` | deferred YELLOW | Official public constructor is entity-backed and represents entity link/leash relationship state. | Do not fake linked entity existence or relationship semantics. |
 | `0x74` | `minecraft:sound_entity` | deferred YELLOW | Official `ClientboundSoundEntityPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, entity id, volume, pitch, and seed. | Do not invent sound registry holder values or entity runtime context. |
 | `0x75` | `minecraft:sound` | deferred YELLOW | Official `ClientboundSoundPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, position ints, volume, pitch, and seed. | Do not invent sound registry holder values or world sound context. |
-| `0x77` | `minecraft:stop_sound` | safe GREEN follow-up | Official `ClientboundStopSoundPacket` supports a null/null fixture with one flags byte `0`; no registry holder is required for that fixture. | Implement only through a generated official answer; do not infer named-sound behavior. |
-| `0x78` | `minecraft:store_cookie` | safe BLUE follow-up | Official Play row uses common `ClientboundStoreCookiePacket` with Identifier plus bounded byte-array payload; Configuration has a corresponding implementation witness. | Do not change cross-state ownership without a Rust-fix task and exact Play answer. |
+| `0x77` | `minecraft:stop_sound` | promoted GREEN | Official `ClientboundStopSoundPacket(null, null)` generated a jar-backed Play answer with one flags byte `0`; no registry holder was required for that fixture. | Promoted only for the null/null fixture; do not infer named source or named sound behavior. |
+| `0x78` | `minecraft:store_cookie` | promoted BLUE | Official Play row uses common `ClientboundStoreCookiePacket` with Identifier plus bounded byte-array payload; a Play-specific answer and Rust mapping now prove one fixture. | Do not infer runtime cookie storage policy from this packet-support proof. |
 | `0x79` | `minecraft:system_chat` | deferred YELLOW | Official codec uses `ComponentSerialization.TRUSTED_STREAM_CODEC` plus overlay bool. | Do not invent Component bytes or chat/UI behavior. |
 | `0x7a` | `minecraft:tab_list` | deferred YELLOW | Official codec uses trusted Component header and footer. | Do not invent Component bytes or player-list UI behavior. |
 | `0x7b` | `minecraft:tag_query` | deferred YELLOW | Official codec uses VarInt transaction id plus NBT via `readNbt`/`writeNbt`. | Do not invent NBT payload policy or query context. |
 | `0x7d` | `minecraft:teleport_entity` | deferred YELLOW | Official codec uses entity id, `PositionMoveRotation.STREAM_CODEC`, relative flags, and onGround. | Do not infer entity teleport/movement semantics or relative flag policy. |
 | `0x7e` | `minecraft:test_instance_block_status` | deferred YELLOW | Official codec uses Component status plus optional `Vec3i` size for test-instance/debug behavior. | Do not invent Component bytes or game-test block semantics. |
-| `0x7f` | `minecraft:ticking_state` | safe GREEN follow-up | Official `ClientboundTickingStatePacket(float, boolean)` writes one float and one boolean. | Implement only through a generated official answer; do not claim world ticking runtime behavior. |
-| `0x80` | `minecraft:ticking_step` | safe GREEN follow-up | Official `ClientboundTickingStepPacket(int)` writes one VarInt tick step count. | Implement only through a generated official answer; do not claim tick-manager runtime behavior. |
-| `0x81` | `minecraft:transfer` | safe BLUE follow-up | Official Play row uses common `ClientboundTransferPacket` with host string and port VarInt; Configuration has a corresponding implementation witness. | Do not change cross-state ownership without a Rust-fix task and exact Play answer. |
+| `0x7f` | `minecraft:ticking_state` | promoted GREEN | Official `ClientboundTickingStatePacket(float, boolean)` generated a jar-backed Play answer with one float and one boolean. | Promoted only as primitive packet support; do not claim world ticking runtime behavior. |
+| `0x80` | `minecraft:ticking_step` | promoted GREEN | Official `ClientboundTickingStepPacket(int)` generated a jar-backed Play answer with one VarInt tick step count. | Promoted only as primitive packet support; do not claim tick-manager runtime behavior. |
+| `0x81` | `minecraft:transfer` | promoted BLUE | Official Play row uses common `ClientboundTransferPacket` with host string and port VarInt; a Play-specific answer and Rust mapping now prove one fixture. | Do not infer runtime transfer/reconnect handling from this packet-support proof. |
 | `0x82` | `minecraft:update_advancements` | deferred YELLOW | Official codec uses advancement holders, identifiers, advancement progress, and show/reset flags. | Do not invent advancement tree/progress semantics. |
 | `0x83` | `minecraft:update_attributes` | deferred YELLOW | Official codec uses entity id plus attribute snapshots with attribute registry holders and modifiers. | Do not invent attribute registry ids or initialized entity attributes. |
 | `0x84` | `minecraft:update_mob_effect` | deferred YELLOW | Official codec uses entity id plus `MobEffect.STREAM_CODEC`, amplifier, duration, and flags. | Do not invent mob-effect registry holders or entity/effect state. |
@@ -131,3 +131,12 @@ evidence, but only GREEN rows selected for this batch were implemented. No
 sound registry holder, Component, NBT, entity teleport, game-test, ticking
 runtime, common-packet cross-state ownership, advancement, attribute, mob
 effect, recipe, or tag semantics were inferred while crossing this batch.
+
+The `0x77` / `0x78` / `0x7f` / `0x80` / `0x81` safe follow-up batch promoted
+only `stop_sound` null/null, `store_cookie`, `ticking_state`, `ticking_step`,
+and `transfer` into jar-backed packet-support packages. The skipped rows
+`0x79`-`0x7b`, `0x7d`-`0x7e`, and `0x82`-`0x86` remain parked for the
+official-evidence reasons above. No named source/sound, Component, NBT, entity
+teleport, game-test, advancement, attribute, mob-effect, recipe, tag, cookie
+storage, transfer runtime, or tick-manager runtime behavior was inferred while
+crossing this batch.

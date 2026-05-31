@@ -32,16 +32,17 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound, PlaySetBorderCenterClientbound,
     PlaySetBorderLerpSizeClientbound, PlaySetBorderSizeClientbound,
     PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound,
-    PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound, PlayerAbilities,
-    PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound,
-    ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab,
-    ServerDifficulty, ServerMessage, SetCompression, SetCooldown, SetCurrentHotbarSlot,
-    SetExperience, SetPassengers, SignEditorOpen, SoundEffect, SpawnExperienceOrb,
-    SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer, SpawnPosition,
-    Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer, TimeUpdate, Title,
-    TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight, UpdateScore,
-    UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose, WindowItems,
-    WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
+    PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound,
+    PlayStoreCookieClientbound, PlayTickingStateClientbound, PlayTickingStepClientbound,
+    PlayTransferClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
+    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
+    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
+    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
+    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
+    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
+    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
+    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -581,6 +582,21 @@ state_mapped_packets!(
             }
             packet PlayStartConfigurationClientbound {
                 field empty: (),
+            }
+            packet PlayStoreCookieClientbound {
+                field key: String,
+                field payload: Vec<u8>,
+            }
+            packet PlayTickingStateClientbound {
+                field tick_rate: f32,
+                field frozen: bool,
+            }
+            packet PlayTickingStepClientbound {
+                field tick_steps: i32,
+            }
+            packet PlayTransferClientbound {
+                field host: String,
+                field port: i32,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1930,6 +1946,35 @@ impl MappablePacket for packet::Packet {
                         empty: start_configuration.empty,
                     },
                 )
+            }
+            packet::Packet::PlayStoreCookieClientbound(store_cookie) => {
+                mapped_packet::MappedPacket::PlayStoreCookieClientbound(
+                    PlayStoreCookieClientbound {
+                        key: store_cookie.key,
+                        payload: store_cookie.payload.data,
+                    },
+                )
+            }
+            packet::Packet::PlayTickingStateClientbound(ticking_state) => {
+                mapped_packet::MappedPacket::PlayTickingStateClientbound(
+                    PlayTickingStateClientbound {
+                        tick_rate: ticking_state.tick_rate,
+                        frozen: ticking_state.frozen,
+                    },
+                )
+            }
+            packet::Packet::PlayTickingStepClientbound(ticking_step) => {
+                mapped_packet::MappedPacket::PlayTickingStepClientbound(
+                    PlayTickingStepClientbound {
+                        tick_steps: ticking_step.tick_steps.0,
+                    },
+                )
+            }
+            packet::Packet::PlayTransferClientbound(transfer) => {
+                mapped_packet::MappedPacket::PlayTransferClientbound(PlayTransferClientbound {
+                    host: transfer.host,
+                    port: transfer.port.0,
+                })
             }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {

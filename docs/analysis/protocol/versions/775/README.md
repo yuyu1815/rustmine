@@ -96,7 +96,12 @@ official jar function
 | `play_set_simulation_distance_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-simulation-distance-clientbound-framed-dispatch.md` |
 | `play_set_titles_animation_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-titles-animation-clientbound-framed-dispatch.md` |
 | `play_start_configuration_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-start-configuration-clientbound-framed-dispatch.md` |
+| `play_stop_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-stop-sound-clientbound-framed-dispatch.md` |
+| `play_store_cookie_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-store-cookie-clientbound-framed-dispatch.md` |
 | `play_take_item_entity_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-take-item-entity-clientbound-framed-dispatch.md` |
+| `play_ticking_state_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ticking-state-clientbound-framed-dispatch.md` |
+| `play_ticking_step_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ticking-step-clientbound-framed-dispatch.md` |
+| `play_transfer_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-transfer-clientbound-framed-dispatch.md` |
 | `play_ping_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ping-clientbound-framed-dispatch.md` |
 | Oracle workbench router | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 | Oracle case package workflow | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
@@ -597,15 +602,23 @@ entity existence, movement semantics, player state, inventory UI, world ticking,
 render readiness, or client-load completion.
 
 `play_set_titles_animation_clientbound_framed_dispatch`,
-`play_start_configuration_clientbound_framed_dispatch`, and
-`play_take_item_entity_clientbound_framed_dispatch` have official jar-backed
-answers for `minecraft:set_titles_animation` / `0x73`,
-`minecraft:start_configuration` / `0x76`, and
-`minecraft:take_item_entity` / `0x7c`. Their exact Rust oracle tests pass
-against the current Leafish checkout. These proofs do not cover title UI
-behavior, Play-to-Configuration transition handling, entity existence, item
-stack contents, collection runtime behavior, Play readiness, or client-load
-completion.
+`play_start_configuration_clientbound_framed_dispatch`,
+`play_stop_sound_clientbound_framed_dispatch`,
+`play_store_cookie_clientbound_framed_dispatch`,
+`play_take_item_entity_clientbound_framed_dispatch`,
+`play_ticking_state_clientbound_framed_dispatch`,
+`play_ticking_step_clientbound_framed_dispatch`, and
+`play_transfer_clientbound_framed_dispatch` have official jar-backed answers
+for `minecraft:set_titles_animation` / `0x73`,
+`minecraft:start_configuration` / `0x76`, `minecraft:stop_sound` / `0x77`,
+`minecraft:store_cookie` / `0x78`, `minecraft:take_item_entity` / `0x7c`,
+`minecraft:ticking_state` / `0x7f`, `minecraft:ticking_step` / `0x80`, and
+`minecraft:transfer` / `0x81`. Their exact Rust oracle tests pass against the
+current Leafish checkout. These proofs do not cover title UI behavior,
+Play-to-Configuration transition handling, named sound/source variants,
+runtime cookie storage, entity existence, item stack contents, collection
+runtime behavior, tick-manager runtime behavior, transfer handling, Play
+readiness, or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

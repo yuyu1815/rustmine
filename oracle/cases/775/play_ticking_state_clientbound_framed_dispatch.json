@@ -1,0 +1,36 @@
+{
+  "case_id": "play_ticking_state_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundTickingStatePacket(float, boolean); ClientboundTickingStatePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for ticking_state primitive body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and ticking_state packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:ticking_state",
+    "packet_class": "ClientboundTickingStatePacket",
+    "input_fields": {
+      "tick_rate": 20.0,
+      "frozen": false
+    },
+    "field_notes": {
+      "scope": "Primitive codec fixture only."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_ticking_state_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound ticking_state packet framing and dispatch/decode for one primitive fixture only; does not infer TickRateManager runtime semantics."
+}

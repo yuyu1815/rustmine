@@ -692,6 +692,21 @@ state_packets!(
             packet PlayStartConfigurationClientbound {
                 field empty: () =,
             }
+            packet PlayStoreCookieClientbound {
+                field key: String =,
+                field payload: LenPrefixed<VarInt, u8> =,
+            }
+            packet PlayTickingStateClientbound {
+                field tick_rate: f32 =,
+                field frozen: bool =,
+            }
+            packet PlayTickingStepClientbound {
+                field tick_steps: VarInt =,
+            }
+            packet PlayTransferClientbound {
+                field host: String =,
+                field port: VarInt =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

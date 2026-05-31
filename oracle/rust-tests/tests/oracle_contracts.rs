@@ -119,4 +119,9 @@ include!("oracle_contracts/cases/play/play_set_held_slot_clientbound_framed_disp
 include!("oracle_contracts/cases/play/play_set_simulation_distance_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_set_titles_animation_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_start_configuration_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_stop_sound_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_store_cookie_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
 include!("oracle_contracts/cases/play/play_take_item_entity_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_ticking_state_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_ticking_step_clientbound_framed_dispatch_matches_official_oracle_answer.rs");
+include!("oracle_contracts/cases/play/play_transfer_clientbound_framed_dispatch_matches_official_oracle_answer.rs");

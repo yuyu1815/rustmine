@@ -126,7 +126,12 @@ protocol_packet_ids!(
             0x6f => UpdateViewDistance
             0x73 => PlaySetTitlesAnimationClientbound
             0x76 => PlayStartConfigurationClientbound
+            0x77 => StopSound
+            0x78 => PlayStoreCookieClientbound
             0x7c => CollectItem
+            0x7f => PlayTickingStateClientbound
+            0x80 => PlayTickingStepClientbound
+            0x81 => PlayTransferClientbound
         }
     }
 );
