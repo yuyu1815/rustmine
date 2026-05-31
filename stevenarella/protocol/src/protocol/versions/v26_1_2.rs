@@ -68,6 +68,7 @@ protocol_packet_ids!(
             0x02 => PlayAnimateClientbound
             0x03 => PlayAwardStatsClientbound
             0x04 => PlayBlockChangedAckClientbound
+            0x05 => PlayBlockDestructionClientbound
         }
     }
 );
