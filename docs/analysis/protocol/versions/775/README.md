@@ -28,6 +28,8 @@ official jar function
 | `login_custom_query_answer_serverbound_framed_dispatch` case note | [cases/login-custom-query-answer-serverbound-framed-dispatch.md](cases/login-custom-query-answer-serverbound-framed-dispatch.md) |
 | `login_acknowledged_serverbound_framed_dispatch` case note | [cases/login-acknowledged-serverbound-framed-dispatch.md](cases/login-acknowledged-serverbound-framed-dispatch.md) |
 | `login_cookie_response_serverbound_framed_dispatch` case note | [cases/login-cookie-response-serverbound-framed-dispatch.md](cases/login-cookie-response-serverbound-framed-dispatch.md) |
+| `login_disconnect_clientbound_framed_dispatch` case note | [cases/login-disconnect-clientbound-framed-dispatch.md](cases/login-disconnect-clientbound-framed-dispatch.md) |
+| `login_hello_clientbound_framed_dispatch` case note | [cases/login-hello-clientbound-framed-dispatch.md](cases/login-hello-clientbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -65,6 +67,8 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `login_custom_query_answer_serverbound_framed_dispatch`,
 `login_acknowledged_serverbound_framed_dispatch`,
 `login_cookie_response_serverbound_framed_dispatch`,
+`login_disconnect_clientbound_framed_dispatch`,
+`login_hello_clientbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -134,6 +138,21 @@ Identifier key field, nullable payload marker/body, and full body consumption
 through Stevenarella dispatch. It does not prove cookie storage policy,
 cookie request/response runtime behavior, Configuration entry, Play readiness,
 or client-load completion.
+
+`login_disconnect_clientbound_framed_dispatch` is packet-support evidence for
+one official Login clientbound login_disconnect empty literal Component reason
+fixture only. It proves the official `minecraft:login_disconnect` / `0x00`
+row and full body consumption through Stevenarella dispatch. It does not prove
+UI disconnect handling, screen flow, authentication failure handling,
+Configuration entry, Play readiness, or client-load completion.
+
+`login_hello_clientbound_framed_dispatch` is packet-support evidence for one
+official Login clientbound hello fixture only. It proves the official
+`minecraft:hello` / `0x01` row, `serverId`, `publicKey`, `challenge`, and
+`shouldAuthenticate` body order, and full body consumption through Stevenarella
+dispatch. It does not prove encryption success, authentication success, key
+validation, login state transition handling, Configuration entry, Play
+readiness, or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

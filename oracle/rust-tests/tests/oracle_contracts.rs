@@ -91,6 +91,16 @@ const LOGIN_DISCONNECT_CLIENTBOUND_ANSWER: &str =
 const LOGIN_DISCONNECT_CLIENTBOUND_TEST_NAME: &str =
     "login_disconnect_clientbound_framed_dispatch_matches_official_oracle_answer";
 const LOGIN_DISCONNECT_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const LOGIN_HELLO_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/login_hello_clientbound_framed_dispatch.test-manifest.json";
+const LOGIN_HELLO_CLIENTBOUND_CASE_ID: &str = "login_hello_clientbound_framed_dispatch";
+const LOGIN_HELLO_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/login_hello_clientbound_framed_dispatch.contract.json";
+const LOGIN_HELLO_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/login_hello_clientbound_framed_dispatch.answer.jsonl";
+const LOGIN_HELLO_CLIENTBOUND_TEST_NAME: &str =
+    "login_hello_clientbound_framed_dispatch_matches_official_oracle_answer";
+const LOGIN_HELLO_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -503,6 +513,18 @@ struct ConfigurationOracleAnswer {
     decoded_name: Option<String>,
     input_profile_id: Option<String>,
     decoded_profile_id: Option<String>,
+    input_server_id: Option<String>,
+    decoded_server_id: Option<String>,
+    input_public_key_hex: Option<String>,
+    decoded_public_key_hex: Option<String>,
+    input_public_key_length: Option<usize>,
+    decoded_public_key_length: Option<usize>,
+    input_challenge_hex: Option<String>,
+    decoded_challenge_hex: Option<String>,
+    input_challenge_length: Option<usize>,
+    decoded_challenge_length: Option<usize>,
+    input_should_authenticate: Option<bool>,
+    decoded_should_authenticate: Option<bool>,
     input_transaction_id: Option<i32>,
     decoded_transaction_id: Option<i32>,
     input_keybytes_hex: Option<String>,
@@ -1614,6 +1636,155 @@ fn login_disconnect_clientbound_framed_dispatch_body() {
     assert!(
         body_slice.is_empty(),
         "decoded Login clientbound login_disconnect packet did not consume the official body bytes"
+    );
+}
+
+#[test]
+fn login_hello_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("login_hello_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(login_hello_clientbound_framed_dispatch_body)
+        .expect("spawn login_hello_clientbound oracle stack")
+        .join()
+        .expect("login_hello_clientbound oracle thread panicked");
+}
+
+fn login_hello_clientbound_framed_dispatch_body() {
+    let manifest: TestManifest = read_json(LOGIN_HELLO_CLIENTBOUND_MANIFEST);
+    assert_eq!(manifest.case_id, LOGIN_HELLO_CLIENTBOUND_CASE_ID);
+    assert_eq!(manifest.contract_path, LOGIN_HELLO_CLIENTBOUND_CONTRACT);
+    assert_eq!(manifest.answer_path, LOGIN_HELLO_CLIENTBOUND_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(manifest.rust_test_name, LOGIN_HELLO_CLIENTBOUND_TEST_NAME);
+    assert_eq!(
+        manifest.comparison_surface,
+        LOGIN_HELLO_CLIENTBOUND_COMPARISON_SURFACE
+    );
+    assert_runner_scope(LOGIN_HELLO_CLIENTBOUND_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:hello")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:hello")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.login.ClientboundHelloPacket")
+    );
+    assert_eq!(
+        oracle.answer.input_server_id, oracle.answer.decoded_server_id,
+        "official decoded Login clientbound hello serverId differs from input"
+    );
+    assert_eq!(
+        oracle.answer.input_public_key_hex, oracle.answer.decoded_public_key_hex,
+        "official decoded Login clientbound hello publicKey differs from input"
+    );
+    assert_eq!(
+        oracle.answer.input_public_key_length, oracle.answer.decoded_public_key_length,
+        "official decoded Login clientbound hello publicKey length differs from input"
+    );
+    assert_eq!(
+        oracle.answer.input_challenge_hex, oracle.answer.decoded_challenge_hex,
+        "official decoded Login clientbound hello challenge differs from input"
+    );
+    assert_eq!(
+        oracle.answer.input_challenge_length, oracle.answer.decoded_challenge_length,
+        "official decoded Login clientbound hello challenge length differs from input"
+    );
+    assert_eq!(
+        oracle.answer.input_should_authenticate, oracle.answer.decoded_should_authenticate,
+        "official decoded Login clientbound hello shouldAuthenticate differs from input"
+    );
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.login_clientbound_packet_table,
+        "minecraft:hello",
+    );
+    let framed_hex = oracle
+        .answer
+        .encoded_framed_hex
+        .as_deref()
+        .expect("login_hello clientbound answer missing encoded_framed_hex");
+    let framed = decode_hex(framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Login,
+            Direction::Clientbound,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Login clientbound hello packet id {}",
+            framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| {
+            panic!("Stevenarella errored while decoding Login clientbound hello packet: {err}")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Login clientbound hello packet id {}",
+                framed_packet_id
+            )
+        });
+
+    match decoded {
+        packet::Packet::EncryptionRequest_ShouldAuthenticate(packet) => {
+            assert_eq!(
+                packet.server_id,
+                oracle.answer.decoded_server_id.clone().unwrap_or_default(),
+                "decoded Login clientbound hello server_id did not match the official serverId"
+            );
+            assert_eq!(
+                hex::encode(packet.public_key.data),
+                oracle
+                    .answer
+                    .decoded_public_key_hex
+                    .clone()
+                    .unwrap_or_default(),
+                "decoded Login clientbound hello public_key did not match the official publicKey"
+            );
+            assert_eq!(
+                hex::encode(packet.verify_token.data),
+                oracle
+                    .answer
+                    .decoded_challenge_hex
+                    .clone()
+                    .unwrap_or_default(),
+                "decoded Login clientbound hello verify_token did not match the official challenge"
+            );
+            assert_eq!(
+                packet.should_authenticate,
+                oracle.answer.decoded_should_authenticate.unwrap_or(false),
+                "decoded Login clientbound hello should_authenticate did not match the official shouldAuthenticate"
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Login clientbound hello identity: {other:?}")
+        }
+    }
+    assert!(
+        body_slice.is_empty(),
+        "decoded Login clientbound hello packet did not consume the official body bytes"
     );
 }
 

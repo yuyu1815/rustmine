@@ -2175,6 +2175,12 @@ state_packets!(
                 /// correctly
                 field verify_token: LenPrefixedBytes<VarInt> =,
             }
+            packet EncryptionRequest_ShouldAuthenticate {
+                field server_id: String =,
+                field public_key: LenPrefixedBytes<VarInt> =,
+                field verify_token: LenPrefixedBytes<VarInt> =,
+                field should_authenticate: bool =,
+            }
             packet EncryptionRequest_i16 {
                 field server_id: String =,
                 field public_key: LenPrefixedBytes<i16> =,

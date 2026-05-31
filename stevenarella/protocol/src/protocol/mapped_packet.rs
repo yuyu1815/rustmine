@@ -1,7 +1,7 @@
 use crate::protocol::mapped_packet::handshake::serverbound::Handshake;
 use crate::protocol::mapped_packet::login::clientbound::{
-    EncryptionRequest, LoginDisconnect, LoginPluginRequest, LoginSuccess_String, LoginSuccess_UUID,
-    SetInitialCompression,
+    EncryptionRequest, EncryptionRequest_ShouldAuthenticate, LoginDisconnect, LoginPluginRequest,
+    LoginSuccess_String, LoginSuccess_UUID, SetInitialCompression,
 };
 use crate::protocol::mapped_packet::login::serverbound::{
     EncryptionResponse, LoginAcknowledged, LoginCookieResponse, LoginPluginResponse, LoginStart,
@@ -1333,6 +1333,12 @@ state_mapped_packets!(
                 /// correctly
                 field verify_token: Vec<u8>,
             }
+            packet EncryptionRequest_ShouldAuthenticate {
+                field server_id: String,
+                field public_key: Vec<u8>,
+                field verify_token: Vec<u8>,
+                field should_authenticate: bool,
+            }
             packet EncryptionRequest_i16 {
                 field server_id: String,
                 field public_key: Vec<u8>,
@@ -2037,6 +2043,16 @@ impl MappablePacket for packet::Packet {
                     public_key: encryption_request.public_key.data,
                     verify_token: encryption_request.verify_token.data,
                 })
+            }
+            packet::Packet::EncryptionRequest_ShouldAuthenticate(encryption_request) => {
+                mapped_packet::MappedPacket::EncryptionRequest_ShouldAuthenticate(
+                    EncryptionRequest_ShouldAuthenticate {
+                        server_id: encryption_request.server_id,
+                        public_key: encryption_request.public_key.data,
+                        verify_token: encryption_request.verify_token.data,
+                        should_authenticate: encryption_request.should_authenticate,
+                    },
+                )
             }
             packet::Packet::EncryptionRequest_i16(encryption_request) => {
                 mapped_packet::MappedPacket::EncryptionRequest(EncryptionRequest {
