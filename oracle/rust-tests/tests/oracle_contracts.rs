@@ -270,6 +270,17 @@ const CONFIGURATION_CUSTOM_REPORT_DETAILS_CLIENTBOUND_TEST_NAME: &str =
     "configuration_custom_report_details_clientbound_framed_dispatch_matches_official_oracle_answer";
 const CONFIGURATION_CUSTOM_REPORT_DETAILS_CLIENTBOUND_COMPARISON_SURFACE: &str =
     "framed_dispatch_decode";
+const CONFIGURATION_SERVER_LINKS_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/configuration_server_links_clientbound_framed_dispatch.test-manifest.json";
+const CONFIGURATION_SERVER_LINKS_CLIENTBOUND_CASE_ID: &str =
+    "configuration_server_links_clientbound_framed_dispatch";
+const CONFIGURATION_SERVER_LINKS_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/configuration_server_links_clientbound_framed_dispatch.contract.json";
+const CONFIGURATION_SERVER_LINKS_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/configuration_server_links_clientbound_framed_dispatch.answer.jsonl";
+const CONFIGURATION_SERVER_LINKS_CLIENTBOUND_TEST_NAME: &str =
+    "configuration_server_links_clientbound_framed_dispatch_matches_official_oracle_answer";
+const CONFIGURATION_SERVER_LINKS_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_RESOURCE_PACK_RESPONSE_MANIFEST: &str =
     "oracle/test-manifests/775/configuration_resource_pack_response_framed_dispatch.test-manifest.json";
 const CONFIGURATION_RESOURCE_PACK_RESPONSE_CASE_ID: &str =
@@ -403,6 +414,10 @@ struct ConfigurationOracleAnswer {
     decoded_detail_count: Option<usize>,
     input_details: Option<std::collections::BTreeMap<String, String>>,
     decoded_details: Option<std::collections::BTreeMap<String, String>>,
+    input_link_count: Option<usize>,
+    decoded_link_count: Option<usize>,
+    input_links: Option<Vec<serde_json::Value>>,
+    decoded_links: Option<Vec<serde_json::Value>>,
     input_custom_click_id: Option<String>,
     decoded_custom_click_id: Option<String>,
     input_payload_present: Option<bool>,
@@ -3270,6 +3285,134 @@ fn configuration_custom_report_details_clientbound_framed_dispatch_matches_offic
     assert!(
         body_slice.is_empty(),
         "decoded clientbound custom_report_details packet did not consume the official body bytes"
+    );
+}
+
+#[test]
+fn configuration_server_links_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    let manifest: TestManifest = read_json(CONFIGURATION_SERVER_LINKS_CLIENTBOUND_MANIFEST);
+    assert_eq!(
+        manifest.case_id,
+        CONFIGURATION_SERVER_LINKS_CLIENTBOUND_CASE_ID
+    );
+    assert_eq!(
+        manifest.contract_path,
+        CONFIGURATION_SERVER_LINKS_CLIENTBOUND_CONTRACT
+    );
+    assert_eq!(
+        manifest.answer_path,
+        CONFIGURATION_SERVER_LINKS_CLIENTBOUND_ANSWER
+    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        CONFIGURATION_SERVER_LINKS_CLIENTBOUND_TEST_NAME
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        CONFIGURATION_SERVER_LINKS_CLIENTBOUND_COMPARISON_SURFACE
+    );
+    assert_runner_scope(CONFIGURATION_SERVER_LINKS_CLIENTBOUND_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:server_links")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:server_links")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.common.ClientboundServerLinksPacket")
+    );
+    assert_eq!(
+        oracle.answer.input_fixture.as_deref(),
+        Some("List.of() server_links")
+    );
+    assert_eq!(
+        oracle.answer.input_link_count,
+        Some(0),
+        "server_links fixture must not invent server-link entries"
+    );
+    assert_eq!(
+        oracle.answer.input_link_count, oracle.answer.decoded_link_count,
+        "official decoded server_links list length differs from the official input length"
+    );
+    assert_eq!(
+        oracle.answer.input_links, oracle.answer.decoded_links,
+        "official decoded server_links list differs from the official input list"
+    );
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.configuration_clientbound_packet_table,
+        "minecraft:server_links",
+    );
+    let framed_hex = oracle
+        .answer
+        .encoded_framed_hex
+        .as_deref()
+        .expect("server_links answer missing encoded_framed_hex");
+    let framed = decode_hex(framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+    assert_eq!(
+        body,
+        encode_varint(0),
+        "official empty server_links fixture should encode a zero-length links list"
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Configuration,
+            Direction::Clientbound,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Configuration clientbound server_links packet id {}",
+            framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| {
+            panic!("Stevenarella errored while decoding clientbound server_links packet: {err}")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Configuration clientbound server_links packet id {}",
+                framed_packet_id
+            )
+        });
+    match decoded {
+        packet::Packet::PluginMessageClientbound(packet) => {
+            assert_eq!(
+                packet.channel, "ServerLinks",
+                "decoded packet did not preserve server_links compatibility channel"
+            );
+            assert!(
+                packet.data.is_empty(),
+                "decoded server_links compatibility packet carried unexpected data"
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve server_links identity: {other:?}")
+        }
+    }
+    assert!(
+        body_slice.is_empty(),
+        "decoded clientbound server_links packet did not consume the official body bytes"
     );
 }
 

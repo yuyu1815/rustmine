@@ -38,6 +38,7 @@ import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
 import net.minecraft.network.protocol.common.ClientboundPingPacket;
 import net.minecraft.network.protocol.common.ClientboundResourcePackPopPacket;
 import net.minecraft.network.protocol.common.ClientboundResourcePackPushPacket;
+import net.minecraft.network.protocol.common.ClientboundServerLinksPacket;
 import net.minecraft.network.protocol.common.ClientboundStoreCookiePacket;
 import net.minecraft.network.protocol.common.ClientboundTransferPacket;
 import net.minecraft.network.protocol.common.ClientboundUpdateTagsPacket;
@@ -56,6 +57,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.ServerLinks;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.packs.repository.KnownPack;
@@ -159,6 +161,10 @@ public final class OracleHarness {
         }
         if ("configuration_custom_report_details_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, configurationCustomReportDetailsClientboundFramedDispatch(input));
+            return;
+        }
+        if ("configuration_server_links_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, configurationServerLinksClientboundFramedDispatch(input));
             return;
         }
         if ("configuration_resource_pack_response_framed_dispatch".equals(caseId)) {
@@ -1649,6 +1655,70 @@ public final class OracleHarness {
         return answer;
     }
 
+    private static Map<String, Object> configurationServerLinksClientboundFramedDispatch(JsonObject input) {
+        List<ServerLinks.UntrustedEntry> links = List.of();
+        ClientboundServerLinksPacket packet = new ClientboundServerLinksPacket(links);
+
+        FriendlyByteBuf framedOut = new FriendlyByteBuf(Unpooled.buffer());
+        ConfigurationProtocols.CLIENTBOUND.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+
+        FriendlyByteBuf framedIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(framed));
+        Packet<? super ClientConfigurationPacketListener> decodedPacket =
+            ConfigurationProtocols.CLIENTBOUND.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundServerLinksPacket decodedServerLinks)) {
+            throw new IllegalStateException(
+                "expected ClientboundServerLinksPacket, got " + decodedPacket.getClass().getName()
+            );
+        }
+
+        FriendlyByteBuf bodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundServerLinksPacket.STREAM_CODEC.encode(bodyOut, packet);
+        byte[] body = readableBytes(bodyOut);
+
+        List<Map<String, Object>> configurationClientboundPackets = new ArrayList<>();
+        ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((type, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", type.id().toString());
+            row.put("flow", type.flow().id());
+            configurationClientboundPackets.add(row);
+        });
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "ClientboundServerLinksPacket(List<ServerLinks.UntrustedEntry>), ClientboundServerLinksPacket.STREAM_CODEC, ConfigurationProtocols.CLIENTBOUND.codec().encode/decode(ClientboundServerLinksPacket), ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundServerLinksPacket.links(), ServerLinks.UNTRUSTED_LINKS_STREAM_CODEC",
+            "bytecode_source_command", "_tools/java/jdk-25-full/Contents/Home/bin/javap -classpath _analysis/minecraft-26.1.2/client.jar -c -p net.minecraft.network.protocol.common.ClientboundServerLinksPacket net.minecraft.server.ServerLinks net.minecraft.server.ServerLinks\\$UntrustedEntry net.minecraft.server.ServerLinks\\$KnownLinkType net.minecraft.network.protocol.common.CommonPacketTypes net.minecraft.network.protocol.configuration.ConfigurationProtocols"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Configuration");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:server_links");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("input_fixture", "List.of() server_links");
+        answerBody.put("input_links", serverLinkAnswers(links));
+        answerBody.put("decoded_links", serverLinkAnswers(decodedServerLinks.links()));
+        answerBody.put("input_link_count", links.size());
+        answerBody.put("decoded_link_count", decodedServerLinks.links().size());
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("configuration_clientbound_packet_table", configurationClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
     private static Map<String, Object> configurationResourcePackResponseFramedDispatch(JsonObject input) {
         JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
         UUID id = UUID.fromString(inputFields.get("id").getAsString());
@@ -2028,6 +2098,27 @@ public final class OracleHarness {
             row.put("id", knownPack.id());
             row.put("version", knownPack.version());
             row.put("is_vanilla", knownPack.isVanilla());
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private static List<Map<String, Object>> serverLinkAnswers(List<ServerLinks.UntrustedEntry> links) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ServerLinks.UntrustedEntry link : links) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("link", link.link());
+            row.put("type", link.type().map(knownType -> {
+                Map<String, Object> known = new LinkedHashMap<>();
+                known.put("kind", "known");
+                known.put("name", knownType.name());
+                return known;
+            }, customName -> {
+                Map<String, Object> custom = new LinkedHashMap<>();
+                custom.put("kind", "custom");
+                custom.put("text", customName.getString());
+                return custom;
+            }));
             rows.add(row);
         }
         return rows;

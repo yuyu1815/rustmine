@@ -1,0 +1,59 @@
+{
+  "case_id": "configuration_server_links_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundServerLinksPacket(List<ServerLinks.UntrustedEntry>)",
+      "authority_note": "Official binary source for constructing the Configuration clientbound server_links packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundServerLinksPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for Configuration clientbound server_links body encoding and decoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(new ClientboundServerLinksPacket(...))",
+      "authority_note": "Official binary source for Configuration clientbound server_links framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound server_links framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundServerLinksPacket.links(), ServerLinks.UNTRUSTED_LINKS_STREAM_CODEC",
+      "authority_note": "Official binary source for reading the decoded server link list and for the list body codec."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:server_links",
+    "packet_class": "ClientboundServerLinksPacket",
+    "input_fields": {
+      "links": []
+    },
+    "field_notes": {
+      "links": "Explicit empty List<ServerLinks.UntrustedEntry> fixture accepted by the official constructor/codec without initialized server-link UI state."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_server_links_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration clientbound server_links packet framing and dispatch/decode for one official empty links list fixture only; do not infer server-links UI behavior, trust/link-opening policy, Configuration completion, Play entry, world load, render readiness, or runtime behavior."
+}

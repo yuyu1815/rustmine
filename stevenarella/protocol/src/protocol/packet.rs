@@ -2575,6 +2575,7 @@ pub mod configuration {
             pub const ConfigurationUpdateTagsClientbound: i32 = 13;
             pub const ConfigurationSelectKnownPacksClientbound: i32 = 14;
             pub const ConfigurationCustomReportDetailsClientbound: i32 = 15;
+            pub const ConfigurationServerLinksClientbound: i32 = 16;
         }
 
         #[derive(Default, Debug)]
@@ -2918,6 +2919,30 @@ pub mod configuration {
                     detail.key.write_to(buf)?;
                     detail.value.write_to(buf)?;
                 }
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationServerLinksClientbound {
+            pub link_count: i32,
+            pub links_data: Vec<u8>,
+        }
+
+        impl PacketType for ConfigurationServerLinksClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationServerLinksClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                VarInt(self.link_count).write_to(buf)?;
+                buf.write_all(&self.links_data)?;
                 Ok(())
             }
         }
