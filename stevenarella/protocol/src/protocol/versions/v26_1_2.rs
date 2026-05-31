@@ -66,6 +66,7 @@ protocol_packet_ids!(
             0x00 => BundleDelimiterClientbound
             0x01 => PlayAddEntityClientbound
             0x02 => PlayAnimateClientbound
+            0x03 => PlayAwardStatsClientbound
         }
     }
 );
