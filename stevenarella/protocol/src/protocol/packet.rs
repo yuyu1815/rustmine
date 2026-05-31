@@ -2567,6 +2567,7 @@ pub mod configuration {
             pub const ConfigurationPingClientbound_i32: i32 = 2;
             pub const ConfigurationResetChatClientbound: i32 = 6;
             pub const ConfigurationRegistryDataClientbound: i32 = 7;
+            pub const ConfigurationResourcePackPopClientbound: i32 = 8;
         }
 
         #[derive(Default, Debug)]
@@ -2679,6 +2680,32 @@ pub mod configuration {
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.registry.write_to(buf)?;
                 self.data.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationResourcePackPopClientbound {
+            pub id_present: bool,
+            pub id: Option<UUID>,
+        }
+
+        impl PacketType for ConfigurationResourcePackPopClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationResourcePackPopClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.id_present.write_to(buf)?;
+                if let Some(ref id) = self.id {
+                    id.write_to(buf)?;
+                }
                 Ok(())
             }
         }

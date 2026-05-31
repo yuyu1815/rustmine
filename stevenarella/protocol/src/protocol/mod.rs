@@ -357,6 +357,23 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationResourcePackPopClientbound => {
+                        let id_present: bool = Serializable::read_from(buf)?;
+                        let _packet = packet::configuration::clientbound::ConfigurationResourcePackPopClientbound {
+                            id_present,
+                            id: if id_present {
+                                Some(Serializable::read_from(buf)?)
+                            } else {
+                                None
+                            },
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "ResourcePackPop".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(
