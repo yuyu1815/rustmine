@@ -2570,6 +2570,7 @@ pub mod configuration {
             pub const ConfigurationResourcePackPopClientbound: i32 = 8;
             pub const ConfigurationResourcePackPushClientbound: i32 = 9;
             pub const ConfigurationStoreCookieClientbound: i32 = 10;
+            pub const ConfigurationTransferClientbound: i32 = 11;
         }
 
         #[derive(Default, Debug)]
@@ -2765,6 +2766,30 @@ pub mod configuration {
                 self.key.write_to(buf)?;
                 VarInt(self.payload.len() as i32).write_to(buf)?;
                 buf.write_all(&self.payload)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationTransferClientbound {
+            pub host: String,
+            pub port: i32,
+        }
+
+        impl PacketType for ConfigurationTransferClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationTransferClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.host.write_to(buf)?;
+                VarInt(self.port).write_to(buf)?;
                 Ok(())
             }
         }

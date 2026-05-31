@@ -24,6 +24,7 @@ protocol_packet_ids!(
             0x08 => ConfigurationResourcePackPopClientbound
             0x09 => ConfigurationResourcePackPushClientbound
             0x0a => ConfigurationStoreCookieClientbound
+            0x0b => ConfigurationTransferClientbound
         }
     }
 );
