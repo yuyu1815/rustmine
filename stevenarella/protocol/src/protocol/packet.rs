@@ -2146,6 +2146,9 @@ state_packets!(
                 field successful: bool =,
                 field data: Vec<u8> =,
             }
+            packet LoginAcknowledged {
+                field empty: () =,
+            }
         }
         clientbound Clientbound {
             /// LoginDisconnect is sent by the server if there was any issues

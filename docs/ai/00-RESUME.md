@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `login_custom_query_answer_serverbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Login serverbound `minecraft:custom_query_answer` answer for one null-payload fixture and decodes it through `packet::packet_by_id(775, State::Login, Direction::Serverbound, official id, body)` with full body consumption. The generated 26.1.2 Configuration clientbound and serverbound packet tables are complete through their current official rows; the Handshaking serverbound table has its official `minecraft:intention` / `0x00` row; Login serverbound packet-support has `minecraft:hello` / `0x00`, `minecraft:key` / `0x01`, and `minecraft:custom_query_answer` / `0x02`. |
+| Current location | Protocol 775 `login_acknowledged_serverbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Login serverbound `minecraft:login_acknowledged` answer for the official singleton empty-body terminal fixture and decodes it through `packet::packet_by_id(775, State::Login, Direction::Serverbound, official id, body)` with full body consumption. The generated 26.1.2 Configuration clientbound and serverbound packet tables are complete through their current official rows; the Handshaking serverbound table has its official `minecraft:intention` / `0x00` row; Login serverbound packet-support has `minecraft:hello` / `0x00`, `minecraft:key` / `0x01`, `minecraft:custom_query_answer` / `0x02`, and `minecraft:login_acknowledged` / `0x03`. |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{mod.rs,packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `login_custom_query_answer_serverbound_framed_dispatch` proves only Login serverbound custom_query_answer packet id/body dispatch for one official null-payload fixture. It does not prove plugin channel handling, custom payload semantics, login acknowledgement, Configuration entry, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `login_acknowledged_serverbound_framed_dispatch` proves only Login serverbound login_acknowledged packet id/body dispatch for the official singleton empty-body terminal fixture. It does not prove Configuration entry, state transition handling, cookie_response support, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -37,10 +37,11 @@ For future work:
              Configuration clientbound/serverbound table proof through current
              official rows, Handshaking serverbound proof for
              minecraft:intention / 0x00, and Login serverbound proof for
-             minecraft:hello / 0x00, minecraft:key / 0x01, and
-             minecraft:custom_query_answer / 0x02
+             minecraft:hello / 0x00, minecraft:key / 0x01,
+             minecraft:custom_query_answer / 0x02, and
+             minecraft:login_acknowledged / 0x03
             -> next packet-support target is Login serverbound
-               minecraft:login_acknowledged / 0x03, using LoginProtocols.SERVERBOUND_TEMPLATE
+               minecraft:cookie_response / 0x04, using LoginProtocols.SERVERBOUND_TEMPLATE
                official table evidence first
               -> do not move to Play packet work until Handshake/Login packet
                  table gaps are audited or explicitly bounded

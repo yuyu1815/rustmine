@@ -26,6 +26,7 @@ official jar function
 | `login_hello_serverbound_framed_dispatch` case note | [cases/login-hello-serverbound-framed-dispatch.md](cases/login-hello-serverbound-framed-dispatch.md) |
 | `login_key_serverbound_framed_dispatch` case note | [cases/login-key-serverbound-framed-dispatch.md](cases/login-key-serverbound-framed-dispatch.md) |
 | `login_custom_query_answer_serverbound_framed_dispatch` case note | [cases/login-custom-query-answer-serverbound-framed-dispatch.md](cases/login-custom-query-answer-serverbound-framed-dispatch.md) |
+| `login_acknowledged_serverbound_framed_dispatch` case note | [cases/login-acknowledged-serverbound-framed-dispatch.md](cases/login-acknowledged-serverbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -61,6 +62,7 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `login_hello_serverbound_framed_dispatch`,
 `login_key_serverbound_framed_dispatch`,
 `login_custom_query_answer_serverbound_framed_dispatch`,
+`login_acknowledged_serverbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -113,8 +115,15 @@ evidence for one official null-payload Login serverbound custom_query_answer
 fixture only. It proves the official `minecraft:custom_query_answer` / `0x02`
 row, transaction id field, nullable payload marker body, and full body
 consumption through Stevenarella dispatch. It does not prove plugin channel
-handling, custom payload semantics, login acknowledgement, Configuration entry,
-or client-load completion.
+handling, custom payload semantics, Configuration entry, or client-load
+completion.
+
+`login_acknowledged_serverbound_framed_dispatch` is packet-support evidence
+for the official singleton Login serverbound login_acknowledged fixture only.
+It proves the official `minecraft:login_acknowledged` / `0x03` row,
+empty-body unit codec, terminal flag, and full body consumption through
+Stevenarella dispatch. It does not prove Configuration entry, state transition
+handling, cookie_response support, Play readiness, or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

@@ -4,7 +4,7 @@ use crate::protocol::mapped_packet::login::clientbound::{
     SetInitialCompression,
 };
 use crate::protocol::mapped_packet::login::serverbound::{
-    EncryptionResponse, LoginPluginResponse, LoginStart,
+    EncryptionResponse, LoginAcknowledged, LoginPluginResponse, LoginStart,
 };
 use crate::protocol::mapped_packet::play::clientbound::{
     AcknowledgePlayerDigging, Advancements, Animation, BlockAction, BlockBreakAnimation,
@@ -1304,6 +1304,9 @@ state_mapped_packets!(
                 field successful: bool,
                 field data: Vec<u8>,
             }
+            packet LoginAcknowledged {
+                field empty: (),
+            }
         }
         clientbound Clientbound {
             /// LoginDisconnect is sent by the server if there was any issues
@@ -2457,6 +2460,11 @@ impl MappablePacket for packet::Packet {
                     message_id: plugin_response.message_id.0,
                     successful: plugin_response.successful,
                     data: plugin_response.data,
+                })
+            }
+            packet::Packet::LoginAcknowledged(login_acknowledged) => {
+                mapped_packet::MappedPacket::LoginAcknowledged(LoginAcknowledged {
+                    empty: login_acknowledged.empty,
                 })
             }
             packet::Packet::LoginStart(login_start) => {

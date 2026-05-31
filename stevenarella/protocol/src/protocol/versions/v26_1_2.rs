@@ -11,6 +11,7 @@ protocol_packet_ids!(
             0x00 => LoginStart
             0x01 => EncryptionResponse
             0x02 => LoginPluginResponse
+            0x03 => LoginAcknowledged
         }
         clientbound Clientbound {
         }
