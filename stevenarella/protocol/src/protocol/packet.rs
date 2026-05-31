@@ -575,6 +575,9 @@ state_packets!(
             packet PlayChunkBatchFinishedClientbound {
                 field batch_size: VarInt =,
             }
+            packet PlayChunkBatchStartClientbound {
+                field empty: () =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {
