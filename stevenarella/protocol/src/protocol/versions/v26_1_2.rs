@@ -104,6 +104,11 @@ protocol_packet_ids!(
             0x39 => VehicleTeleport
             0x3a => OpenBook
             0x3d => PlayPingClientbound_i32
+            0x3e => PlayPongResponseClientbound_i64
+            0x40 => PlayerAbilities
+            0x42 => PlayPlayerCombatEndClientbound
+            0x43 => PlayPlayerCombatEnterClientbound
+            0x4d => EntityDestroy
         }
     }
 );

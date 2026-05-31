@@ -1,0 +1,41 @@
+{
+  "case_id": "play_pong_response_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.ping.ClientboundPongResponsePacket(long)",
+      "authority_note": "Official binary source for constructing the Play clientbound pong_response packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundPongResponsePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound pong_response body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and pong_response packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:pong_response",
+    "packet_class": "ClientboundPongResponsePacket",
+    "input_fields": {
+      "time": 72623859790382856
+    },
+    "field_notes": {
+      "time": "Primitive i64 fixture; does not prove runtime ping/pong latency behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_pong_response_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound pong_response packet framing and dispatch/decode for one primitive time fixture only; do not infer runtime ping/pong latency behavior, Play entry, render readiness, or client-load completion."
+}

@@ -578,6 +578,61 @@ const PLAY_PING_CLIENTBOUND_ANSWER: &str =
 const PLAY_PING_CLIENTBOUND_TEST_NAME: &str =
     "play_ping_clientbound_framed_dispatch_matches_official_oracle_answer";
 const PLAY_PING_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_PONG_RESPONSE_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_pong_response_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_PONG_RESPONSE_CLIENTBOUND_CASE_ID: &str =
+    "play_pong_response_clientbound_framed_dispatch";
+const PLAY_PONG_RESPONSE_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_pong_response_clientbound_framed_dispatch.contract.json";
+const PLAY_PONG_RESPONSE_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_pong_response_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_PONG_RESPONSE_CLIENTBOUND_TEST_NAME: &str =
+    "play_pong_response_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_PONG_RESPONSE_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_PLAYER_ABILITIES_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_player_abilities_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_PLAYER_ABILITIES_CLIENTBOUND_CASE_ID: &str =
+    "play_player_abilities_clientbound_framed_dispatch";
+const PLAY_PLAYER_ABILITIES_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_player_abilities_clientbound_framed_dispatch.contract.json";
+const PLAY_PLAYER_ABILITIES_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_player_abilities_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_PLAYER_ABILITIES_CLIENTBOUND_TEST_NAME: &str =
+    "play_player_abilities_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_PLAYER_ABILITIES_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_PLAYER_COMBAT_END_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_player_combat_end_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_PLAYER_COMBAT_END_CLIENTBOUND_CASE_ID: &str =
+    "play_player_combat_end_clientbound_framed_dispatch";
+const PLAY_PLAYER_COMBAT_END_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_player_combat_end_clientbound_framed_dispatch.contract.json";
+const PLAY_PLAYER_COMBAT_END_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_player_combat_end_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_PLAYER_COMBAT_END_CLIENTBOUND_TEST_NAME: &str =
+    "play_player_combat_end_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_PLAYER_COMBAT_END_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_player_combat_enter_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_CASE_ID: &str =
+    "play_player_combat_enter_clientbound_framed_dispatch";
+const PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_player_combat_enter_clientbound_framed_dispatch.contract.json";
+const PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_player_combat_enter_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_TEST_NAME: &str =
+    "play_player_combat_enter_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
+const PLAY_REMOVE_ENTITIES_CLIENTBOUND_MANIFEST: &str =
+    "oracle/test-manifests/775/play_remove_entities_clientbound_framed_dispatch.test-manifest.json";
+const PLAY_REMOVE_ENTITIES_CLIENTBOUND_CASE_ID: &str =
+    "play_remove_entities_clientbound_framed_dispatch";
+const PLAY_REMOVE_ENTITIES_CLIENTBOUND_CONTRACT: &str =
+    "oracle/contracts/775/play_remove_entities_clientbound_framed_dispatch.contract.json";
+const PLAY_REMOVE_ENTITIES_CLIENTBOUND_ANSWER: &str =
+    "oracle/answers/775/play_remove_entities_clientbound_framed_dispatch.answer.jsonl";
+const PLAY_REMOVE_ENTITIES_CLIENTBOUND_TEST_NAME: &str =
+    "play_remove_entities_clientbound_framed_dispatch_matches_official_oracle_answer";
+const PLAY_REMOVE_ENTITIES_CLIENTBOUND_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -1266,6 +1321,19 @@ struct ConfigurationOracleAnswer {
     input_hand_ordinal: Option<i32>,
     stream_decoded_hand_ordinal: Option<i32>,
     decoded_hand_ordinal: Option<i32>,
+    input_time: Option<i64>,
+    stream_decoded_time: Option<i64>,
+    decoded_time: Option<i64>,
+    input_flags: Option<i32>,
+    stream_decoded_flags: Option<i32>,
+    decoded_flags: Option<i32>,
+    input_flying_speed: Option<f32>,
+    decoded_flying_speed: Option<f32>,
+    input_walking_speed: Option<f32>,
+    decoded_walking_speed: Option<f32>,
+    input_entity_ids: Option<Vec<i32>>,
+    stream_decoded_entity_ids: Option<Vec<i32>>,
+    decoded_entity_ids: Option<Vec<i32>>,
     input_yaw: Option<f32>,
     stream_decoded_yaw: Option<f32>,
     decoded_yaw: Option<f32>,
@@ -8062,6 +8130,294 @@ fn play_ping_clientbound_framed_dispatch_body() {
         }
         other => {
             panic!("decoded packet did not preserve Play clientbound ping identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_pong_response_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_pong_response_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_pong_response_clientbound_framed_dispatch_body)
+        .expect("spawn play_pong_response_clientbound oracle stack")
+        .join()
+        .expect("play_pong_response_clientbound oracle thread panicked");
+}
+
+fn play_pong_response_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_PONG_RESPONSE_CLIENTBOUND_MANIFEST,
+        PLAY_PONG_RESPONSE_CLIENTBOUND_CASE_ID,
+        PLAY_PONG_RESPONSE_CLIENTBOUND_CONTRACT,
+        PLAY_PONG_RESPONSE_CLIENTBOUND_ANSWER,
+        PLAY_PONG_RESPONSE_CLIENTBOUND_TEST_NAME,
+        PLAY_PONG_RESPONSE_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:pong_response",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.ping.ClientboundPongResponsePacket")
+    );
+    assert_eq!(oracle.answer.decoded_time, oracle.answer.input_time);
+    assert_eq!(oracle.answer.stream_decoded_time, oracle.answer.input_time);
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound pong_response")
+    .expect("dispatch Play clientbound pong_response");
+
+    match decoded {
+        packet::Packet::PlayPongResponseClientbound_i64(pong) => {
+            assert_eq!(pong.time, oracle.answer.decoded_time.unwrap());
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound pong_response identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_player_abilities_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_player_abilities_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_player_abilities_clientbound_framed_dispatch_body)
+        .expect("spawn play_player_abilities_clientbound oracle stack")
+        .join()
+        .expect("play_player_abilities_clientbound oracle thread panicked");
+}
+
+fn play_player_abilities_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_PLAYER_ABILITIES_CLIENTBOUND_MANIFEST,
+        PLAY_PLAYER_ABILITIES_CLIENTBOUND_CASE_ID,
+        PLAY_PLAYER_ABILITIES_CLIENTBOUND_CONTRACT,
+        PLAY_PLAYER_ABILITIES_CLIENTBOUND_ANSWER,
+        PLAY_PLAYER_ABILITIES_CLIENTBOUND_TEST_NAME,
+        PLAY_PLAYER_ABILITIES_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:player_abilities",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundPlayerAbilitiesPacket")
+    );
+    assert_eq!(oracle.answer.decoded_flags, oracle.answer.input_flags);
+    assert_eq!(
+        oracle.answer.stream_decoded_flags,
+        oracle.answer.input_flags
+    );
+    assert_eq!(
+        oracle.answer.decoded_flying_speed,
+        oracle.answer.input_flying_speed
+    );
+    assert_eq!(
+        oracle.answer.decoded_walking_speed,
+        oracle.answer.input_walking_speed
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound player_abilities")
+    .expect("dispatch Play clientbound player_abilities");
+
+    match decoded {
+        packet::Packet::PlayerAbilities(abilities) => {
+            assert_eq!(
+                i32::from(abilities.flags),
+                oracle.answer.decoded_flags.unwrap()
+            );
+            assert_eq!(
+                abilities.flying_speed,
+                oracle.answer.decoded_flying_speed.unwrap()
+            );
+            assert_eq!(
+                abilities.walking_speed,
+                oracle.answer.decoded_walking_speed.unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound player_abilities identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_player_combat_end_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_player_combat_end_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_player_combat_end_clientbound_framed_dispatch_body)
+        .expect("spawn play_player_combat_end_clientbound oracle stack")
+        .join()
+        .expect("play_player_combat_end_clientbound oracle thread panicked");
+}
+
+fn play_player_combat_end_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_PLAYER_COMBAT_END_CLIENTBOUND_MANIFEST,
+        PLAY_PLAYER_COMBAT_END_CLIENTBOUND_CASE_ID,
+        PLAY_PLAYER_COMBAT_END_CLIENTBOUND_CONTRACT,
+        PLAY_PLAYER_COMBAT_END_CLIENTBOUND_ANSWER,
+        PLAY_PLAYER_COMBAT_END_CLIENTBOUND_TEST_NAME,
+        PLAY_PLAYER_COMBAT_END_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:player_combat_end",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundPlayerCombatEndPacket")
+    );
+    assert_eq!(oracle.answer.decoded_duration, oracle.answer.input_duration);
+    assert_eq!(
+        oracle.answer.stream_decoded_duration,
+        oracle.answer.input_duration
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound player_combat_end")
+    .expect("dispatch Play clientbound player_combat_end");
+
+    match decoded {
+        packet::Packet::PlayPlayerCombatEndClientbound(combat_end) => {
+            assert_eq!(
+                combat_end.duration.0,
+                oracle.answer.decoded_duration.unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound player_combat_end identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_player_combat_enter_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_player_combat_enter_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_player_combat_enter_clientbound_framed_dispatch_body)
+        .expect("spawn play_player_combat_enter_clientbound oracle stack")
+        .join()
+        .expect("play_player_combat_enter_clientbound oracle thread panicked");
+}
+
+fn play_player_combat_enter_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_MANIFEST,
+        PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_CASE_ID,
+        PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_CONTRACT,
+        PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_ANSWER,
+        PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_TEST_NAME,
+        PLAY_PLAYER_COMBAT_ENTER_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:player_combat_enter",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundPlayerCombatEnterPacket")
+    );
+    assert_eq!(oracle.answer.encoded_body_hex, "");
+    assert_eq!(oracle.answer.decoded_same_instance, Some(true));
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound player_combat_enter")
+    .expect("dispatch Play clientbound player_combat_enter");
+
+    match decoded {
+        packet::Packet::PlayPlayerCombatEnterClientbound(combat_enter) => {
+            assert_eq!(combat_enter.empty, ());
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound player_combat_enter identity: {other:?}")
+        }
+    }
+    assert!(body_slice.is_empty());
+}
+
+#[test]
+fn play_remove_entities_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("play_remove_entities_clientbound_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(play_remove_entities_clientbound_framed_dispatch_body)
+        .expect("spawn play_remove_entities_clientbound oracle stack")
+        .join()
+        .expect("play_remove_entities_clientbound oracle thread panicked");
+}
+
+fn play_remove_entities_clientbound_framed_dispatch_body() {
+    let (oracle, framed_packet_id, body, _) = read_play_clientbound_oracle(
+        PLAY_REMOVE_ENTITIES_CLIENTBOUND_MANIFEST,
+        PLAY_REMOVE_ENTITIES_CLIENTBOUND_CASE_ID,
+        PLAY_REMOVE_ENTITIES_CLIENTBOUND_CONTRACT,
+        PLAY_REMOVE_ENTITIES_CLIENTBOUND_ANSWER,
+        PLAY_REMOVE_ENTITIES_CLIENTBOUND_TEST_NAME,
+        PLAY_REMOVE_ENTITIES_CLIENTBOUND_COMPARISON_SURFACE,
+        "minecraft:remove_entities",
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket")
+    );
+    assert_eq!(
+        oracle.answer.decoded_entity_ids,
+        oracle.answer.input_entity_ids
+    );
+    assert_eq!(
+        oracle.answer.stream_decoded_entity_ids,
+        oracle.answer.input_entity_ids
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Play,
+        Direction::Clientbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .expect("decode Play clientbound remove_entities")
+    .expect("dispatch Play clientbound remove_entities");
+
+    match decoded {
+        packet::Packet::EntityDestroy(remove) => {
+            let decoded_ids: Vec<i32> = remove.entity_ids.data.iter().map(|id| id.0).collect();
+            assert_eq!(
+                decoded_ids,
+                oracle.answer.decoded_entity_ids.clone().unwrap()
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve Play clientbound remove_entities identity: {other:?}")
         }
     }
     assert!(body_slice.is_empty());

@@ -28,6 +28,7 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayEntityPositionSyncClientbound, PlayForgetLevelChunkClientbound, PlayGameEventClientbound,
     PlayHurtAnimationClientbound, PlayInitializeBorderClientbound,
     PlayLowDiskSpaceWarningClientbound, PlayMountScreenOpenClientbound, PlayPingClientbound,
+    PlayPlayerCombatEndClientbound, PlayPlayerCombatEnterClientbound, PlayPongResponseClientbound,
     PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
     PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
     SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
@@ -537,6 +538,15 @@ state_mapped_packets!(
                 field warning_time: i32,
             }
             packet PlayLowDiskSpaceWarningClientbound {
+                field empty: (),
+            }
+            packet PlayPongResponseClientbound {
+                field time: i64,
+            }
+            packet PlayPlayerCombatEndClientbound {
+                field duration: i32,
+            }
+            packet PlayPlayerCombatEnterClientbound {
                 field empty: (),
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
@@ -1807,6 +1817,25 @@ impl MappablePacket for packet::Packet {
                 mapped_packet::MappedPacket::PlayLowDiskSpaceWarningClientbound(
                     PlayLowDiskSpaceWarningClientbound {
                         empty: low_disk.empty,
+                    },
+                )
+            }
+            packet::Packet::PlayPongResponseClientbound_i64(pong) => {
+                mapped_packet::MappedPacket::PlayPongResponseClientbound(
+                    PlayPongResponseClientbound { time: pong.time },
+                )
+            }
+            packet::Packet::PlayPlayerCombatEndClientbound(combat_end) => {
+                mapped_packet::MappedPacket::PlayPlayerCombatEndClientbound(
+                    PlayPlayerCombatEndClientbound {
+                        duration: combat_end.duration.0,
+                    },
+                )
+            }
+            packet::Packet::PlayPlayerCombatEnterClientbound(combat_enter) => {
+                mapped_packet::MappedPacket::PlayPlayerCombatEnterClientbound(
+                    PlayPlayerCombatEnterClientbound {
+                        empty: combat_enter.empty,
                     },
                 )
             }

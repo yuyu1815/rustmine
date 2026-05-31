@@ -6,10 +6,10 @@
 | Load claim | Client enters Play with enough state to receive spawn/world packets. |
 | Evidence surface | Official state transition plus smoke milestone |
 | Proof label | `partial` |
-| Current proof | Packet-support proofs are recorded case-by-case in `docs/analysis/protocol/versions/775/traceability.md`; latest selected safe GREEN/BLUE Play rows reach `minecraft:ping` / `0x3d` while skipped YELLOW rows remain deferred. |
+| Current proof | Packet-support proofs are recorded case-by-case in `docs/analysis/protocol/versions/775/traceability.md`; latest selected safe GREEN/BLUE Play rows include `minecraft:pong_response` / `0x3e`, `minecraft:player_abilities` / `0x40`, `minecraft:player_combat_end` / `0x42`, `minecraft:player_combat_enter` / `0x43`, and `minecraft:remove_entities` / `0x4d` while skipped YELLOW rows remain deferred. |
 | Project-level test/probe | Exact Rust oracle tests under `oracle/rust-tests/tests/oracle_contracts.rs`, named in each `oracle/test-manifests/775/play_*_clientbound_framed_dispatch.test-manifest.json`. |
 | Candidate checkout owner under test | login/configuration/play handoff |
-| Candidate evidence gap | Continue safe official Play table packet-support at `minecraft:pong_response` / `0x3e`, or return to deferred rows only after official fixture evidence; then define transition answer and smoke milestone. |
+| Candidate evidence gap | Continue safe official Play table packet-support at `minecraft:respawn` / `0x52`, or return to deferred rows only after official fixture evidence; then define transition answer and smoke milestone. |
 
 ## Boundary
 
@@ -74,9 +74,14 @@ The latest packet-support batch adds selected safe GREEN/BLUE rows
 `minecraft:level_event` / `0x2e`, `minecraft:low_disk_space_warning` / `0x32`,
 `minecraft:move_entity_pos` / `0x35`,
 `minecraft:move_entity_pos_rot` / `0x36`, `minecraft:move_entity_rot` /
-`0x38`, `minecraft:move_vehicle` / `0x39`, `minecraft:open_book` / `0x3a`, and
-`minecraft:ping` / `0x3d`. These remain framed dispatch/decode proofs only.
-They do not prove skipped chunk/light/world or UI rows, vehicle existence, book
-UI behavior, runtime pong response behavior, movement/rotation interpolation
-semantics, render readiness, or client-load completion. The next official Play
-clientbound row after this safe batch is `minecraft:pong_response` / `0x3e`.
+`0x38`, `minecraft:move_vehicle` / `0x39`, `minecraft:open_book` / `0x3a`,
+`minecraft:ping` / `0x3d`, `minecraft:pong_response` / `0x3e`,
+`minecraft:player_abilities` / `0x40`,
+`minecraft:player_combat_end` / `0x42`,
+`minecraft:player_combat_enter` / `0x43`, and
+`minecraft:remove_entities` / `0x4d`. These remain framed dispatch/decode
+proofs only. They do not prove skipped recipe/chat/player-info/world/UI rows,
+entity existence, combat runtime behavior, player movement/ability semantics,
+resource-pack behavior, render readiness, or client-load completion. The next
+official Play clientbound row after this safe batch is
+`minecraft:respawn` / `0x52`.

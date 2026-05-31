@@ -33,6 +33,20 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x37` | `minecraft:move_minecart_along_track` | deferred YELLOW | Requires minecart step/entity/track fixture evidence. | Do not guess minecart interpolation or track-step body semantics. |
 | `0x3b` | `minecraft:open_screen` | deferred YELLOW | Requires menu registry/type and trusted Component fixture evidence. | Do not invent menu registry ids or title component bytes. |
 | `0x3c` | `minecraft:open_sign_editor` | deferred YELLOW | Requires sign/block position and front-text behavior evidence. | Do not infer sign state or world block semantics from previous-version witnesses. |
+| `0x3f` | `minecraft:place_ghost_recipe` | deferred YELLOW | Official codec uses `RecipeDisplay`, which can carry recipe/item display data. | Do not invent recipe display payloads, item contents, or registry-backed recipe semantics. |
+| `0x41` | `minecraft:player_chat` | deferred YELLOW | Official codec uses message signatures, signed message body, optional Component, filter mask, and bound chat type. | Do not invent chat signatures, chat type context, signed body, or component bytes. |
+| `0x44` | `minecraft:player_combat_kill` | deferred YELLOW | Official codec uses player id plus trusted Component death message. | Do not infer entity/player death context or message component bytes. |
+| `0x46` | `minecraft:player_info_update` | deferred YELLOW | Official codec uses action sets and player info entries backed by profile, listed, latency, game mode, display name, chat session, and list order data. | Do not invent player list entries, profile data, chat session data, or display components. |
+| `0x47` | `minecraft:player_look_at` | deferred YELLOW | Although a coordinate-only constructor exists, official body can include entity targeting and anchor semantics; fixture policy needs a specific no-entity proof before implementation. | Do not infer entity targeting or anchor behavior from previous-version witnesses. |
+| `0x48` | `minecraft:player_position` | deferred YELLOW | Official codec uses `PositionMoveRotation` plus relative flags and teleport id, which affects player/world movement state. | Do not infer teleport/movement semantics or relative flag policy from packet name. |
+| `0x49` | `minecraft:player_rotation` | deferred YELLOW | Official codec uses rotation floats plus relative flags, which affects player movement state. | Do not infer movement/rotation semantics from previous-version witnesses. |
+| `0x4a` | `minecraft:recipe_book_add` | deferred YELLOW | Official codec uses recipe book entries and recipe display data. | Do not invent recipe display ids, recipe contents, or notification/highlight flags. |
+| `0x4b` | `minecraft:recipe_book_remove` | deferred YELLOW | Official codec uses recipe display ids. | Do not invent recipe display ids or recipe book state. |
+| `0x4c` | `minecraft:recipe_book_settings` | deferred YELLOW | Official codec uses `RecipeBookSettings` state. | Do not infer recipe book category/settings bits without official fixture evidence. |
+| `0x4e` | `minecraft:remove_mob_effect` | deferred YELLOW | Official codec uses entity id plus `MobEffect` registry holder. | Do not invent mob-effect registry ids or initialized entity/effect state. |
+| `0x4f` | `minecraft:reset_score` | deferred YELLOW | Official codec uses owner string plus nullable objective name, which is scoreboard state. | Do not infer scoreboard owner/objective semantics without a named fixture policy. |
+| `0x50` | `minecraft:resource_pack_pop` | deferred YELLOW | Official common packet codec is context-free, but Play-phase resource-pack stack behavior needs a policy separate from Configuration proof reuse. | Do not reuse Configuration resource-pack proof as Play runtime behavior. |
+| `0x51` | `minecraft:resource_pack_push` | deferred YELLOW | Official common packet codec includes UUID, URL, hash, required flag, and optional trusted Component prompt. | Do not invent prompt component bytes, URL/hash policy, or Play resource-pack UI behavior. |
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
@@ -51,3 +65,10 @@ the menu registry plus trusted `Component` title data; `0x3c` remains parked
 because its official fixture needs sign/block position and front-text behavior
 evidence. No menu registry id, title component bytes, sign state, block
 semantics, or world state were inferred while crossing those rows.
+
+The `0x3e` / `0x40` / `0x42` / `0x43` / `0x4d` safe batch did not implement
+the skipped YELLOW rows `0x3f`, `0x41`, `0x44`, `0x46`-`0x4c`, and
+`0x4e`-`0x51`. These rows remain parked for the official-evidence reasons
+above. No recipe display, chat signature, player-info entry, player movement,
+scoreboard, mob-effect registry, resource-pack prompt, or Play resource-pack
+runtime behavior was inferred while crossing those rows.

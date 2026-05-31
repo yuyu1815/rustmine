@@ -1,0 +1,46 @@
+{
+  "case_id": "play_player_abilities_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.world.entity.player.Abilities",
+      "authority_note": "Official binary source for constructing the abilities fixture consumed by the packet constructor."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundPlayerAbilitiesPacket(Abilities); ClientboundPlayerAbilitiesPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the Play clientbound player_abilities body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and player_abilities packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:player_abilities",
+    "packet_class": "ClientboundPlayerAbilitiesPacket",
+    "input_fields": {
+      "invulnerable": true,
+      "flying": false,
+      "can_fly": true,
+      "instabuild": false,
+      "flying_speed": 0.05,
+      "walking_speed": 0.1
+    },
+    "field_notes": {
+      "flags": "Primitive booleans packed by official codec; does not prove initialized player ability semantics."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_player_abilities_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound player_abilities packet framing and dispatch/decode for one flags/speed fixture only; do not infer initialized player ability semantics, movement readiness, render readiness, or client-load completion."
+}

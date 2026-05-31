@@ -509,6 +509,25 @@ YELLOW rows `0x3b` / `0x3c` remain parked in
 `play-clientbound-deferred.md`; the next official Play clientbound row after
 this safe batch is `minecraft:pong_response` / `0x3e`.
 
+`play_pong_response_clientbound_framed_dispatch`,
+`play_player_abilities_clientbound_framed_dispatch`,
+`play_player_combat_end_clientbound_framed_dispatch`,
+`play_player_combat_enter_clientbound_framed_dispatch`, and
+`play_remove_entities_clientbound_framed_dispatch` are packet-support evidence
+for one official primitive/context-free fixture each. They prove the official
+`minecraft:pong_response` / `0x3e` frame `3e0102030405060708`,
+`minecraft:player_abilities` / `0x40` frame `40053d4ccccd3dcccccd`,
+`minecraft:player_combat_end` / `0x42` frame `427b`,
+`minecraft:player_combat_enter` / `0x43` frame `43`, and
+`minecraft:remove_entities` / `0x4d` frame `4d027bd723`, with full body
+consumption through Stevenarella dispatch. They do not prove runtime
+ping/pong behavior, initialized player ability semantics, combat runtime
+behavior, entity existence, Play entry, render readiness, or client-load
+completion. The skipped YELLOW rows `0x3f`, `0x41`, `0x44`, `0x46`-`0x4c`,
+and `0x4e`-`0x51` remain parked in `play-clientbound-deferred.md`; the next
+official Play clientbound row after this safe batch is
+`minecraft:respawn` / `0x52`.
+
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary
 plugin-channel handling, payload routing policy, Configuration completion, or
