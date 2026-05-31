@@ -23,6 +23,7 @@ official jar function
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
 | `handshake_intention_framed_dispatch` case note | [cases/handshake-intention-framed-dispatch.md](cases/handshake-intention-framed-dispatch.md) |
+| `login_hello_serverbound_framed_dispatch` case note | [cases/login-hello-serverbound-framed-dispatch.md](cases/login-hello-serverbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -55,6 +56,7 @@ official jar function
 ## Evidence Snapshot
 
 At this snapshot, `handshake_intention_framed_dispatch`,
+`login_hello_serverbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -87,6 +89,13 @@ checkout.
 official LOGIN-intent fixture only. It does not prove Login authentication,
 Configuration entry, or client-load completion. It is the only current official
 Protocol 775 Handshaking serverbound table row in the generated answer.
+
+`login_hello_serverbound_framed_dispatch` is packet-support evidence for one
+official Login serverbound hello fixture only. It proves the official
+`minecraft:hello` / `0x00` row, name field, profileId field, and full body
+consumption through Stevenarella dispatch. It does not prove authentication
+success, encryption/key exchange, login acknowledgement, Configuration entry,
+or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

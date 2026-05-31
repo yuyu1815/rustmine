@@ -6,6 +6,13 @@ protocol_packet_ids!(
         clientbound Clientbound {
         }
     }
+    login Login {
+        serverbound Serverbound {
+            0x00 => LoginStart
+        }
+        clientbound Clientbound {
+        }
+    }
     configuration Configuration {
         serverbound Serverbound {
             0x00 => ConfigurationClientInformationServerbound

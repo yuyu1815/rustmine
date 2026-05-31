@@ -168,6 +168,19 @@ macro_rules! state_packets {
         /// Returns the packet for the given state, direction and id after parsing the fields
         /// from the buffer.
         pub fn packet_by_id<R: io::Read>(version: i32, state: State, dir: Direction, id: i32, buf: &mut R) -> Result<Option<Packet>, Error> {
+            if let (775, State::Login, Direction::Serverbound) = (version, state, dir) {
+                let internal_id = packet::versions::translate_internal_packet_id_for_version(
+                    version, state, dir, id, true,
+                );
+                if internal_id == packet::login::serverbound::internal_ids::LoginStart {
+                    let username: String = Serializable::read_from(buf)?;
+                    let _profile_id: UUID = Serializable::read_from(buf)?;
+                    return Ok(Option::Some(Packet::LoginStart(
+                        packet::login::serverbound::LoginStart { username },
+                    )));
+                }
+            }
+
             if let (State::Configuration, Direction::Serverbound) = (state, dir) {
                 let internal_id = packet::versions::translate_internal_packet_id_for_version(
                     version, state, dir, id, true,
