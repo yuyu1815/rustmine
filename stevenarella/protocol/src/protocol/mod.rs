@@ -597,6 +597,20 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationShowDialogClientbound => {
+                        let mut dialog_data = Vec::new();
+                        buf.read_to_end(&mut dialog_data)?;
+                        let packet =
+                            packet::configuration::clientbound::ConfigurationShowDialogClientbound {
+                                dialog_data,
+                            };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "ShowDialog".to_owned(),
+                                data: packet.dialog_data,
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(

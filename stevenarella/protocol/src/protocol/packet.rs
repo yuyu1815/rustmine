@@ -2577,6 +2577,7 @@ pub mod configuration {
             pub const ConfigurationCustomReportDetailsClientbound: i32 = 15;
             pub const ConfigurationServerLinksClientbound: i32 = 16;
             pub const ConfigurationClearDialogClientbound: i32 = 17;
+            pub const ConfigurationShowDialogClientbound: i32 = 18;
         }
 
         #[derive(Default, Debug)]
@@ -2966,6 +2967,28 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.empty.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationShowDialogClientbound {
+            pub dialog_data: Vec<u8>,
+        }
+
+        impl PacketType for ConfigurationShowDialogClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationShowDialogClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                buf.write_all(&self.dialog_data)?;
                 Ok(())
             }
         }
