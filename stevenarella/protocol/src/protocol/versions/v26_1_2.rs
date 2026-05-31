@@ -9,6 +9,7 @@ protocol_packet_ids!(
     login Login {
         serverbound Serverbound {
             0x00 => LoginStart
+            0x01 => EncryptionResponse
         }
         clientbound Clientbound {
         }

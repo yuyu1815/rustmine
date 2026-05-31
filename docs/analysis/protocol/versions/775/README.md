@@ -24,6 +24,7 @@ official jar function
 | Traceability map | [traceability.md](traceability.md) |
 | `handshake_intention_framed_dispatch` case note | [cases/handshake-intention-framed-dispatch.md](cases/handshake-intention-framed-dispatch.md) |
 | `login_hello_serverbound_framed_dispatch` case note | [cases/login-hello-serverbound-framed-dispatch.md](cases/login-hello-serverbound-framed-dispatch.md) |
+| `login_key_serverbound_framed_dispatch` case note | [cases/login-key-serverbound-framed-dispatch.md](cases/login-key-serverbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -57,6 +58,7 @@ official jar function
 
 At this snapshot, `handshake_intention_framed_dispatch`,
 `login_hello_serverbound_framed_dispatch`,
+`login_key_serverbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -96,6 +98,13 @@ official Login serverbound hello fixture only. It proves the official
 consumption through Stevenarella dispatch. It does not prove authentication
 success, encryption/key exchange, login acknowledgement, Configuration entry,
 or client-load completion.
+
+`login_key_serverbound_framed_dispatch` is packet-support evidence for one
+official minimal Login serverbound key fixture only. It proves the official
+`minecraft:key` / `0x01` row, `keybytes`/`encryptedChallenge` body order, and
+full body consumption through Stevenarella dispatch. It does not prove
+encryption success, private-key validation, authentication success, login
+acknowledgement, Configuration entry, or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary
