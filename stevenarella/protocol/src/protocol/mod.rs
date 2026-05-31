@@ -100,6 +100,17 @@ pub(crate) fn read_lenient_json_component<R: io::Read>(
     }
 }
 
+fn read_empty_item_stack_marker<R: io::Read>(buf: &mut R, packet_name: &str) -> Result<(), Error> {
+    let count = VarInt::read_from(buf)?;
+    if count.0 != 0 {
+        return Err(Error::Err(format!(
+            "unsupported non-empty Play {} ItemStack count {}",
+            packet_name, count.0
+        )));
+    }
+    Ok(())
+}
+
 /// Helper macro for defining packets
 #[macro_export]
 macro_rules! state_packets {
@@ -750,6 +761,40 @@ macro_rules! state_packets {
                                 score,
                                 display_present,
                                 number_format_present,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetCursorItemClientbound => {
+                        read_empty_item_stack_marker(buf, "set_cursor_item")?;
+                        return Ok(Option::Some(Packet::PlaySetCursorItemClientbound(
+                            packet::play::clientbound::PlaySetCursorItemClientbound { item: None },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetEquipmentClientbound => {
+                        let entity_id = VarInt::read_from(buf)?;
+                        let equipment_slot = u8::read_from(buf)?;
+                        if equipment_slot & 0x80 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported multi-entry Play set_equipment slot byte {}",
+                                equipment_slot
+                            )));
+                        }
+                        read_empty_item_stack_marker(buf, "set_equipment")?;
+                        return Ok(Option::Some(Packet::PlaySetEquipmentClientbound(
+                            packet::play::clientbound::PlaySetEquipmentClientbound {
+                                entity_id,
+                                equipment_slot,
+                                item: None,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
+                        let slot = VarInt::read_from(buf)?;
+                        read_empty_item_stack_marker(buf, "set_player_inventory")?;
+                        return Ok(Option::Some(Packet::PlaySetPlayerInventoryClientbound(
+                            packet::play::clientbound::PlaySetPlayerInventoryClientbound {
+                                slot,
+                                item: None,
                             },
                         )));
                     }

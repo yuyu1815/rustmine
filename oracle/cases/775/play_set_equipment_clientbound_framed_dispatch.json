@@ -1,0 +1,38 @@
+{
+  "case_id": "play_set_equipment_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ItemStack.EMPTY; EquipmentSlot.MAINHAND; ClientboundSetEquipmentPacket(int, List<Pair<EquipmentSlot, ItemStack>>); ClientboundSetEquipmentPacket.STREAM_CODEC; ItemStack.OPTIONAL_STREAM_CODEC",
+      "authority_note": "Official binary source for constructing and encoding the Play clientbound set_equipment one-entry empty ItemStack fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_equipment packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_equipment",
+    "packet_class": "ClientboundSetEquipmentPacket",
+    "input_fields": {
+      "entity_id": 123,
+      "equipment_slot": "MAINHAND",
+      "contents": "ItemStack.EMPTY"
+    },
+    "field_notes": {
+      "item": "Single entry with ItemStack.EMPTY only. Official ItemStack optional codec writes VarInt count 0, avoiding item registry and component patch bytes.",
+      "entity": "Primitive entity id fixture only; does not prove entity existence or equipment behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_equipment_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_equipment packet framing and dispatch/decode for one MAINHAND ItemStack.EMPTY entry only; do not infer non-empty ItemStack, continuation-list handling, item registry, component patch, entity existence, equipment behavior, or client-load completion."
+}

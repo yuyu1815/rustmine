@@ -1,0 +1,37 @@
+{
+  "case_id": "play_set_player_inventory_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ItemStack.EMPTY; ClientboundSetPlayerInventoryPacket(int, ItemStack); ClientboundSetPlayerInventoryPacket.STREAM_CODEC; ItemStack.OPTIONAL_STREAM_CODEC",
+      "authority_note": "Official binary source for constructing and encoding the Play clientbound set_player_inventory empty ItemStack fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_player_inventory packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_player_inventory",
+    "packet_class": "ClientboundSetPlayerInventoryPacket",
+    "input_fields": {
+      "slot": 7,
+      "contents": "ItemStack.EMPTY"
+    },
+    "field_notes": {
+      "item": "Empty ItemStack fixture only. Official ItemStack optional codec writes VarInt count 0, avoiding item registry and component patch bytes.",
+      "slot": "Primitive slot fixture only; does not prove player inventory state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_player_inventory_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_player_inventory packet framing and dispatch/decode for one slot plus ItemStack.EMPTY only; do not infer non-empty ItemStack, item registry, component patch, player inventory state, or client-load completion."
+}

@@ -684,9 +684,21 @@ state_packets!(
             packet PlayPlayerInfoRemoveClientbound {
                 field profile_ids: LenPrefixed<VarInt, UUID> =,
             }
+            packet PlaySetCursorItemClientbound {
+                field item: Option<item::Stack> =,
+            }
             packet PlaySetDisplayObjectiveClientbound {
                 field slot: VarInt =,
                 field objective_name: String =,
+            }
+            packet PlaySetEquipmentClientbound {
+                field entity_id: VarInt =,
+                field equipment_slot: u8 =,
+                field item: Option<item::Stack> =,
+            }
+            packet PlaySetPlayerInventoryClientbound {
+                field slot: VarInt =,
+                field item: Option<item::Stack> =,
             }
             packet PlaySetScoreClientbound {
                 field owner: String =,

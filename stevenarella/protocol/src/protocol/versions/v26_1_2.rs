@@ -119,11 +119,14 @@ protocol_packet_ids!(
             0x5c => PlaySetBorderWarningDistanceClientbound
             0x5e => UpdateViewPosition
             0x5f => UpdateViewDistance
+            0x60 => PlaySetCursorItemClientbound
             0x62 => PlaySetDisplayObjectiveClientbound
             0x65 => EntityVelocity
+            0x66 => PlaySetEquipmentClientbound
             0x67 => SetExperience
             0x68 => UpdateHealth
             0x69 => SetCurrentHotbarSlot
+            0x6c => PlaySetPlayerInventoryClientbound
             0x6e => PlaySetScoreClientbound
             0x6f => UpdateViewDistance
             0x70 => PlaySetSubtitleTextClientbound

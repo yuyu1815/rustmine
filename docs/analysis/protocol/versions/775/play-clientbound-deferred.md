@@ -52,15 +52,15 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x56` | `minecraft:server_data` | deferred YELLOW | Official codec uses trusted Component MOTD and optional icon bytes, which needs UI/content fixture policy. | Do not invent MOTD component or icon payload policy. |
 | `0x57` | `minecraft:set_action_bar_text` | deferred YELLOW | Official codec uses trusted Component text. | Do not invent action-bar component bytes or UI behavior. |
 | `0x5d` | `minecraft:set_camera` | deferred YELLOW | Official public constructor is entity-backed and the packet changes camera target state. | Do not fake camera entity existence or spectate state. |
-| `0x60` | `minecraft:set_cursor_item` | deferred YELLOW | Official codec uses `ItemStack.OPTIONAL_STREAM_CODEC`, which is item/component/registry-backed even for broader policy. | Do not invent item stack contents or component registry behavior. |
+| `0x60` | `minecraft:set_cursor_item` | promoted BLUE | Official `ClientboundSetCursorItemPacket(ItemStack.EMPTY)` generated a jar-backed Play answer with one empty ItemStack VarInt count marker `0`; official `ItemStack$1` only enters item registry/component patch decoding for positive counts. | Promoted only for `ItemStack.EMPTY`; reject positive ItemStack counts before item registry/component bytes. |
 | `0x61` | `minecraft:set_default_spawn_position` | deferred YELLOW | Official codec uses `LevelData.RespawnData` with position/angle spawn semantics. | Do not infer spawn state or compass/player behavior. |
 | `0x62` | `minecraft:set_display_objective` | promoted BLUE | Official `ClientboundSetDisplayObjectivePacket(DisplaySlot.LIST, null)` generated a jar-backed Play answer with a clear-slot body: display slot id plus empty objective name. | Promoted only for the null Objective clear-slot fixture; do not infer scoreboard Objective state or display behavior. |
 | `0x63` | `minecraft:set_entity_data` | deferred YELLOW | Official codec uses SynchedEntityData values and serializers. | Do not invent entity metadata serializers or initialized entity state. |
 | `0x64` | `minecraft:set_entity_link` | deferred YELLOW | Official public constructor is entity-backed and represents entity link/leash relationship state. | Do not fake linked entity existence or relationship semantics. |
-| `0x66` | `minecraft:set_equipment` | deferred YELLOW | Official codec requires at least one equipment slot entry and uses `ItemStack.OPTIONAL_STREAM_CODEC`. | Do not invent equipment slots, item stack contents, or component registry behavior. |
+| `0x66` | `minecraft:set_equipment` | promoted BLUE | Official `ClientboundSetEquipmentPacket(123, List.of(Pair.of(EquipmentSlot.MAINHAND, ItemStack.EMPTY)))` generated a jar-backed Play answer with entity id, one MAINHAND slot byte, and one empty ItemStack VarInt count marker `0`. | Promoted only for the one-entry MAINHAND `ItemStack.EMPTY` fixture; reject multi-entry continuation and positive ItemStack counts. Do not infer entity existence or equipment behavior. |
 | `0x6a` | `minecraft:set_objective` | deferred YELLOW | Official public constructor is Objective-backed and add/change paths use trusted Component and optional number format. | Do not invent Objective construction, display Component bytes, render type, number format, or scoreboard lifecycle. |
 | `0x6b` | `minecraft:set_passengers` | deferred YELLOW | Official public constructor is entity-backed and writes vehicle id plus passenger id array. | Do not fake vehicle/passenger entity existence or relationship semantics. |
-| `0x6c` | `minecraft:set_player_inventory` | deferred YELLOW | Official codec uses player inventory slot plus `ItemStack.OPTIONAL_STREAM_CODEC`. | Do not invent inventory item stack contents or component registry behavior. |
+| `0x6c` | `minecraft:set_player_inventory` | promoted BLUE | Official `ClientboundSetPlayerInventoryPacket(7, ItemStack.EMPTY)` generated a jar-backed Play answer with slot VarInt plus one empty ItemStack VarInt count marker `0`; official `ItemStack$1` only enters item registry/component patch decoding for positive counts. | Promoted only for slot 7 plus `ItemStack.EMPTY`; reject positive ItemStack counts before item registry/component bytes. Do not infer player inventory state. |
 | `0x6d` | `minecraft:set_player_team` | deferred YELLOW | Official codec uses team actions, optional parameters, player collections, Components, colors, and visibility/collision names. | Do not invent team lifecycle, player membership, Component bytes, colors, visibility, or collision policy. |
 | `0x6e` | `minecraft:set_score` | promoted BLUE | Official `ClientboundSetScorePacket(owner, objective, score, Optional.empty(), Optional.empty())` generated a jar-backed Play answer with plain strings, score VarInt, and two false optional markers. | Promoted only for the no-optional fixture; do not infer scoreboard lifecycle, optional Component display, or number-format semantics. |
 | `0x70` | `minecraft:set_subtitle_text` | promoted BLUE | Official `ClientboundSetSubtitleTextPacket(Component.literal("rustmine subtitle"))` generated a jar-backed Play answer with a simple NBT string Component body. | Promoted only for the `Component.literal(String)` simple string fixture; do not infer rich Component, subtitle UI, or title runtime behavior. |
@@ -174,7 +174,7 @@ official Play clientbound table end at `0x8c`.
 | Bucket | Rows | Fixture-policy option | Current route |
 |---|---|---|---|
 | Empty map / absent optional / clear field | `0x62`, `0x6e`, `0x71`, `0x86` | Official constructor must generate an empty/absent body branch and Rust must reject unsupported non-empty variants. | Promoted in the parked-row follow-up batch. |
-| ItemStack / item component | `0x60`, `0x66`, `0x6c`, plus recipe-bearing `0x85` | Needs explicit empty item or initialized item/component fixture policy. | Still parked. |
+| ItemStack / item component | recipe-bearing `0x85` | Simple empty ItemStack rows `0x60`, `0x66`, and `0x6c` have been promoted only for `ItemStack.EMPTY` fixtures. `0x85` is not an optional-ItemStack row; it needs recipe-map/selectable-recipe fixture policy. | Partly promoted; recipe row still parked. |
 | Scoreboard and teams beyond no-optional field packets | `0x6a`, `0x6d` | Needs Objective/Team construction policy without inventing Components, number formats, colors, visibility, or player memberships. | Still parked. |
 | Entity relationship / metadata / movement / projectile | `0x63`, `0x64`, `0x6b`, `0x74`, `0x7d`, `0x83`, `0x84`, `0x87` | Needs entity-id-only policy or initialized entity/runtime fixture evidence per row. | Still parked. |
 | Trusted Component / NBT / UI text | `0x7b`, `0x7e`, `0x8c` | Needs NBT/query, game-test, or dialog fixture policy, not just row names. Simple `Component.literal(String)` rows `0x70`, `0x72`, `0x79`, and `0x7a` have been promoted only for bounded simple string fixtures. | Partly promoted; NBT/dialog rows still parked. |
@@ -191,3 +191,12 @@ equipment, rich Component, NBT query payload, entity metadata, sound registry,
 advancement, recipe, waypoint, non-empty tag, WorldClock, ClockNetworkState,
 scoreboard Objective, scoreboard Team, or dialog semantics were inferred while
 crossing these batches.
+
+The empty ItemStack follow-up promoted only `0x60` `set_cursor_item`,
+`0x66` one-entry `set_equipment`, and `0x6c` `set_player_inventory` into
+jar-backed packet-support packages. These fixtures use official
+`ItemStack.EMPTY`, whose official optional stream codec writes a VarInt count
+marker `0`; positive counts enter item registry and component patch decoding
+and are rejected by the scoped Rust mapping. No non-empty ItemStack, item
+registry, component patch, equipment runtime, entity existence, player
+inventory state, recipe, or client-load behavior was inferred.

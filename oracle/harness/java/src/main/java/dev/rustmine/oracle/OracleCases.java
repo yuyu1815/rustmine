@@ -109,11 +109,14 @@ public final class OracleCases {
             case "play_set_border_warning_distance_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetBorderWarningDistanceClientboundFramedDispatchCase.generate(input);
             case "play_set_chunk_cache_center_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetChunkCacheCenterClientboundFramedDispatchCase.generate(input);
             case "play_set_chunk_cache_radius_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetChunkCacheRadiusClientboundFramedDispatchCase.generate(input);
+            case "play_set_cursor_item_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetCursorItemClientboundFramedDispatchCase.generate(input);
             case "play_set_display_objective_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetDisplayObjectiveClientboundFramedDispatchCase.generate(input);
+            case "play_set_equipment_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEquipmentClientboundFramedDispatchCase.generate(input);
             case "play_set_entity_motion_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEntityMotionClientboundFramedDispatchCase.generate(input);
             case "play_set_experience_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetExperienceClientboundFramedDispatchCase.generate(input);
             case "play_set_health_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHealthClientboundFramedDispatchCase.generate(input);
             case "play_set_held_slot_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHeldSlotClientboundFramedDispatchCase.generate(input);
+            case "play_set_player_inventory_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetPlayerInventoryClientboundFramedDispatchCase.generate(input);
             case "play_set_score_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetScoreClientboundFramedDispatchCase.generate(input);
             case "play_set_simulation_distance_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSimulationDistanceClientboundFramedDispatchCase.generate(input);
             case "play_server_links_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayServerLinksClientboundFramedDispatchCase.generate(input);

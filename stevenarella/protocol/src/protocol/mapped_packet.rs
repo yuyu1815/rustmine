@@ -32,9 +32,10 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayPlayerCombatEnterClientbound, PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound,
     PlayServerLinksClientbound, PlaySetBorderCenterClientbound, PlaySetBorderLerpSizeClientbound,
     PlaySetBorderSizeClientbound, PlaySetBorderWarningDelayClientbound,
-    PlaySetBorderWarningDistanceClientbound, PlaySetDisplayObjectiveClientbound,
-    PlaySetScoreClientbound, PlaySetSubtitleTextClientbound, PlaySetTimeClientbound,
-    PlaySetTitleTextClientbound, PlaySetTitlesAnimationClientbound,
+    PlaySetBorderWarningDistanceClientbound, PlaySetCursorItemClientbound,
+    PlaySetDisplayObjectiveClientbound, PlaySetEquipmentClientbound,
+    PlaySetPlayerInventoryClientbound, PlaySetScoreClientbound, PlaySetSubtitleTextClientbound,
+    PlaySetTimeClientbound, PlaySetTitleTextClientbound, PlaySetTitlesAnimationClientbound,
     PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlaySystemChatClientbound,
     PlayTabListClientbound, PlayTickingStateClientbound, PlayTickingStepClientbound,
     PlayTransferClientbound, PlayUpdateTagsClientbound, PlayerAbilities, PlayerInfo,
@@ -579,9 +580,21 @@ state_mapped_packets!(
             packet PlayPlayerInfoRemoveClientbound {
                 field profile_ids: Vec<UUID>,
             }
+            packet PlaySetCursorItemClientbound {
+                field item: Option<item::Stack>,
+            }
             packet PlaySetDisplayObjectiveClientbound {
                 field slot: i32,
                 field objective_name: String,
+            }
+            packet PlaySetEquipmentClientbound {
+                field entity_id: i32,
+                field equipment_slot: u8,
+                field item: Option<item::Stack>,
+            }
+            packet PlaySetPlayerInventoryClientbound {
+                field slot: i32,
+                field item: Option<item::Stack>,
             }
             packet PlaySetScoreClientbound {
                 field owner: String,
@@ -1992,6 +2005,30 @@ impl MappablePacket for packet::Packet {
                     display_present: score.display_present,
                     number_format_present: score.number_format_present,
                 })
+            }
+            packet::Packet::PlaySetCursorItemClientbound(cursor_item) => {
+                mapped_packet::MappedPacket::PlaySetCursorItemClientbound(
+                    PlaySetCursorItemClientbound {
+                        item: cursor_item.item,
+                    },
+                )
+            }
+            packet::Packet::PlaySetEquipmentClientbound(equipment) => {
+                mapped_packet::MappedPacket::PlaySetEquipmentClientbound(
+                    PlaySetEquipmentClientbound {
+                        entity_id: equipment.entity_id.0,
+                        equipment_slot: equipment.equipment_slot,
+                        item: equipment.item,
+                    },
+                )
+            }
+            packet::Packet::PlaySetPlayerInventoryClientbound(inventory) => {
+                mapped_packet::MappedPacket::PlaySetPlayerInventoryClientbound(
+                    PlaySetPlayerInventoryClientbound {
+                        slot: inventory.slot.0,
+                        item: inventory.item,
+                    },
+                )
             }
             packet::Packet::PlaySetSubtitleTextClientbound(subtitle) => {
                 mapped_packet::MappedPacket::PlaySetSubtitleTextClientbound(
