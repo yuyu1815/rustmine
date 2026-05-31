@@ -1,0 +1,66 @@
+{
+  "case_id": "configuration_store_cookie_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundStoreCookiePacket(Identifier, byte[])",
+      "authority_note": "Official binary source for constructing the Configuration clientbound store_cookie packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundStoreCookiePacket.STREAM_CODEC",
+      "authority_note": "Official binary source for Configuration clientbound store_cookie body encoding and decoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundStoreCookiePacket.PAYLOAD_STREAM_CODEC",
+      "authority_note": "Official binary source for store_cookie payload byte-array encoding and decoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(ClientboundStoreCookiePacket)",
+      "authority_note": "Official binary source for Configuration clientbound store_cookie framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound store_cookie framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundStoreCookiePacket.key(), payload()",
+      "authority_note": "Official binary source for reading decoded store_cookie fields."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:store_cookie",
+    "packet_class": "ClientboundStoreCookiePacket",
+    "input_fields": {
+      "key": "rustmine:oracle_store_cookie",
+      "payload_hex": "73746f72652d636f6f6b69652d7061796c6f6164"
+    },
+    "field_notes": {
+      "payload_hex": "ASCII fixture 'store-cookie-payload'. The packet-support proof preserves official byte payload shape but does not prove cookie storage policy or persistence."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_store_cookie_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration clientbound store_cookie packet framing and dispatch/decode for one official key/payload fixture only; do not infer cookie storage policy, persistence, cookie request/response runtime behavior, Configuration completion, Play entry, world load, render readiness, or runtime behavior."
+}

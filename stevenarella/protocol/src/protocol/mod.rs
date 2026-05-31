@@ -399,6 +399,28 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationStoreCookieClientbound => {
+                        let key: String = Serializable::read_from(buf)?;
+                        let payload_len = VarInt::read_from(buf)?.0;
+                        if payload_len < 0 {
+                            return Err(Error::Err(format!(
+                                "negative store_cookie payload length {}",
+                                payload_len
+                            )));
+                        }
+                        let mut payload = vec![0; payload_len as usize];
+                        buf.read_exact(&mut payload)?;
+                        let packet = packet::configuration::clientbound::ConfigurationStoreCookieClientbound {
+                            key,
+                            payload,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "StoreCookie".to_owned(),
+                                data: packet.payload,
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(
