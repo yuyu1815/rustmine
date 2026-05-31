@@ -1,0 +1,33 @@
+{
+  "case_id": "play_clear_dialog_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundClearDialogPacket.INSTANCE; ClientboundClearDialogPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for the singleton empty-body clear_dialog fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and clear_dialog packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:clear_dialog",
+    "packet_class": "ClientboundClearDialogPacket",
+    "input_fields": {},
+    "field_notes": {
+      "body": "Singleton unit fixture; proves packet body only, not dialog UI state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_clear_dialog_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound clear_dialog packet framing and dispatch/decode for the singleton empty-body fixture only; do not infer dialog UI behavior or show_dialog semantics."
+}

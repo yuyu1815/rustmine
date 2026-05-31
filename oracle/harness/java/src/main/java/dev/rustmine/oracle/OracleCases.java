@@ -65,6 +65,7 @@ public final class OracleCases {
             case "play_chunk_batch_finished_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayChunkBatchFinishedClientboundFramedDispatchCase.generate(input);
             case "play_chunk_batch_start_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayChunkBatchStartClientboundFramedDispatchCase.generate(input);
             case "play_chunks_biomes_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayChunksBiomesClientboundFramedDispatchCase.generate(input);
+            case "play_clear_dialog_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayClearDialogClientboundFramedDispatchCase.generate(input);
             case "play_clear_titles_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayClearTitlesClientboundFramedDispatchCase.generate(input);
             case "play_command_suggestions_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayCommandSuggestionsClientboundFramedDispatchCase.generate(input);
             case "play_commands_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayCommandsClientboundFramedDispatchCase.generate(input);
@@ -76,6 +77,7 @@ public final class OracleCases {
             case "play_cooldown_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayCooldownClientboundFramedDispatchCase.generate(input);
             case "play_custom_chat_completions_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayCustomChatCompletionsClientboundFramedDispatchCase.generate(input);
             case "play_custom_payload_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayCustomPayloadClientboundFramedDispatchCase.generate(input);
+            case "play_custom_report_details_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayCustomReportDetailsClientboundFramedDispatchCase.generate(input);
             case "play_disconnect_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayDisconnectClientboundFramedDispatchCase.generate(input);
             case "play_entity_position_sync_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayEntityPositionSyncClientboundFramedDispatchCase.generate(input);
             case "play_forget_level_chunk_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayForgetLevelChunkClientboundFramedDispatchCase.generate(input);
@@ -112,6 +114,7 @@ public final class OracleCases {
             case "play_set_health_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHealthClientboundFramedDispatchCase.generate(input);
             case "play_set_held_slot_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHeldSlotClientboundFramedDispatchCase.generate(input);
             case "play_set_simulation_distance_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSimulationDistanceClientboundFramedDispatchCase.generate(input);
+            case "play_server_links_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayServerLinksClientboundFramedDispatchCase.generate(input);
             case "play_set_titles_animation_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitlesAnimationClientboundFramedDispatchCase.generate(input);
             case "play_start_configuration_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStartConfigurationClientboundFramedDispatchCase.generate(input);
             case "play_stop_sound_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStopSoundClientboundFramedDispatchCase.generate(input);

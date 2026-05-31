@@ -707,6 +707,15 @@ state_packets!(
                 field host: String =,
                 field port: VarInt =,
             }
+            packet PlayCustomReportDetailsClientbound {
+                field detail_count: VarInt =,
+            }
+            packet PlayServerLinksClientbound {
+                field link_count: VarInt =,
+            }
+            packet PlayClearDialogClientbound {
+                field empty: () =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

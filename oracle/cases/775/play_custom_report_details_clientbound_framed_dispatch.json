@@ -1,0 +1,35 @@
+{
+  "case_id": "play_custom_report_details_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundCustomReportDetailsPacket(Map<String, String>); ClientboundCustomReportDetailsPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for custom_report_details empty map body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and custom_report_details packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:custom_report_details",
+    "packet_class": "ClientboundCustomReportDetailsPacket",
+    "input_fields": {
+      "details": {}
+    },
+    "field_notes": {
+      "scope": "Empty map fixture only; no custom report detail key/value entries are named."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_custom_report_details_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound custom_report_details framing and dispatch/decode for the empty map fixture only; do not infer non-empty report detail entry semantics."
+}

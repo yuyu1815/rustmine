@@ -22,27 +22,28 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayBlockChangedAckClientbound, PlayBlockDestructionClientbound,
     PlayBlockEntityDataClientbound, PlayBlockEventClientbound, PlayBlockUpdateClientbound,
     PlayChunkBatchFinishedClientbound, PlayChunkBatchStartClientbound, PlayChunksBiomesClientbound,
-    PlayClearTitlesClientbound, PlayCommandSuggestionsClientbound,
+    PlayClearDialogClientbound, PlayClearTitlesClientbound, PlayCommandSuggestionsClientbound,
     PlayContainerSetContentClientbound, PlayContainerSetSlotClientbound,
     PlayCookieRequestClientbound, PlayCooldownClientbound, PlayCustomChatCompletionsClientbound,
-    PlayEntityPositionSyncClientbound, PlayForgetLevelChunkClientbound, PlayGameEventClientbound,
-    PlayHurtAnimationClientbound, PlayInitializeBorderClientbound,
-    PlayLowDiskSpaceWarningClientbound, PlayMountScreenOpenClientbound, PlayPingClientbound,
-    PlayPlayerCombatEndClientbound, PlayPlayerCombatEnterClientbound,
-    PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound, PlaySetBorderCenterClientbound,
-    PlaySetBorderLerpSizeClientbound, PlaySetBorderSizeClientbound,
-    PlaySetBorderWarningDelayClientbound, PlaySetBorderWarningDistanceClientbound,
-    PlaySetTitlesAnimationClientbound, PlayStartConfigurationClientbound,
-    PlayStoreCookieClientbound, PlayTickingStateClientbound, PlayTickingStepClientbound,
-    PlayTransferClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
-    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
-    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
-    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
-    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
-    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
-    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
-    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
-    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
+    PlayCustomReportDetailsClientbound, PlayEntityPositionSyncClientbound,
+    PlayForgetLevelChunkClientbound, PlayGameEventClientbound, PlayHurtAnimationClientbound,
+    PlayInitializeBorderClientbound, PlayLowDiskSpaceWarningClientbound,
+    PlayMountScreenOpenClientbound, PlayPingClientbound, PlayPlayerCombatEndClientbound,
+    PlayPlayerCombatEnterClientbound, PlayPlayerInfoRemoveClientbound, PlayPongResponseClientbound,
+    PlayServerLinksClientbound, PlaySetBorderCenterClientbound, PlaySetBorderLerpSizeClientbound,
+    PlaySetBorderSizeClientbound, PlaySetBorderWarningDelayClientbound,
+    PlaySetBorderWarningDistanceClientbound, PlaySetTitlesAnimationClientbound,
+    PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlayTickingStateClientbound,
+    PlayTickingStepClientbound, PlayTransferClientbound, PlayerAbilities, PlayerInfo,
+    PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
+    ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
+    SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
+    SignEditorOpen, SoundEffect, SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject,
+    SpawnPainting, SpawnPlayer, SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags,
+    Teams, TeleportPlayer, TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity,
+    UpdateHealth, UpdateLight, UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition,
+    VehicleTeleport, WindowClose, WindowItems, WindowOpen, WindowOpenHorse, WindowProperty,
+    WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -597,6 +598,15 @@ state_mapped_packets!(
             packet PlayTransferClientbound {
                 field host: String,
                 field port: i32,
+            }
+            packet PlayCustomReportDetailsClientbound {
+                field detail_count: i32,
+            }
+            packet PlayServerLinksClientbound {
+                field link_count: i32,
+            }
+            packet PlayClearDialogClientbound {
+                field empty: (),
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1975,6 +1985,27 @@ impl MappablePacket for packet::Packet {
                     host: transfer.host,
                     port: transfer.port.0,
                 })
+            }
+            packet::Packet::PlayCustomReportDetailsClientbound(custom_report_details) => {
+                mapped_packet::MappedPacket::PlayCustomReportDetailsClientbound(
+                    PlayCustomReportDetailsClientbound {
+                        detail_count: custom_report_details.detail_count.0,
+                    },
+                )
+            }
+            packet::Packet::PlayServerLinksClientbound(server_links) => {
+                mapped_packet::MappedPacket::PlayServerLinksClientbound(
+                    PlayServerLinksClientbound {
+                        link_count: server_links.link_count.0,
+                    },
+                )
+            }
+            packet::Packet::PlayClearDialogClientbound(clear_dialog) => {
+                mapped_packet::MappedPacket::PlayClearDialogClientbound(
+                    PlayClearDialogClientbound {
+                        empty: clear_dialog.empty,
+                    },
+                )
             }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {

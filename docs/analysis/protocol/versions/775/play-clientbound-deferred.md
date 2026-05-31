@@ -74,6 +74,12 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x84` | `minecraft:update_mob_effect` | deferred YELLOW | Official codec uses entity id plus `MobEffect.STREAM_CODEC`, amplifier, duration, and flags. | Do not invent mob-effect registry holders or entity/effect state. |
 | `0x85` | `minecraft:update_recipes` | deferred YELLOW | Official codec uses recipe property sets and selectable recipe data. | Do not invent recipe/item display contents. |
 | `0x86` | `minecraft:update_tags` | deferred BLUE/YELLOW | Official Play row uses common `ClientboundUpdateTagsPacket`; an empty-map fixture is codec-safe but tag semantics remain registry-backed. | Only promote with an exact Play answer and stop boundary for empty tag maps. |
+| `0x87` | `minecraft:projectile_power` | deferred YELLOW | Official `ClientboundProjectilePowerPacket(int, double)` is primitive on the wire, but the packet is entity/projectile targeted. | Do not infer projectile entity runtime context or acceleration behavior from a primitive body alone. |
+| `0x88` | `minecraft:custom_report_details` | promoted BLUE | Official Play row uses common `ClientboundCustomReportDetailsPacket`; the empty map fixture generated a jar-backed Play answer with a zero count body. | Promoted only for the empty map fixture; do not infer non-empty report detail entry semantics. |
+| `0x89` | `minecraft:server_links` | promoted BLUE | Official Play row uses common `ClientboundServerLinksPacket`; the empty list fixture generated a jar-backed Play answer with a zero count body. | Promoted only for the empty list fixture; do not infer non-empty server link entry semantics or UI behavior. |
+| `0x8a` | `minecraft:waypoint` | deferred YELLOW | Official `ClientboundTrackedWaypointPacket` uses an operation plus `TrackedWaypoint.STREAM_CODEC` with waypoint/world data. | Do not invent waypoint operation, icon, UUID, position, chunk, or azimuth semantics. |
+| `0x8b` | `minecraft:clear_dialog` | promoted BLUE | Official Play row uses common `ClientboundClearDialogPacket.INSTANCE`; singleton fixture generated a jar-backed Play answer with an empty body. | Promoted only as packet support; do not infer dialog UI behavior or `show_dialog` semantics. |
+| `0x8c` | `minecraft:show_dialog` | deferred YELLOW | Official `ClientboundShowDialogPacket` uses a dialog holder/stream codec and context-free dialog codec, requiring dialog fixture policy. | Do not invent dialog holder, dialog contents, or UI behavior. |
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
@@ -140,3 +146,13 @@ official-evidence reasons above. No named source/sound, Component, NBT, entity
 teleport, game-test, advancement, attribute, mob-effect, recipe, tag, cookie
 storage, transfer runtime, or tick-manager runtime behavior was inferred while
 crossing this batch.
+
+The `0x88` / `0x89` / `0x8b` safe post-`0x86` batch promoted only
+`custom_report_details` empty map, `server_links` empty list, and
+`clear_dialog` singleton into jar-backed packet-support packages. The skipped
+rows `0x87`, `0x8a`, and `0x8c` remain parked for the official-evidence
+reasons above. The official Play clientbound table currently ends at `0x8c`,
+so future packet-support work should either return to parked rows with exact
+official fixture evidence or move to another route. No projectile entity,
+waypoint, dialog holder, non-empty report details, non-empty server links, or
+dialog UI behavior was inferred while crossing this batch.

@@ -73,6 +73,7 @@ official jar function
 | `play_cooldown_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-cooldown-clientbound-framed-dispatch.md` |
 | `play_custom_chat_completions_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-custom-chat-completions-clientbound-framed-dispatch.md` |
 | `play_custom_payload_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-custom-payload-clientbound-framed-dispatch.md` |
+| `play_custom_report_details_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-custom-report-details-clientbound-framed-dispatch.md` |
 | Protocol 775 Play clientbound deferred rows | `docs/analysis/protocol/versions/775/play-clientbound-deferred.md` |
 | `play_disconnect_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-disconnect-clientbound-framed-dispatch.md` |
 | `play_entity_position_sync_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-entity-position-sync-clientbound-framed-dispatch.md` |
@@ -94,6 +95,7 @@ official jar function
 | `play_set_health_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-health-clientbound-framed-dispatch.md` |
 | `play_set_held_slot_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-held-slot-clientbound-framed-dispatch.md` |
 | `play_set_simulation_distance_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-simulation-distance-clientbound-framed-dispatch.md` |
+| `play_server_links_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-server-links-clientbound-framed-dispatch.md` |
 | `play_set_titles_animation_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-titles-animation-clientbound-framed-dispatch.md` |
 | `play_start_configuration_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-start-configuration-clientbound-framed-dispatch.md` |
 | `play_stop_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-stop-sound-clientbound-framed-dispatch.md` |
@@ -102,6 +104,7 @@ official jar function
 | `play_ticking_state_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ticking-state-clientbound-framed-dispatch.md` |
 | `play_ticking_step_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ticking-step-clientbound-framed-dispatch.md` |
 | `play_transfer_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-transfer-clientbound-framed-dispatch.md` |
+| `play_clear_dialog_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-clear-dialog-clientbound-framed-dispatch.md` |
 | `play_ping_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ping-clientbound-framed-dispatch.md` |
 | Oracle workbench router | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 | Oracle case package workflow | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
@@ -619,6 +622,17 @@ Play-to-Configuration transition handling, named sound/source variants,
 runtime cookie storage, entity existence, item stack contents, collection
 runtime behavior, tick-manager runtime behavior, transfer handling, Play
 readiness, or client-load completion.
+
+`play_custom_report_details_clientbound_framed_dispatch`,
+`play_server_links_clientbound_framed_dispatch`, and
+`play_clear_dialog_clientbound_framed_dispatch` have official jar-backed
+answers for `minecraft:custom_report_details` / `0x88`,
+`minecraft:server_links` / `0x89`, and `minecraft:clear_dialog` / `0x8b`.
+Their exact Rust oracle tests pass against the current Leafish checkout. These
+proofs are scoped to an empty report-details map, an empty server-links list,
+and the clear-dialog singleton body; they do not prove non-empty entry
+semantics, link UI behavior, dialog UI behavior, `show_dialog`, Play readiness,
+or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

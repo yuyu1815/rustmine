@@ -1,0 +1,35 @@
+{
+  "case_id": "play_server_links_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundServerLinksPacket(List<ServerLinks.UntrustedEntry>); ClientboundServerLinksPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for server_links empty list body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and server_links packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:server_links",
+    "packet_class": "ClientboundServerLinksPacket",
+    "input_fields": {
+      "links": []
+    },
+    "field_notes": {
+      "scope": "Empty list fixture only; no link entry type, label, or URL semantics are named."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_server_links_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound server_links framing and dispatch/decode for the empty list fixture only; do not infer non-empty server link entry semantics or UI behavior."
+}

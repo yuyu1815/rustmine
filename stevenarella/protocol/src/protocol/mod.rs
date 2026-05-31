@@ -703,12 +703,60 @@ macro_rules! state_packets {
                 let internal_id = packet::versions::translate_internal_packet_id_for_version(
                     version, state, dir, id, true,
                 );
-                if internal_id == packet::play::clientbound::internal_ids::Disconnect {
-                    return Ok(Option::Some(Packet::Disconnect(
-                        packet::play::clientbound::Disconnect {
-                            reason: read_nbt_string_component(buf)?,
-                        },
-                    )));
+                match internal_id {
+                    packet::play::clientbound::internal_ids::Disconnect => {
+                        return Ok(Option::Some(Packet::Disconnect(
+                            packet::play::clientbound::Disconnect {
+                                reason: read_nbt_string_component(buf)?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayCustomReportDetailsClientbound => {
+                        let detail_count = VarInt::read_from(buf)?;
+                        if detail_count.0 < 0 {
+                            return Err(Error::Err(format!(
+                                "negative Play custom_report_details detail count {}",
+                                detail_count.0
+                            )));
+                        }
+                        if detail_count.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play custom_report_details map count {}",
+                                detail_count.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlayCustomReportDetailsClientbound(
+                            packet::play::clientbound::PlayCustomReportDetailsClientbound {
+                                detail_count,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayServerLinksClientbound => {
+                        let link_count = VarInt::read_from(buf)?;
+                        if link_count.0 < 0 {
+                            return Err(Error::Err(format!(
+                                "negative Play server_links link count {}",
+                                link_count.0
+                            )));
+                        }
+                        if link_count.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported non-empty Play server_links list count {}",
+                                link_count.0
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlayServerLinksClientbound(
+                            packet::play::clientbound::PlayServerLinksClientbound { link_count },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayClearDialogClientbound => {
+                        return Ok(Option::Some(Packet::PlayClearDialogClientbound(
+                            packet::play::clientbound::PlayClearDialogClientbound {
+                                empty: Serializable::read_from(buf)?,
+                            },
+                        )));
+                    }
+                    _ => {}
                 }
             }
 

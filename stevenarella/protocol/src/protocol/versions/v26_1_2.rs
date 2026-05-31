@@ -132,6 +132,9 @@ protocol_packet_ids!(
             0x7f => PlayTickingStateClientbound
             0x80 => PlayTickingStepClientbound
             0x81 => PlayTransferClientbound
+            0x88 => PlayCustomReportDetailsClientbound
+            0x89 => PlayServerLinksClientbound
+            0x8b => PlayClearDialogClientbound
         }
     }
 );
