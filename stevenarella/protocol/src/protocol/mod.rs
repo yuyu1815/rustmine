@@ -803,6 +803,22 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlaySetEntityLinkClientbound => {
+                        let source_entity_id = i32::read_from(buf)?;
+                        let destination_entity_id = i32::read_from(buf)?;
+                        if source_entity_id != 1 || destination_entity_id != 2 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play set_entity_link fixture source {} destination {}",
+                                source_entity_id, destination_entity_id
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetEntityLinkClientbound(
+                            packet::play::clientbound::PlaySetEntityLinkClientbound {
+                                source_entity_id,
+                                destination_entity_id,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlaySetEquipmentClientbound => {
                         let entity_id = VarInt::read_from(buf)?;
                         let equipment_slot = u8::read_from(buf)?;
@@ -834,6 +850,25 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlaySetObjectiveClientbound {
                                 objective_name,
                                 method,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetPassengersClientbound => {
+                        let vehicle_entity_id = VarInt::read_from(buf)?;
+                        let passenger_entity_ids: LenPrefixed<VarInt, VarInt> =
+                            LenPrefixed::read_from(buf)?;
+                        let passenger_ids: Vec<i32> =
+                            passenger_entity_ids.data.iter().map(|id| id.0).collect();
+                        if vehicle_entity_id.0 != 3 || passenger_ids != [4] {
+                            return Err(Error::Err(format!(
+                                "unsupported Play set_passengers fixture vehicle {} passengers {:?}",
+                                vehicle_entity_id.0, passenger_ids
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySetPassengersClientbound(
+                            packet::play::clientbound::PlaySetPassengersClientbound {
+                                vehicle_entity_id,
+                                passenger_entity_ids,
                             },
                         )));
                     }
@@ -951,6 +986,60 @@ macro_rules! state_packets {
                             packet::play::clientbound::PluginMessageClientbound {
                                 channel: "ShowDialog".to_owned(),
                                 data: dialog_data,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySoundEntityClientbound => {
+                        let sound_holder_id = VarInt::read_from(buf)?;
+                        if sound_holder_id.0 != 8 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound_entity SoundEvent holder id {}",
+                                sound_holder_id.0
+                            )));
+                        }
+                        let source = VarInt::read_from(buf)?;
+                        if source.0 != 0 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound_entity source id {}",
+                                source.0
+                            )));
+                        }
+                        let entity_id = VarInt::read_from(buf)?;
+                        if entity_id.0 != 1 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound_entity fixture entity id {}",
+                                entity_id.0
+                            )));
+                        }
+                        let volume = f32::read_from(buf)?;
+                        if volume != 0.75 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound_entity volume {}",
+                                volume
+                            )));
+                        }
+                        let pitch = f32::read_from(buf)?;
+                        if pitch != 1.25 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound_entity pitch {}",
+                                pitch
+                            )));
+                        }
+                        let seed = i64::read_from(buf)?;
+                        if seed != 123456789 {
+                            return Err(Error::Err(format!(
+                                "unsupported Play sound_entity seed {}",
+                                seed
+                            )));
+                        }
+                        return Ok(Option::Some(Packet::PlaySoundEntityClientbound(
+                            packet::play::clientbound::PlaySoundEntityClientbound {
+                                sound_holder_id,
+                                source,
+                                entity_id,
+                                volume,
+                                pitch,
+                                seed,
                             },
                         )));
                     }

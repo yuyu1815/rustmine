@@ -113,12 +113,14 @@ public final class OracleCases {
             case "play_set_default_spawn_position_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetDefaultSpawnPositionClientboundFramedDispatchCase.generate(input);
             case "play_set_display_objective_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetDisplayObjectiveClientboundFramedDispatchCase.generate(input);
             case "play_set_equipment_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEquipmentClientboundFramedDispatchCase.generate(input);
+            case "play_set_entity_link_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEntityLinkClientboundFramedDispatchCase.generate(input);
             case "play_set_entity_data_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEntityDataClientboundFramedDispatchCase.generate(input);
             case "play_set_entity_motion_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetEntityMotionClientboundFramedDispatchCase.generate(input);
             case "play_set_experience_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetExperienceClientboundFramedDispatchCase.generate(input);
             case "play_set_health_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHealthClientboundFramedDispatchCase.generate(input);
             case "play_set_held_slot_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetHeldSlotClientboundFramedDispatchCase.generate(input);
             case "play_set_objective_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetObjectiveClientboundFramedDispatchCase.generate(input);
+            case "play_set_passengers_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetPassengersClientboundFramedDispatchCase.generate(input);
             case "play_set_player_inventory_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetPlayerInventoryClientboundFramedDispatchCase.generate(input);
             case "play_set_player_team_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetPlayerTeamClientboundFramedDispatchCase.generate(input);
             case "play_set_score_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetScoreClientboundFramedDispatchCase.generate(input);
@@ -130,6 +132,7 @@ public final class OracleCases {
             case "play_set_title_text_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitleTextClientboundFramedDispatchCase.generate(input);
             case "play_set_titles_animation_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitlesAnimationClientboundFramedDispatchCase.generate(input);
             case "play_start_configuration_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStartConfigurationClientboundFramedDispatchCase.generate(input);
+            case "play_sound_entity_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySoundEntityClientboundFramedDispatchCase.generate(input);
             case "play_sound_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySoundClientboundFramedDispatchCase.generate(input);
             case "play_stop_sound_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStopSoundClientboundFramedDispatchCase.generate(input);
             case "play_store_cookie_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStoreCookieClientboundFramedDispatchCase.generate(input);

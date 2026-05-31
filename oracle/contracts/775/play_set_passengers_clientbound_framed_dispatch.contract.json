@@ -1,0 +1,31 @@
+{
+  "contract_id": "play_set_passengers_clientbound_framed_dispatch_contract",
+  "case_id": "play_set_passengers_clientbound_framed_dispatch",
+  "scope": "initialized_gametest_codec",
+  "official_functions": [
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameTestMainUtil.runGameTestServer(...); GameTestHelper.spawn(EntityType.MINECART/PIG, Vec3)",
+      "role": "Create the real initialized vehicle and passenger Entity fixture"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "Entity.startRiding(Entity); ClientboundSetPassengersPacket(Entity)",
+      "role": "Create the official passenger relationship and packet fixture"
+    },
+    {
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.bind(...).codec().encode/decode(ClientboundSetPassengersPacket)",
+      "role": "Write and dispatch the full Play clientbound framed packet"
+    }
+  ],
+  "invariants": [
+    "The official Play clientbound protocol codec writes packet id 0x6b before the set_passengers body.",
+    "The fixture preserves vehicle entity id 3, passenger count 1, passenger entity id 4, and consumes the body.",
+    "This contract does not prove arbitrary passenger graphs, entity ids, world state, or client-load behavior."
+  ],
+  "answer_path": "oracle/answers/775/play_set_passengers_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "test_topology_note": "rust_test_target names the current case adapter only; the manifest owns the runnable test topology.",
+  "stop_boundary": "Do not use this packet-support contract to infer arbitrary passenger relationship semantics."
+}

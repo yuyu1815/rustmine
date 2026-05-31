@@ -123,12 +123,14 @@ protocol_packet_ids!(
             0x61 => PlaySetDefaultSpawnPositionClientbound
             0x62 => PlaySetDisplayObjectiveClientbound
             0x63 => PlaySetEntityDataClientbound
+            0x64 => PlaySetEntityLinkClientbound
             0x65 => EntityVelocity
             0x66 => PlaySetEquipmentClientbound
             0x67 => SetExperience
             0x68 => UpdateHealth
             0x69 => SetCurrentHotbarSlot
             0x6a => PlaySetObjectiveClientbound
+            0x6b => PlaySetPassengersClientbound
             0x6c => PlaySetPlayerInventoryClientbound
             0x6d => PlaySetPlayerTeamClientbound
             0x6e => PlaySetScoreClientbound
@@ -137,6 +139,7 @@ protocol_packet_ids!(
             0x71 => PlaySetTimeClientbound
             0x72 => PlaySetTitleTextClientbound
             0x73 => PlaySetTitlesAnimationClientbound
+            0x74 => PlaySoundEntityClientbound
             0x75 => PlaySoundClientbound
             0x76 => PlayStartConfigurationClientbound
             0x77 => StopSound

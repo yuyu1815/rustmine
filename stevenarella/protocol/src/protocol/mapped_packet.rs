@@ -2073,6 +2073,17 @@ impl MappablePacket for packet::Packet {
                     number_format_present: score.number_format_present,
                 })
             }
+            packet::Packet::PlaySetPassengersClientbound(passengers) => {
+                mapped_packet::MappedPacket::SetPassengers(SetPassengers {
+                    entity_id: passengers.vehicle_entity_id.0,
+                    passengers: passengers
+                        .passenger_entity_ids
+                        .data
+                        .iter()
+                        .map(|id| id.0)
+                        .collect(),
+                })
+            }
             packet::Packet::PlaySetCursorItemClientbound(cursor_item) => {
                 mapped_packet::MappedPacket::PlaySetCursorItemClientbound(
                     PlaySetCursorItemClientbound {
@@ -2114,6 +2125,13 @@ impl MappablePacket for packet::Packet {
                         item: equipment.item,
                     },
                 )
+            }
+            packet::Packet::PlaySetEntityLinkClientbound(link) => {
+                mapped_packet::MappedPacket::EntityAttach(EntityAttach {
+                    entity_id: link.source_entity_id,
+                    vehicle: link.destination_entity_id,
+                    leash: Some(true),
+                })
             }
             packet::Packet::PlaySetPlayerInventoryClientbound(inventory) => {
                 mapped_packet::MappedPacket::PlaySetPlayerInventoryClientbound(
@@ -4383,6 +4401,15 @@ impl MappablePacket for packet::Packet {
                     x: sound.x,
                     y: sound.y,
                     z: sound.z,
+                    volume: sound.volume,
+                    pitch: sound.pitch,
+                })
+            }
+            packet::Packet::PlaySoundEntityClientbound(sound) => {
+                mapped_packet::MappedPacket::EntitySoundEffect(EntitySoundEffect {
+                    sound_id: sound.sound_holder_id.0,
+                    sound_category: sound.source.0,
+                    entity_id: sound.entity_id.0,
                     volume: sound.volume,
                     pitch: sound.pitch,
                 })

@@ -97,9 +97,12 @@ official jar function
 | `play_set_simulation_distance_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-simulation-distance-clientbound-framed-dispatch.md` |
 | `play_server_links_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-server-links-clientbound-framed-dispatch.md` |
 | `play_set_display_objective_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-display-objective-clientbound-framed-dispatch.md` |
+| `play_set_entity_link_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-entity-link-clientbound-framed-dispatch.md` |
 | `play_set_score_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-score-clientbound-framed-dispatch.md` |
+| `play_set_passengers_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-passengers-clientbound-framed-dispatch.md` |
 | `play_set_time_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-time-clientbound-framed-dispatch.md` |
 | `play_set_titles_animation_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-titles-animation-clientbound-framed-dispatch.md` |
+| `play_sound_entity_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-sound-entity-clientbound-framed-dispatch.md` |
 | `play_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-sound-clientbound-framed-dispatch.md` |
 | `play_start_configuration_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-start-configuration-clientbound-framed-dispatch.md` |
 | `play_stop_sound_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-stop-sound-clientbound-framed-dispatch.md` |
@@ -647,6 +650,19 @@ sound fixture, one MobEffects.SPEED update fixture, and one direct
 NoticeDialog show-dialog fixture; they do not prove non-empty entry semantics,
 link UI behavior, arbitrary sound/effect/dialog holders, world sound playback,
 entity effect runtime state, dialog UI behavior, Play readiness, or
+client-load completion.
+
+`play_set_entity_link_clientbound_framed_dispatch`,
+`play_set_passengers_clientbound_framed_dispatch`, and
+`play_sound_entity_clientbound_framed_dispatch` have official GameTest-backed
+answers for `minecraft:set_entity_link` / `0x64`,
+`minecraft:set_passengers` / `0x6b`, and `minecraft:sound_entity` / `0x74`.
+Their exact Rust oracle tests pass against the current Leafish checkout. These
+proofs are scoped to the initialized GameTest fixture: source pig id `1`,
+destination armor stand id `2`, minecart vehicle id `3`, passenger pig id `4`,
+and one `SoundEvents.AMBIENT_CAVE` entity sound. Other entity ids, passenger
+topologies, sound holders, sources, entity ids, volume, pitch, and seed values
+are rejected before broader entity/world/sound semantics, Play readiness, or
 client-load completion.
 
 `play_set_display_objective_clientbound_framed_dispatch`,

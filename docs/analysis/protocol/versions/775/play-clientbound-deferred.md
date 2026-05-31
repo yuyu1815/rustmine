@@ -233,16 +233,15 @@ behavior was inferred.
 ## Final Parked Packet Audit
 
 After the combined registry-holder fixture policy pass, `0x75`, `0x84`, and
-`0x8c` moved to bounded jar-backed BLUE fixtures. The remaining parked Play
-CLIENTBOUND rows are `0x64`, `0x6b`, and `0x74`, all still blocked on an
-entity relationship/context policy before safe packet-support bytes can be
-named.
+`0x8c` moved to bounded jar-backed BLUE fixtures. The final entity fixture
+policy pass moved `0x64`, `0x6b`, and `0x74` to initialized GameTest-backed
+BLUE fixtures and scoped Stevenarella mappings.
 
 | Row | Packet | Official evidence | Blocker policy needed |
 |---|---|---|---|
-| `0x64` | `minecraft:set_entity_link` | `ClientboundSetEntityLinkPacket(Entity, Entity)` stores `source.getId()` and optional destination entity id; the primitive buffer constructor is private. | Entity fixture policy for source entity identity and link/leash semantics. |
-| `0x6b` | `minecraft:set_passengers` | `ClientboundSetPassengersPacket(Entity)` stores vehicle id and copies `Entity.getPassengers()` ids; the primitive buffer constructor is private. | Entity relationship fixture policy for vehicle/passenger identity without fake runtime entities. |
-| `0x74` | `minecraft:sound_entity` | `ClientboundSoundEntityPacket(Holder<SoundEvent>, SoundSource, Entity, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, entity id, volume, pitch, and seed. | SoundEvent holder policy is now proven by `0x75`, but entity sound context is still missing. |
+| `0x64` | `minecraft:set_entity_link` | `ClientboundSetEntityLinkPacket(Entity, Entity)` stores `source.getId()` and destination entity id; the GameTest fixture uses real source pig id `1` and destination armor stand id `2`. | Implemented as one initialized fixture; other ids remain unsupported. |
+| `0x6b` | `minecraft:set_passengers` | `ClientboundSetPassengersPacket(Entity)` stores vehicle id and copies `Entity.getPassengers()` ids; the GameTest fixture uses real minecart id `3` and passenger pig id `4` after `passenger.startRiding(vehicle)`. | Implemented as one initialized fixture; other passenger topologies remain unsupported. |
+| `0x74` | `minecraft:sound_entity` | `ClientboundSoundEntityPacket(Holder<SoundEvent>, SoundSource, Entity, float, float, long)` writes `SoundEvent.STREAM_CODEC`, source enum, entity id, volume, pitch, and seed; the GameTest fixture uses source pig id `1` plus `SoundEvents.AMBIENT_CAVE`. | Implemented as one initialized fixture; other holder/source/entity/volume/pitch/seed values remain unsupported. |
 
 The entity-context cartography pass after commit `d03c4ca` did not find a safe
 3-row promotion route inside the current oracle harness machinery. `javap`
@@ -286,27 +285,35 @@ oracle/harness/java/scripts/run_entity_fixture_policy_probe.sh <tmp-jsonl>
 ```
 
 Two repeat runs emitted the same entity ids and packet bytes. This promotes the
-entity fixture policy itself from RED to feasible BLUE evidence, but the three
-packet rows remain unsupported in Rust until the probe is integrated into
-case/contract/answer/test-manifest generation and scoped mappings are added.
+entity fixture policy itself from RED to feasible BLUE evidence. The follow-up
+integration converted the probe into three normal oracle packages by running
+the GameTest probe in a child JVM from the Java harness, then added scoped Rust
+dispatch mappings for the exact official fixtures.
+
+Final verification fixtures:
+
+| Row | Oracle case | Rust support boundary |
+|---|---|---|
+| `0x64` | `play_set_entity_link_clientbound_framed_dispatch` | Accepts source id `1` and destination id `2`; rejects other link ids. |
+| `0x6b` | `play_set_passengers_clientbound_framed_dispatch` | Accepts vehicle id `3` with exactly passenger `[4]`; rejects other topologies. |
+| `0x74` | `play_sound_entity_clientbound_framed_dispatch` | Accepts SoundEvent holder `8`, source `0`, entity id `1`, volume `0.75`, pitch `1.25`, seed `123456789`; rejects other branches. |
 
 ## Final Blocker Policy Route Map
 
-Use this table before spawning any worker for the three remaining rows. The
-first successful policy should produce a small oracle-cartography package
-first; Rust work only follows after jar-backed answers and rust-fix tasks
-exist.
+This table records the resolved final-row policy. Future work should only
+expand these rows with new official fixtures, not by relaxing the scoped
+packet-support branches.
 
 | Blocker policy | Rows unlocked | Official evidence needed | Forbidden shortcuts | Smallest next subagent task | Plausibly yields 3-packet batch? |
 |---|---|---|---|---|---|
-| Entity relationship fixture policy | `0x64`, `0x6b` | Official GameTest probe creates real source/destination/vehicle/passenger `Entity` instances in `ServerLevel` and proves stable ids plus passenger list bytes without private buffer construction, fake `Level`, mock entities, or reflection. | Do not fabricate entity ids by calling private decode constructors or `setId(...)` on null-level entities; do not use mock entities; do not treat ids as context-free primitives. | Integrate the process-owned GameTest probe into oracle case generation, then promote `0x64` and `0x6b` with jar-backed answers. | Yes, after runner integration. |
-| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; the GameTest probe now proves an initialized official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | Reuse the GameTest entity fixture plus the proven `0x75` SoundEvent holder/source fixture in a `0x74` oracle case. | Yes, after runner integration. |
+| Entity relationship fixture policy | `0x64`, `0x6b` | Official GameTest probe creates real source/destination/vehicle/passenger `Entity` instances in `ServerLevel` and proves stable ids plus passenger list bytes without private buffer construction, fake `Level`, mock entities, or reflection. | Do not fabricate entity ids by calling private decode constructors or `setId(...)` on null-level entities; do not use mock entities; do not treat ids as context-free primitives. | Complete for one source/destination fixture and one vehicle/passenger fixture. | Completed for scoped fixtures. |
+| Entity sound context policy | `0x74` | Existing `0x75` answer proves one SoundEvent holder/source fixture; the GameTest probe proves an initialized official entity context for the `ClientboundSoundEntityPacket(..., Entity, ...)` constructor. | Do not fabricate entity ids; do not reuse the world-position `0x75` body for entity sound; do not infer entity existence from primitive ids. | Complete for one `SoundEvents.AMBIENT_CAVE` source-pig fixture. | Completed for scoped fixture. |
 
 Recommended next route:
 
 ```text
 Need another final-row batch?
   -> combined registry-holder fixture policy is complete for 0x75 + 0x84 + 0x8c
-  -> official GameTest entity fixture policy is now proven for 0x64 + 0x6b + 0x74
-  -> next route is process-isolated oracle runner integration, then the 3-row batch
+  -> official GameTest entity fixture integration is complete for 0x64 + 0x6b + 0x74
+  -> no unsupported Protocol 775 Play CLIENTBOUND rows remain without an explicit broader-semantics blocker
 ```

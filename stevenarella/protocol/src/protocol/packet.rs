@@ -710,6 +710,10 @@ state_packets!(
                 field equipment_slot: u8 =,
                 field item: Option<item::Stack> =,
             }
+            packet PlaySetEntityLinkClientbound {
+                field source_entity_id: i32 =,
+                field destination_entity_id: i32 =,
+            }
             packet PlaySetPlayerInventoryClientbound {
                 field slot: VarInt =,
                 field item: Option<item::Stack> =,
@@ -724,6 +728,10 @@ state_packets!(
                 field score: VarInt =,
                 field display_present: bool =,
                 field number_format_present: bool =,
+            }
+            packet PlaySetPassengersClientbound {
+                field vehicle_entity_id: VarInt =,
+                field passenger_entity_ids: LenPrefixed<VarInt, VarInt> =,
             }
             packet PlaySetSubtitleTextClientbound {
                 field text: format::Component =,
@@ -806,6 +814,14 @@ state_packets!(
                 field x: i32 =,
                 field y: i32 =,
                 field z: i32 =,
+                field volume: f32 =,
+                field pitch: f32 =,
+                field seed: i64 =,
+            }
+            packet PlaySoundEntityClientbound {
+                field sound_holder_id: VarInt =,
+                field source: VarInt =,
+                field entity_id: VarInt =,
                 field volume: f32 =,
                 field pitch: f32 =,
                 field seed: i64 =,
