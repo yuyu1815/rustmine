@@ -31,6 +31,7 @@ official jar function
 | `login_disconnect_clientbound_framed_dispatch` case note | [cases/login-disconnect-clientbound-framed-dispatch.md](cases/login-disconnect-clientbound-framed-dispatch.md) |
 | `login_hello_clientbound_framed_dispatch` case note | [cases/login-hello-clientbound-framed-dispatch.md](cases/login-hello-clientbound-framed-dispatch.md) |
 | `login_finished_clientbound_framed_dispatch` case note | [cases/login-finished-clientbound-framed-dispatch.md](cases/login-finished-clientbound-framed-dispatch.md) |
+| `login_compression_clientbound_framed_dispatch` case note | [cases/login-compression-clientbound-framed-dispatch.md](cases/login-compression-clientbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -71,6 +72,7 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `login_disconnect_clientbound_framed_dispatch`,
 `login_hello_clientbound_framed_dispatch`,
 `login_finished_clientbound_framed_dispatch`,
+`login_compression_clientbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -163,8 +165,17 @@ empty property count from `PropertyMap.EMPTY`, terminal flag, and full body
 consumption through Stevenarella dispatch. It does not prove authentication
 success, Login-to-Configuration state transition handling, profile property
 semantics, skin/session trust, Configuration entry, Play readiness, or
-client-load completion. The next missing Login clientbound packet-support
-target is `minecraft:login_compression` / `0x03`.
+client-load completion.
+
+`login_compression_clientbound_framed_dispatch` is packet-support evidence for
+one official Login clientbound login_compression fixture only. It proves the
+official `minecraft:login_compression` / `0x03` row, one VarInt
+`compressionThreshold` field, and full body consumption through Stevenarella
+dispatch. It does not prove compression negotiation policy, connection
+compression activation, Login-to-Configuration state transition handling,
+Configuration entry, Play readiness, or client-load completion. The next
+missing Login clientbound packet-support target is `minecraft:custom_query` /
+`0x04`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

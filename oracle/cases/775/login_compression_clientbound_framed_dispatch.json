@@ -1,0 +1,59 @@
+{
+  "case_id": "login_compression_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Handshake -> Login -> Configuration",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.ClientboundLoginCompressionPacket(int)",
+      "authority_note": "Official binary source for constructing the Login clientbound login_compression packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.ClientboundLoginCompressionPacket.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for Login clientbound login_compression packet body encoding through FriendlyByteBuf.writeVarInt."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND.codec().encode(ClientboundLoginCompressionPacket)",
+      "authority_note": "Official binary source for Login clientbound login_compression framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Login clientbound login_compression framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Login clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundLoginCompressionPacket.getCompressionThreshold(), ClientLoginPacketListener.handleCompression(ClientboundLoginCompressionPacket)",
+      "authority_note": "Official binary source for reading the decoded compression threshold and confirming the Login listener clientbound surface."
+    }
+  ],
+  "question": {
+    "state": "Login",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:login_compression",
+    "packet_class": "ClientboundLoginCompressionPacket",
+    "input_fields": {
+      "compression_threshold": 0
+    },
+    "field_notes": {
+      "compression_threshold": "Smallest integer fixture accepted by ClientboundLoginCompressionPacket(int) and the official VarInt body codec without initialized Minecraft state."
+    }
+  },
+  "answer_path": "oracle/answers/775/login_compression_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Login clientbound login_compression packet framing and dispatch/decode for one official compressionThreshold=0 fixture only; do not infer compression negotiation policy, connection compression activation, Login-to-Configuration state transition handling, Configuration entry, Play readiness, or client-load completion."
+}
