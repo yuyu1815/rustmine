@@ -31,6 +31,7 @@ official jar function
 | `configuration_reset_chat_clientbound_framed_dispatch` case note | [cases/configuration-reset-chat-clientbound-framed-dispatch.md](cases/configuration-reset-chat-clientbound-framed-dispatch.md) |
 | `configuration_resource_pack_response_framed_dispatch` case note | [cases/configuration-resource-pack-response-framed-dispatch.md](cases/configuration-resource-pack-response-framed-dispatch.md) |
 | `configuration_update_enabled_features_clientbound_framed_dispatch` case note | [cases/configuration-update-enabled-features-clientbound-framed-dispatch.md](cases/configuration-update-enabled-features-clientbound-framed-dispatch.md) |
+| `configuration_update_tags_clientbound_framed_dispatch` case note | [cases/configuration-update-tags-clientbound-framed-dispatch.md](cases/configuration-update-tags-clientbound-framed-dispatch.md) |
 | `configuration_select_known_packs_framed_dispatch` case note | [cases/configuration-select-known-packs-framed-dispatch.md](cases/configuration-select-known-packs-framed-dispatch.md) |
 | `configuration_custom_click_action_framed_dispatch` case note | [cases/configuration-custom-click-action-framed-dispatch.md](cases/configuration-custom-click-action-framed-dispatch.md) |
 | `configuration_accept_code_of_conduct_framed_dispatch` case note | [cases/configuration-accept-code-of-conduct-framed-dispatch.md](cases/configuration-accept-code-of-conduct-framed-dispatch.md) |
@@ -59,6 +60,7 @@ At this snapshot, `configuration_client_information_framed_dispatch`,
 `configuration_ping_pong_framed_dispatch`,
 `configuration_resource_pack_response_framed_dispatch`,
 `configuration_update_enabled_features_clientbound_framed_dispatch`,
+`configuration_update_tags_clientbound_framed_dispatch`,
 `configuration_select_known_packs_framed_dispatch`,
 `configuration_custom_click_action_framed_dispatch`,
 `configuration_accept_code_of_conduct_framed_dispatch`, and
@@ -118,3 +120,8 @@ Configuration completion, or Play entry.
 packet-support evidence for one official empty feature-set fixture only. It
 does not prove feature registry hydration, enabled-feature semantics,
 Configuration completion, or Play entry.
+
+`configuration_update_tags_clientbound_framed_dispatch` is packet-support
+evidence for one official empty tag-payload map fixture only. It does not prove
+real tag contents, tag registry hydration, Configuration completion, or Play
+entry.

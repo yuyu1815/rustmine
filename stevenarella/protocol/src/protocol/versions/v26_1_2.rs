@@ -26,6 +26,7 @@ protocol_packet_ids!(
             0x0a => ConfigurationStoreCookieClientbound
             0x0b => ConfigurationTransferClientbound
             0x0c => ConfigurationUpdateEnabledFeaturesClientbound
+            0x0d => ConfigurationUpdateTagsClientbound
         }
     }
 );
