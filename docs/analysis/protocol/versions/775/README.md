@@ -89,6 +89,11 @@ official jar function
 | `play_set_border_warning_distance_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-border-warning-distance-clientbound-framed-dispatch.md` |
 | `play_move_vehicle_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-move-vehicle-clientbound-framed-dispatch.md` |
 | `play_open_book_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-open-book-clientbound-framed-dispatch.md` |
+| `play_set_entity_motion_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-entity-motion-clientbound-framed-dispatch.md` |
+| `play_set_experience_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-experience-clientbound-framed-dispatch.md` |
+| `play_set_health_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-health-clientbound-framed-dispatch.md` |
+| `play_set_held_slot_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-held-slot-clientbound-framed-dispatch.md` |
+| `play_set_simulation_distance_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-set-simulation-distance-clientbound-framed-dispatch.md` |
 | `play_ping_clientbound_framed_dispatch` case note | `docs/analysis/protocol/versions/775/cases/play-ping-clientbound-framed-dispatch.md` |
 | Oracle workbench router | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 | Oracle case package workflow | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
@@ -550,7 +555,7 @@ They prove the official `minecraft:player_info_remove` / `0x45` frame
 consumption through Stevenarella dispatch. They do not prove GameProfile or
 player-list state, entity existence, advancement UI behavior, chunk loading,
 world hydration, render readiness, or client-load completion. The skipped
-YELLOW rows through `0x65` remain parked in `play-clientbound-deferred.md`; the
+YELLOW rows through `0x64` remain parked in `play-clientbound-deferred.md`; the
 next official Play clientbound row after this safe batch is
 `minecraft:set_cursor_item` / `0x60`.
 
@@ -566,10 +571,28 @@ packet-support evidence for the official primitive/context-free border rows
 `5a4080020000000000`, `5b2a`, and `5c07`, with full body consumption through
 Stevenarella dispatch. They do not prove world-border runtime behavior,
 warning UI behavior, world state, render readiness, or client-load completion.
-`minecraft:set_entity_motion` / `0x65` remains a safe separate proof candidate;
-the skipped YELLOW rows remain parked in `play-clientbound-deferred.md`. The
+`minecraft:set_entity_motion` / `0x65` has now been promoted to a jar-backed
+packet-support proof package with a current Stevenarella mismatch; the skipped
+YELLOW rows remain parked in `play-clientbound-deferred.md`. The
 next official Play clientbound row after the latest proven contiguous area is
 still `minecraft:set_cursor_item` / `0x60`.
+
+`play_set_entity_motion_clientbound_framed_dispatch`,
+`play_set_experience_clientbound_framed_dispatch`,
+`play_set_health_clientbound_framed_dispatch`,
+`play_set_held_slot_clientbound_framed_dispatch`, and
+`play_set_simulation_distance_clientbound_framed_dispatch` have official
+jar-backed answers for `minecraft:set_entity_motion` / `0x65`,
+`minecraft:set_experience` / `0x67`, `minecraft:set_health` / `0x68`,
+`minecraft:set_held_slot` / `0x69`, and
+`minecraft:set_simulation_distance` / `0x6f`. The Java harness generated
+frames `65b960f23f87febfff`, `673f2000002a944d`,
+`68419400001140880000`, `6906`, and `6f0a` from `client.jar`. The exact Rust
+oracle tests currently fail at Stevenarella dispatch with `bad packet id` for
+the five official ids, and rust-fix-task packets exist under
+`oracle/failures/775/`. These are packet-support proofs only and do not prove
+entity existence, movement semantics, player state, inventory UI, world ticking,
+render readiness, or client-load completion.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

@@ -7,10 +7,10 @@ startup stays cheap.
 
 | Field | Value |
 |---|---|
-| Area | Agent operations topology |
-| Current task | Agent flow now distinguishes parent-facing agents from `rustmine_nested_*` planner-to-leaf agents. Parent Codex delegates to Lead/planner; Lead creates validated `context_capsule` packets for at most two nested leaves in one batch; nested leaves return detail to Lead; Lead returns compact status and `reported_checks` only to Parent Codex. For direct parent-to-worker delegation, use validated `worker-capsule/v1` packets so workers read capsule context instead of broad startup docs. For documentation-update churn, use `rustmine_nested_docs_rewriter` with supplied wording and check only write mistakes/scope drift after it writes. |
-| Last touched | `AGENTS.md`, `docs/ai/`, `.codex/agents/`, `.codex/config.toml`, `docs/next/`, `docs/analysis/responsibility/` |
-| Stop boundary | Do not move oracle facts, generated answers, protocol traceability, or proof status into `docs/ai/` or `docs/next/`. |
+| Area | Protocol 775 Play CLIENTBOUND packet support |
+| Current task | The `0x65` / `0x67` / `0x68` / `0x69` / `0x6f` safe batch now has jar-backed oracle packages and Stevenarella dispatch mappings. The immediate next unproven pointer remains `0x60`, but `0x60`-`0x64`, `0x66`, and `0x70`-`0x72` stay parked unless a future official-source pass names safe fixtures. |
+| Last touched | `docs/analysis/protocol/versions/775/`, `oracle/`, `stevenarella/protocol/src/protocol/versions/v26_1_2.rs`, `docs/next/` |
+| Stop boundary | Do not implement YELLOW rows from names or previous-version witnesses. Do not stage unrelated logs or timestamp-only answer regeneration. |
 
 ## Read Next
 
@@ -19,23 +19,20 @@ AGENTS.md
   -> docs/ai/README.md
   -> docs/ai/agent-ops.md
   -> docs/next/README.md
-  -> docs/analysis/responsibility/README.md
-  -> docs/analysis/responsibility/agent-ops.md
+  -> docs/analysis/protocol/README.md
+  -> docs/analysis/protocol/versions/775/README.md
+  -> docs/analysis/protocol/versions/775/play-clientbound-deferred.md
 ```
 
 ## Immediate Next Action
 
 ```text
-For the next real task:
-  -> read docs/ai/README.md for the fixed startup route
-  -> read docs/ai/agent-ops.md as the parent/subagent startup gate
-  -> read this file for compact recovery state
-  -> choose one owning docs/analysis shard
-  -> load only the skill, agent, artifact, or shard named by the task
-  -> validate any planner-to-leaf context_capsule against context-capsule.schema.json before spawning
-  -> for docs update churn, send supplied wording to rustmine_nested_docs_rewriter and review only write mistakes, formatting, link/path breakage, duplicate/missing rows, and scope drift
-  -> validate any direct parent-to-worker worker-capsule against worker-capsule.schema.json before spawning
-  -> after any workspace-write leaf or direct write-capable agent, compare after-before git status paths against allowed_writes / allowed_write_scope
+For the next Protocol 775 Play CLIENTBOUND task:
+  -> keep `0x60` as the next unproven pointer
+  -> do official-source cartography before selecting another batch
+  -> keep `0x60`-`0x64`, `0x66`, and `0x70`-`0x72` YELLOW unless official codec evidence proves a safe fixture
+  -> likely inspect `0x73` onward for the next GREEN/BLUE candidates
+  -> create oracle packages before any Rust implementation
   -> avoid editing unrelated oracle/log changes already in the worktree
 ```
 

@@ -1,0 +1,41 @@
+{
+  "case_id": "play_set_simulation_distance_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetSimulationDistancePacket(int)",
+      "authority_note": "Official binary source for constructing the Play clientbound set_simulation_distance fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetSimulationDistancePacket.STREAM_CODEC; FriendlyByteBuf.readVarInt/writeVarInt",
+      "authority_note": "Official binary source for simulation distance VarInt body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_simulation_distance packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_simulation_distance",
+    "packet_class": "ClientboundSetSimulationDistancePacket",
+    "input_fields": {
+      "simulation_distance": 10
+    },
+    "field_notes": {
+      "simulation_distance": "Primitive simulation distance fixture; does not prove world tick radius or entity simulation behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_simulation_distance_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_simulation_distance packet framing and dispatch/decode for one primitive simulation distance fixture only; do not infer world ticking, entity simulation behavior, or client-load completion."
+}

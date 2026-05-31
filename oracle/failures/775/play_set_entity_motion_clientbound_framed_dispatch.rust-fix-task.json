@@ -1,0 +1,20 @@
+{
+  "schema": "rust-fix-task/v1",
+  "case_id": "play_set_entity_motion_clientbound_framed_dispatch",
+  "objective": "Make Stevenarella pass the existing oracle test for Protocol 775 Play clientbound minecraft:set_entity_motion without editing oracle expected answers.",
+  "oracle_inputs": {
+    "case": "oracle/cases/775/play_set_entity_motion_clientbound_framed_dispatch.json",
+    "contract": "oracle/contracts/775/play_set_entity_motion_clientbound_framed_dispatch.contract.json",
+    "answer": "oracle/answers/775/play_set_entity_motion_clientbound_framed_dispatch.answer.jsonl",
+    "test_manifest": "oracle/test-manifests/775/play_set_entity_motion_clientbound_framed_dispatch.test-manifest.json",
+    "rust_test": "oracle/rust-tests/tests/oracle_contracts/cases/play/play_set_entity_motion_clientbound_framed_dispatch_matches_official_oracle_answer.rs"
+  },
+  "observed_failure": "bad packet id 0x65 in Clientbound Play",
+  "required_behavior": "Protocol 775 Play clientbound packet_by_id must dispatch official packet id 0x65 and fully consume the official body for minecraft:set_entity_motion.",
+  "owner_paths": [
+    "stevenarella/protocol/src/protocol/versions/v26_1_2.rs",
+    "stevenarella/protocol/src/protocol/packet.rs",
+    "stevenarella/protocol/src/protocol/mapped_packet.rs"
+  ],
+  "stop_boundary": "Do not change oracle/cases, oracle/contracts, oracle/answers, or test manifests to make the implementation pass."
+}

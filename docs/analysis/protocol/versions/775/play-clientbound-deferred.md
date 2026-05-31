@@ -57,12 +57,13 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x62` | `minecraft:set_display_objective` | deferred YELLOW | Official codec uses display slot and scoreboard objective name. | Do not infer scoreboard state. |
 | `0x63` | `minecraft:set_entity_data` | deferred YELLOW | Official codec uses SynchedEntityData values and serializers. | Do not invent entity metadata serializers or initialized entity state. |
 | `0x64` | `minecraft:set_entity_link` | deferred YELLOW | Official public constructor is entity-backed and represents entity link/leash relationship state. | Do not fake linked entity existence or relationship semantics. |
-| `0x65` | `minecraft:set_entity_motion` | safe BLUE deferred by cap | Official codec has public primitive id plus `Vec3` movement fixture path; it affects entity motion but can be packet-proved without initialized state. | Do not infer entity existence or movement semantics. |
 
 These rows are not rejected. They are parked until an official jar-backed
 fixture or initialized harness route can name the packet body without guessing.
 The former safe BLUE border rows `0x58`-`0x5c` have been promoted to
-jar-backed packet-support proofs and are no longer deferred.
+jar-backed packet-support proofs and are no longer deferred. Safe BLUE row
+`0x65` has also been promoted to a jar-backed packet-support proof package; its
+current status is a Stevenarella dispatch mismatch, not a deferred fixture gap.
 
 ## Batch Confirmation
 
@@ -92,8 +93,15 @@ rows from the `0x52`-started cartography pass. The follow-up border batch
 promoted `0x58`-`0x5c` from safe BLUE deferred rows to official jar-backed
 packet-support proofs. The skipped YELLOW rows `0x52`, `0x54`, `0x56`-`0x57`,
 `0x5d`, and `0x60`-`0x64` remain parked for the official-evidence reasons
-above. Safe BLUE row `0x65` was not rejected; it remains deferred as a separate
-bounded proof candidate. No respawn, component UI, chunk-section, camera, item
-stack, spawn, scoreboard, entity metadata, entity-link, world-border runtime,
-warning UI, or entity-motion runtime behavior was inferred while crossing those
-rows.
+above. Safe BLUE row `0x65` has now moved out of this deferred list into an
+official answer plus Rust mismatch package. No respawn, component UI,
+chunk-section, camera, item stack, spawn, scoreboard, entity metadata,
+entity-link, world-border runtime, warning UI, or entity-motion runtime
+behavior was inferred while crossing those rows.
+
+The `0x65` / `0x67` / `0x68` / `0x69` / `0x6f` safe batch promoted only those
+five named rows into jar-backed packet-support packages. The skipped rows
+`0x60`-`0x64`, `0x66`, and `0x70`-`0x72` were not implemented or promoted in
+this batch. No item stack, spawn, scoreboard, entity metadata, entity link,
+equipment, recipe, custom sound, or entity-sound fixture was inferred while
+crossing the batch boundary.

@@ -1,0 +1,41 @@
+{
+  "case_id": "play_set_held_slot_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetHeldSlotPacket(int)",
+      "authority_note": "Official binary source for constructing the Play clientbound set_held_slot fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundSetHeldSlotPacket.STREAM_CODEC; ByteBufCodecs.VAR_INT",
+      "authority_note": "Official binary source for held slot VarInt body codec."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and set_held_slot packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:set_held_slot",
+    "packet_class": "ClientboundSetHeldSlotPacket",
+    "input_fields": {
+      "slot": 6
+    },
+    "field_notes": {
+      "slot": "Primitive held slot fixture; does not prove inventory contents or selection UI behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_set_held_slot_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound set_held_slot packet framing and dispatch/decode for one primitive slot fixture only; do not infer inventory contents, UI behavior, or client-load completion."
+}
