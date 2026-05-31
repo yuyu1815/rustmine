@@ -22,6 +22,7 @@ official jar function
 | Need | Location |
 |---|---|
 | Traceability map | [traceability.md](traceability.md) |
+| `handshake_intention_framed_dispatch` case note | [cases/handshake-intention-framed-dispatch.md](cases/handshake-intention-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -53,7 +54,8 @@ official jar function
 
 ## Evidence Snapshot
 
-At this snapshot, `configuration_client_information_framed_dispatch`,
+At this snapshot, `handshake_intention_framed_dispatch`,
+`configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
 `configuration_custom_payload_clientbound_framed_dispatch`,
@@ -80,6 +82,11 @@ At this snapshot, `configuration_client_information_framed_dispatch`,
 in this 775 shard. Their answers were regenerated from the official client jar
 and the manifest-declared Rust oracle tests passed against the current Leafish
 checkout.
+
+`handshake_intention_framed_dispatch` is packet-support evidence for one
+official LOGIN-intent fixture only. It does not prove Login authentication,
+Configuration entry, or client-load completion. It is the only current official
+Protocol 775 Handshaking serverbound table row in the generated answer.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_code_of_conduct_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Configuration clientbound `minecraft:code_of_conduct` answer for one String fixture and decodes it through `packet::packet_by_id(775, State::Configuration, Direction::Clientbound, official id, body)`. The generated 26.1.2 Configuration clientbound packet table now has jar-backed packet-support rows through `minecraft:code_of_conduct` / `0x13`, the last current official clientbound table entry. |
+| Current location | Protocol 775 `handshake_intention_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Handshaking serverbound `minecraft:intention` answer for one LOGIN-intent fixture and decodes it through `packet::packet_by_id(775, State::Handshaking, Direction::Serverbound, official id, body)`. The generated 26.1.2 Configuration clientbound and serverbound packet tables are complete through their current official rows; the Handshaking serverbound table has its official `minecraft:intention` / `0x00` row. |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{mod.rs,packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `configuration_code_of_conduct_clientbound_framed_dispatch` proves only the Configuration clientbound code_of_conduct packet id/body dispatch for one official String fixture and current compatibility alias decode. It does not prove UI consent flow, legal acceptance semantics, Configuration completion, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `handshake_intention_framed_dispatch` proves only Handshaking serverbound intention packet id/body dispatch for one official LOGIN-intent fixture. It does not prove Login authentication, Login packet-table support, Configuration entry, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -34,12 +34,14 @@ For future work:
         -> use subagents only for bounded evidence, mapping, review, or
            implementation work packages
           -> for packet-support loop, network_login_configuration now has
-             Configuration clientbound table proof through the official last
-             current row minecraft:code_of_conduct / 0x13
-            -> next likely work should move to the owning runtime/evidence
-               target for Configuration-to-Play, registry hydration, Play
-               entry, world, render, or interaction readiness instead of
-               guessing another Configuration clientbound table packet
+             Configuration clientbound/serverbound table proof through current
+             official rows and Handshaking serverbound proof for
+             minecraft:intention / 0x00
+            -> next packet-support target is Login serverbound
+               minecraft:hello / 0x00, using LoginProtocols.SERVERBOUND_TEMPLATE
+               official table evidence first
+              -> do not move to Play packet work until Handshake/Login packet
+                 table gaps are audited or explicitly bounded
 ```
 
 ## Stop Boundary

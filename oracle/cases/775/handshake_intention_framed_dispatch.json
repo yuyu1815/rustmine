@@ -1,0 +1,62 @@
+{
+  "case_id": "handshake_intention_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Handshake -> Login",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.handshake.ClientIntentionPacket(int, String, int, ClientIntent)",
+      "authority_note": "Official binary source for constructing the Handshaking serverbound intention packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.handshake.ClientIntentionPacket.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for Handshaking serverbound intention packet body encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.handshake.HandshakeProtocols.SERVERBOUND.codec().encode(new ClientIntentionPacket(...))",
+      "authority_note": "Official binary source for Handshaking serverbound intention framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.handshake.HandshakeProtocols.SERVERBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Handshaking serverbound intention framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.handshake.HandshakeProtocols.SERVERBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Handshaking serverbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.handshake.ClientIntentionPacket.protocolVersion(), hostName(), port(), intention(), isTerminal()",
+      "authority_note": "Official binary source for reading the decoded intention packet fields."
+    }
+  ],
+  "question": {
+    "state": "Handshaking",
+    "flow": "Serverbound",
+    "packet_type": "minecraft:intention",
+    "packet_class": "ClientIntentionPacket",
+    "input_fields": {
+      "protocol_version": 775,
+      "host": "localhost",
+      "port": 25565,
+      "intent": "LOGIN"
+    },
+    "field_notes": {
+      "intent": "The LOGIN ClientIntent has official id 2. The answer artifact records that id from the official enum rather than hand-written packet bytes."
+    }
+  },
+  "answer_path": "oracle/answers/775/handshake_intention_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Handshaking serverbound intention packet framing and dispatch/decode only; do not infer Login authentication, Configuration entry, or client-load completion."
+}

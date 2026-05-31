@@ -18,6 +18,16 @@ const CONFIGURATION_KEEPALIVE_CONTRACT: &str =
 const CONFIGURATION_KEEPALIVE_ANSWER: &str =
     "oracle/answers/775/configuration_keepalive_codec.answer.jsonl";
 const ORACLE_CONTRACTS_RUST_TARGET: &str = "oracle/rust-tests/tests/oracle_contracts.rs";
+const HANDSHAKE_INTENTION_MANIFEST: &str =
+    "oracle/test-manifests/775/handshake_intention_framed_dispatch.test-manifest.json";
+const HANDSHAKE_INTENTION_CASE_ID: &str = "handshake_intention_framed_dispatch";
+const HANDSHAKE_INTENTION_CONTRACT: &str =
+    "oracle/contracts/775/handshake_intention_framed_dispatch.contract.json";
+const HANDSHAKE_INTENTION_ANSWER: &str =
+    "oracle/answers/775/handshake_intention_framed_dispatch.answer.jsonl";
+const HANDSHAKE_INTENTION_TEST_NAME: &str =
+    "handshake_intention_framed_dispatch_matches_official_oracle_answer";
+const HANDSHAKE_INTENTION_COMPARISON_SURFACE: &str = "framed_dispatch_decode";
 const CONFIGURATION_KEEPALIVE_TEST_NAME: &str =
     "configuration_keepalive_matches_official_oracle_answer";
 const CONFIGURATION_KEEPALIVE_COMPARISON_SURFACE: &str = "codec_body_only";
@@ -381,6 +391,8 @@ struct OracleAnswer {
 struct ConfigurationOracleAnswer {
     #[serde(default)]
     input_id: i64,
+    input_protocol_version: Option<i32>,
+    decoded_protocol_version: Option<i32>,
     #[serde(default)]
     encoded_body_hex: String,
     encoded_framed_hex: Option<String>,
@@ -424,6 +436,12 @@ struct ConfigurationOracleAnswer {
     decoded_host: Option<String>,
     input_port: Option<i32>,
     decoded_port: Option<i32>,
+    input_intent: Option<String>,
+    decoded_intent: Option<String>,
+    input_intent_id: Option<i32>,
+    decoded_intent_id: Option<i32>,
+    input_is_terminal: Option<bool>,
+    decoded_is_terminal: Option<bool>,
     input_fixture: Option<String>,
     input_feature_count: Option<usize>,
     decoded_feature_count: Option<usize>,
@@ -484,6 +502,8 @@ struct ConfigurationOracleAnswer {
     decoded_registry_key: Option<String>,
     input_entry_count: Option<usize>,
     decoded_entry_count: Option<usize>,
+    #[serde(default)]
+    handshaking_serverbound_packet_table: Vec<PacketTableRow>,
     #[serde(default)]
     configuration_serverbound_packet_table: Vec<PacketTableRow>,
     #[serde(default)]
@@ -702,6 +722,102 @@ fn official_network_frame_from_framed_payload(framed: &[u8]) -> Vec<u8> {
     let mut expected = encode_varint(framed.len() as i32);
     expected.extend_from_slice(framed);
     expected
+}
+
+#[test]
+fn handshake_intention_framed_dispatch_matches_official_oracle_answer() {
+    thread::Builder::new()
+        .name("handshake_intention_oracle".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(handshake_intention_framed_dispatch_body)
+        .expect("spawn handshake intention oracle stack")
+        .join()
+        .expect("handshake intention oracle thread panicked");
+}
+
+fn handshake_intention_framed_dispatch_body() {
+    let manifest: TestManifest = read_json(HANDSHAKE_INTENTION_MANIFEST);
+    assert_eq!(manifest.case_id, HANDSHAKE_INTENTION_CASE_ID);
+    assert_eq!(manifest.contract_path, HANDSHAKE_INTENTION_CONTRACT);
+    assert_eq!(manifest.answer_path, HANDSHAKE_INTENTION_ANSWER);
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(manifest.rust_test_name, HANDSHAKE_INTENTION_TEST_NAME);
+    assert_eq!(
+        manifest.comparison_surface,
+        HANDSHAKE_INTENTION_COMPARISON_SURFACE
+    );
+    assert_runner_scope(HANDSHAKE_INTENTION_MANIFEST, &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:intention")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.handshake.ClientIntentionPacket")
+    );
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+    assert_eq!(oracle.answer.input_protocol_version, Some(775));
+    assert_eq!(oracle.answer.decoded_protocol_version, Some(775));
+    assert_eq!(oracle.answer.input_host.as_deref(), Some("localhost"));
+    assert_eq!(oracle.answer.decoded_host.as_deref(), Some("localhost"));
+    assert_eq!(oracle.answer.input_port, Some(25565));
+    assert_eq!(oracle.answer.decoded_port, Some(25565));
+    assert_eq!(oracle.answer.input_intent.as_deref(), Some("LOGIN"));
+    assert_eq!(oracle.answer.decoded_intent.as_deref(), Some("LOGIN"));
+    assert_eq!(oracle.answer.input_intent_id, Some(2));
+    assert_eq!(oracle.answer.decoded_intent_id, Some(2));
+    assert_eq!(oracle.answer.input_is_terminal, Some(true));
+    assert_eq!(oracle.answer.decoded_is_terminal, Some(true));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.handshaking_serverbound_packet_table,
+        "minecraft:intention",
+    );
+    let framed_hex = oracle
+        .answer
+        .encoded_framed_hex
+        .as_deref()
+        .expect("framed dispatch answer missing encoded_framed_hex");
+    let framed = decode_hex(framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+
+    let mut body_slice = body.as_slice();
+    let decoded = packet::packet_by_id(
+        775,
+        State::Handshaking,
+        Direction::Serverbound,
+        framed_packet_id,
+        &mut body_slice,
+    )
+    .unwrap()
+    .expect("expected Handshaking serverbound intention to dispatch");
+
+    match decoded {
+        packet::Packet::Handshake(packet) => {
+            assert_eq!(
+                packet.protocol_version.0,
+                oracle.answer.decoded_protocol_version.unwrap()
+            );
+            assert_eq!(
+                packet.host,
+                oracle.answer.decoded_host.as_deref().unwrap()
+            );
+            assert_eq!(i32::from(packet.port), oracle.answer.decoded_port.unwrap());
+            assert_eq!(packet.next.0, oracle.answer.decoded_intent_id.unwrap());
+        }
+        other => panic!("expected intention dispatch, got {other:?}"),
+    }
+    assert!(
+        body_slice.is_empty(),
+        "decoded packet did not consume the official body bytes"
+    );
 }
 
 #[test]

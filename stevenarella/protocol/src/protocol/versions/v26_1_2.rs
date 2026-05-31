@@ -1,4 +1,11 @@
 protocol_packet_ids!(
+    handshake Handshaking {
+        serverbound Serverbound {
+            0x00 => Handshake
+        }
+        clientbound Clientbound {
+        }
+    }
     configuration Configuration {
         serverbound Serverbound {
             0x00 => ConfigurationClientInformationServerbound
