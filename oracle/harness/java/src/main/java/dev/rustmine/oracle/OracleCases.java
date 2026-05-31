@@ -117,11 +117,15 @@ public final class OracleCases {
             case "play_set_score_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetScoreClientboundFramedDispatchCase.generate(input);
             case "play_set_simulation_distance_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSimulationDistanceClientboundFramedDispatchCase.generate(input);
             case "play_server_links_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayServerLinksClientboundFramedDispatchCase.generate(input);
+            case "play_set_subtitle_text_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetSubtitleTextClientboundFramedDispatchCase.generate(input);
             case "play_set_time_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTimeClientboundFramedDispatchCase.generate(input);
+            case "play_set_title_text_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitleTextClientboundFramedDispatchCase.generate(input);
             case "play_set_titles_animation_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySetTitlesAnimationClientboundFramedDispatchCase.generate(input);
             case "play_start_configuration_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStartConfigurationClientboundFramedDispatchCase.generate(input);
             case "play_stop_sound_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStopSoundClientboundFramedDispatchCase.generate(input);
             case "play_store_cookie_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayStoreCookieClientboundFramedDispatchCase.generate(input);
+            case "play_system_chat_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlaySystemChatClientboundFramedDispatchCase.generate(input);
+            case "play_tab_list_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTabListClientboundFramedDispatchCase.generate(input);
             case "play_take_item_entity_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTakeItemEntityClientboundFramedDispatchCase.generate(input);
             case "play_ticking_state_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTickingStateClientboundFramedDispatchCase.generate(input);
             case "play_ticking_step_clientbound_framed_dispatch" -> dev.rustmine.oracle.cases.play.PlayTickingStepClientboundFramedDispatchCase.generate(input);

@@ -695,9 +695,15 @@ state_packets!(
                 field display_present: bool =,
                 field number_format_present: bool =,
             }
+            packet PlaySetSubtitleTextClientbound {
+                field text: format::Component =,
+            }
             packet PlaySetTimeClientbound {
                 field game_time: i64 =,
                 field clock_update_count: VarInt =,
+            }
+            packet PlaySetTitleTextClientbound {
+                field text: format::Component =,
             }
             packet PlaySetTitlesAnimationClientbound {
                 field fade_in: i32 =,
@@ -710,6 +716,14 @@ state_packets!(
             packet PlayStoreCookieClientbound {
                 field key: String =,
                 field payload: LenPrefixed<VarInt, u8> =,
+            }
+            packet PlaySystemChatClientbound {
+                field content: format::Component =,
+                field overlay: bool =,
+            }
+            packet PlayTabListClientbound {
+                field header: format::Component =,
+                field footer: format::Component =,
             }
             packet PlayTickingStateClientbound {
                 field tick_rate: f32 =,

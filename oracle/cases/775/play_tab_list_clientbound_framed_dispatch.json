@@ -1,0 +1,36 @@
+{
+  "case_id": "play_tab_list_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "Component.literal(String); ClientboundTabListPacket(Component, Component); ClientboundTabListPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for constructing and encoding the Play clientbound tab_list fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and tab_list packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:tab_list",
+    "packet_class": "ClientboundTabListPacket",
+    "input_fields": {
+      "header": "rustmine tab header",
+      "footer": "rustmine tab footer"
+    },
+    "field_notes": {
+      "component": "Simple Component.literal header/footer fixtures only; does not prove rich component, translation, style, click/hover, or player-list UI behavior."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_tab_list_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound tab_list packet framing and dispatch/decode for simple Component.literal header/footer fixtures only; do not infer rich Component, player-list UI behavior, or client-load completion."
+}

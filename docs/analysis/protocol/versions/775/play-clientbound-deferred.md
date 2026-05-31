@@ -63,15 +63,15 @@ proof loop takes safe GREEN/BLUE batches.
 | `0x6c` | `minecraft:set_player_inventory` | deferred YELLOW | Official codec uses player inventory slot plus `ItemStack.OPTIONAL_STREAM_CODEC`. | Do not invent inventory item stack contents or component registry behavior. |
 | `0x6d` | `minecraft:set_player_team` | deferred YELLOW | Official codec uses team actions, optional parameters, player collections, Components, colors, and visibility/collision names. | Do not invent team lifecycle, player membership, Component bytes, colors, visibility, or collision policy. |
 | `0x6e` | `minecraft:set_score` | promoted BLUE | Official `ClientboundSetScorePacket(owner, objective, score, Optional.empty(), Optional.empty())` generated a jar-backed Play answer with plain strings, score VarInt, and two false optional markers. | Promoted only for the no-optional fixture; do not infer scoreboard lifecycle, optional Component display, or number-format semantics. |
-| `0x70` | `minecraft:set_subtitle_text` | deferred YELLOW | Official codec uses trusted Component text. | Do not invent subtitle Component bytes or title UI behavior. |
+| `0x70` | `minecraft:set_subtitle_text` | promoted BLUE | Official `ClientboundSetSubtitleTextPacket(Component.literal("rustmine subtitle"))` generated a jar-backed Play answer with a simple NBT string Component body. | Promoted only for the `Component.literal(String)` simple string fixture; do not infer rich Component, subtitle UI, or title runtime behavior. |
 | `0x71` | `minecraft:set_time` | promoted BLUE | Official `ClientboundSetTimePacket(long, Map.of())` generated a jar-backed Play answer with one long and a zero clock-update map count. | Promoted only for the empty clock-update map fixture; do not infer `WorldClock`, `ClockNetworkState`, or time runtime semantics. |
-| `0x72` | `minecraft:set_title_text` | deferred YELLOW | Official codec uses trusted Component text. | Do not invent title Component bytes or title UI behavior. |
+| `0x72` | `minecraft:set_title_text` | promoted BLUE | Official `ClientboundSetTitleTextPacket(Component.literal("rustmine title"))` generated a jar-backed Play answer with a simple NBT string Component body. | Promoted only for the `Component.literal(String)` simple string fixture; do not infer rich Component, title UI, or title runtime behavior. |
 | `0x74` | `minecraft:sound_entity` | deferred YELLOW | Official `ClientboundSoundEntityPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, entity id, volume, pitch, and seed. | Do not invent sound registry holder values or entity runtime context. |
 | `0x75` | `minecraft:sound` | deferred YELLOW | Official `ClientboundSoundPacket` uses `SoundEvent.STREAM_CODEC`, `SoundSource`, position ints, volume, pitch, and seed. | Do not invent sound registry holder values or world sound context. |
 | `0x77` | `minecraft:stop_sound` | promoted GREEN | Official `ClientboundStopSoundPacket(null, null)` generated a jar-backed Play answer with one flags byte `0`; no registry holder was required for that fixture. | Promoted only for the null/null fixture; do not infer named source or named sound behavior. |
 | `0x78` | `minecraft:store_cookie` | promoted BLUE | Official Play row uses common `ClientboundStoreCookiePacket` with Identifier plus bounded byte-array payload; a Play-specific answer and Rust mapping now prove one fixture. | Do not infer runtime cookie storage policy from this packet-support proof. |
-| `0x79` | `minecraft:system_chat` | deferred YELLOW | Official codec uses `ComponentSerialization.TRUSTED_STREAM_CODEC` plus overlay bool. | Do not invent Component bytes or chat/UI behavior. |
-| `0x7a` | `minecraft:tab_list` | deferred YELLOW | Official codec uses trusted Component header and footer. | Do not invent Component bytes or player-list UI behavior. |
+| `0x79` | `minecraft:system_chat` | promoted BLUE | Official `ClientboundSystemChatPacket(Component.literal("rustmine system chat"), false)` generated a jar-backed Play answer with a simple NBT string Component body plus false overlay byte. | Promoted only for the `Component.literal(String)` plus `overlay=false` fixture; do not infer rich Component, signed chat, chat HUD, or overlay-true behavior. |
+| `0x7a` | `minecraft:tab_list` | promoted BLUE | Official `ClientboundTabListPacket(Component.literal(header), Component.literal(footer))` generated a jar-backed Play answer with two simple NBT string Component bodies. | Promoted only for simple `Component.literal(String)` header/footer fixtures; do not infer rich Component or player-list UI behavior. |
 | `0x7b` | `minecraft:tag_query` | deferred YELLOW | Official codec uses VarInt transaction id plus NBT via `readNbt`/`writeNbt`. | Do not invent NBT payload policy or query context. |
 | `0x7d` | `minecraft:teleport_entity` | deferred YELLOW | Official codec uses entity id, `PositionMoveRotation.STREAM_CODEC`, relative flags, and onGround. | Do not infer entity teleport/movement semantics or relative flag policy. |
 | `0x7e` | `minecraft:test_instance_block_status` | deferred YELLOW | Official codec uses Component status plus optional `Vec3i` size for test-instance/debug behavior. | Do not invent Component bytes or game-test block semantics. |
@@ -177,13 +177,17 @@ official Play clientbound table end at `0x8c`.
 | ItemStack / item component | `0x60`, `0x66`, `0x6c`, plus recipe-bearing `0x85` | Needs explicit empty item or initialized item/component fixture policy. | Still parked. |
 | Scoreboard and teams beyond no-optional field packets | `0x6a`, `0x6d` | Needs Objective/Team construction policy without inventing Components, number formats, colors, visibility, or player memberships. | Still parked. |
 | Entity relationship / metadata / movement / projectile | `0x63`, `0x64`, `0x6b`, `0x74`, `0x7d`, `0x83`, `0x84`, `0x87` | Needs entity-id-only policy or initialized entity/runtime fixture evidence per row. | Still parked. |
-| Trusted Component / NBT / UI text | `0x70`, `0x72`, `0x79`, `0x7a`, `0x7b`, `0x7e`, `0x8c` | Needs Component/NBT/dialog fixture policy, not just row names. | Still parked. |
+| Trusted Component / NBT / UI text | `0x7b`, `0x7e`, `0x8c` | Needs NBT/query, game-test, or dialog fixture policy, not just row names. Simple `Component.literal(String)` rows `0x70`, `0x72`, `0x79`, and `0x7a` have been promoted only for bounded simple string fixtures. | Partly promoted; NBT/dialog rows still parked. |
 | Registry / world / game data | `0x61`, `0x75`, `0x82`, `0x85`, `0x8a` | Needs registry/world/advancement/recipe/waypoint fixture policy or initialized harness. | Still parked. |
 
 The parked-row follow-up batch promoted only `0x62` clear
 `set_display_objective`, `0x6e` no-optional `set_score`, `0x71` empty-map
 `set_time`, and `0x86` empty-map `update_tags` into jar-backed
-packet-support packages. No ItemStack, equipment, Component, NBT, entity
-metadata, sound registry, advancement, recipe, waypoint, non-empty tag,
-WorldClock, ClockNetworkState, scoreboard Objective, scoreboard Team, or
-dialog semantics were inferred while crossing this batch.
+packet-support packages. The next Component text follow-up promoted only
+`0x70` simple `set_subtitle_text`, `0x72` simple `set_title_text`, `0x79`
+simple `system_chat` with false overlay, and `0x7a` simple `tab_list`
+header/footer into jar-backed packet-support packages. No ItemStack,
+equipment, rich Component, NBT query payload, entity metadata, sound registry,
+advancement, recipe, waypoint, non-empty tag, WorldClock, ClockNetworkState,
+scoreboard Objective, scoreboard Team, or dialog semantics were inferred while
+crossing these batches.

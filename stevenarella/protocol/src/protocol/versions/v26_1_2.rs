@@ -126,11 +126,15 @@ protocol_packet_ids!(
             0x69 => SetCurrentHotbarSlot
             0x6e => PlaySetScoreClientbound
             0x6f => UpdateViewDistance
+            0x70 => PlaySetSubtitleTextClientbound
             0x71 => PlaySetTimeClientbound
+            0x72 => PlaySetTitleTextClientbound
             0x73 => PlaySetTitlesAnimationClientbound
             0x76 => PlayStartConfigurationClientbound
             0x77 => StopSound
             0x78 => PlayStoreCookieClientbound
+            0x79 => PlaySystemChatClientbound
+            0x7a => PlayTabListClientbound
             0x7c => CollectItem
             0x7f => PlayTickingStateClientbound
             0x80 => PlayTickingStepClientbound

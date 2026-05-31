@@ -753,6 +753,13 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::play::clientbound::internal_ids::PlaySetSubtitleTextClientbound => {
+                        return Ok(Option::Some(Packet::PlaySetSubtitleTextClientbound(
+                            packet::play::clientbound::PlaySetSubtitleTextClientbound {
+                                text: read_nbt_string_component(buf)?,
+                            },
+                        )));
+                    }
                     packet::play::clientbound::internal_ids::PlaySetTimeClientbound => {
                         let game_time = i64::read_from(buf)?;
                         let clock_update_count = VarInt::read_from(buf)?;
@@ -772,6 +779,13 @@ macro_rules! state_packets {
                             packet::play::clientbound::PlaySetTimeClientbound {
                                 game_time,
                                 clock_update_count,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySetTitleTextClientbound => {
+                        return Ok(Option::Some(Packet::PlaySetTitleTextClientbound(
+                            packet::play::clientbound::PlaySetTitleTextClientbound {
+                                text: read_nbt_string_component(buf)?,
                             },
                         )));
                     }
@@ -817,6 +831,24 @@ macro_rules! state_packets {
                         return Ok(Option::Some(Packet::PlayClearDialogClientbound(
                             packet::play::clientbound::PlayClearDialogClientbound {
                                 empty: Serializable::read_from(buf)?,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlaySystemChatClientbound => {
+                        let content = read_nbt_string_component(buf)?;
+                        let overlay = bool::read_from(buf)?;
+                        return Ok(Option::Some(Packet::PlaySystemChatClientbound(
+                            packet::play::clientbound::PlaySystemChatClientbound {
+                                content,
+                                overlay,
+                            },
+                        )));
+                    }
+                    packet::play::clientbound::internal_ids::PlayTabListClientbound => {
+                        return Ok(Option::Some(Packet::PlayTabListClientbound(
+                            packet::play::clientbound::PlayTabListClientbound {
+                                header: read_nbt_string_component(buf)?,
+                                footer: read_nbt_string_component(buf)?,
                             },
                         )));
                     }

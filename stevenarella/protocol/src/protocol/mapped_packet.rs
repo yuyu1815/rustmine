@@ -33,18 +33,20 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayServerLinksClientbound, PlaySetBorderCenterClientbound, PlaySetBorderLerpSizeClientbound,
     PlaySetBorderSizeClientbound, PlaySetBorderWarningDelayClientbound,
     PlaySetBorderWarningDistanceClientbound, PlaySetDisplayObjectiveClientbound,
-    PlaySetScoreClientbound, PlaySetTimeClientbound, PlaySetTitlesAnimationClientbound,
-    PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlayTickingStateClientbound,
-    PlayTickingStepClientbound, PlayTransferClientbound, PlayUpdateTagsClientbound,
-    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
-    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
-    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
-    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
-    SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
-    SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
-    TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
-    UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition, VehicleTeleport, WindowClose,
-    WindowItems, WindowOpen, WindowOpenHorse, WindowProperty, WindowSetSlot, WorldBorder,
+    PlaySetScoreClientbound, PlaySetSubtitleTextClientbound, PlaySetTimeClientbound,
+    PlaySetTitleTextClientbound, PlaySetTitlesAnimationClientbound,
+    PlayStartConfigurationClientbound, PlayStoreCookieClientbound, PlaySystemChatClientbound,
+    PlayTabListClientbound, PlayTickingStateClientbound, PlayTickingStepClientbound,
+    PlayTransferClientbound, PlayUpdateTagsClientbound, PlayerAbilities, PlayerInfo,
+    PlayerInfo_String, PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn,
+    ScoreboardDisplay, ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage,
+    SetCompression, SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers,
+    SignEditorOpen, SoundEffect, SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject,
+    SpawnPainting, SpawnPlayer, SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags,
+    Teams, TeleportPlayer, TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity,
+    UpdateHealth, UpdateLight, UpdateScore, UpdateSign, UpdateViewDistance, UpdateViewPosition,
+    VehicleTeleport, WindowClose, WindowItems, WindowOpen, WindowOpenHorse, WindowProperty,
+    WindowSetSlot, WorldBorder,
 };
 use crate::protocol::mapped_packet::play::serverbound::{
     AdvancementTab, ArmSwing, ChatMessage, ClickWindow, ClickWindowButton, ClientAbilities,
@@ -588,9 +590,15 @@ state_mapped_packets!(
                 field display_present: bool,
                 field number_format_present: bool,
             }
+            packet PlaySetSubtitleTextClientbound {
+                field text: format::Component,
+            }
             packet PlaySetTimeClientbound {
                 field game_time: i64,
                 field clock_update_count: i32,
+            }
+            packet PlaySetTitleTextClientbound {
+                field text: format::Component,
             }
             packet PlaySetTitlesAnimationClientbound {
                 field fade_in: i32,
@@ -603,6 +611,14 @@ state_mapped_packets!(
             packet PlayStoreCookieClientbound {
                 field key: String,
                 field payload: Vec<u8>,
+            }
+            packet PlaySystemChatClientbound {
+                field content: format::Component,
+                field overlay: bool,
+            }
+            packet PlayTabListClientbound {
+                field header: format::Component,
+                field footer: format::Component,
             }
             packet PlayTickingStateClientbound {
                 field tick_rate: f32,
@@ -1977,11 +1993,23 @@ impl MappablePacket for packet::Packet {
                     number_format_present: score.number_format_present,
                 })
             }
+            packet::Packet::PlaySetSubtitleTextClientbound(subtitle) => {
+                mapped_packet::MappedPacket::PlaySetSubtitleTextClientbound(
+                    PlaySetSubtitleTextClientbound {
+                        text: subtitle.text,
+                    },
+                )
+            }
             packet::Packet::PlaySetTimeClientbound(time) => {
                 mapped_packet::MappedPacket::PlaySetTimeClientbound(PlaySetTimeClientbound {
                     game_time: time.game_time,
                     clock_update_count: time.clock_update_count.0,
                 })
+            }
+            packet::Packet::PlaySetTitleTextClientbound(title) => {
+                mapped_packet::MappedPacket::PlaySetTitleTextClientbound(
+                    PlaySetTitleTextClientbound { text: title.text },
+                )
             }
             packet::Packet::PlaySetTitlesAnimationClientbound(set_titles_animation) => {
                 mapped_packet::MappedPacket::PlaySetTitlesAnimationClientbound(
@@ -2006,6 +2034,18 @@ impl MappablePacket for packet::Packet {
                         payload: store_cookie.payload.data,
                     },
                 )
+            }
+            packet::Packet::PlaySystemChatClientbound(system_chat) => {
+                mapped_packet::MappedPacket::PlaySystemChatClientbound(PlaySystemChatClientbound {
+                    content: system_chat.content,
+                    overlay: system_chat.overlay,
+                })
+            }
+            packet::Packet::PlayTabListClientbound(tab_list) => {
+                mapped_packet::MappedPacket::PlayTabListClientbound(PlayTabListClientbound {
+                    header: tab_list.header,
+                    footer: tab_list.footer,
+                })
             }
             packet::Packet::PlayTickingStateClientbound(ticking_state) => {
                 mapped_packet::MappedPacket::PlayTickingStateClientbound(

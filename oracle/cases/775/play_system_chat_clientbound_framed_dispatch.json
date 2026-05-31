@@ -1,0 +1,37 @@
+{
+  "case_id": "play_system_chat_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "Component.literal(String); ClientboundSystemChatPacket(Component, boolean); ClientboundSystemChatPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for constructing and encoding the Play clientbound system_chat fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and system_chat packet id."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:system_chat",
+    "packet_class": "ClientboundSystemChatPacket",
+    "input_fields": {
+      "content": "rustmine system chat",
+      "overlay": false
+    },
+    "field_notes": {
+      "component": "Simple Component.literal text fixture only; does not prove rich component, translation, style, click/hover, signed chat, or HUD behavior.",
+      "overlay": "False boolean branch only."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_system_chat_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound system_chat packet framing and dispatch/decode for one simple Component.literal plus false overlay fixture only; do not infer rich Component, chat HUD behavior, signed chat behavior, or client-load completion."
+}
