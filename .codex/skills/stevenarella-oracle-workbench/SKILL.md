@@ -35,6 +35,9 @@ whole client-load definition.
 | Report an oracle-vs-Rust mismatch | `.codex/skills/stevenarella-oracle-workbench/references/failure-format.md` |
 | Choose model lane or worker capacity | `.codex/skills/stevenarella-oracle-workbench/references/model-lanes.toml` |
 | Validate schema shape | `.codex/skills/stevenarella-oracle-workbench/schemas/*.schema.json` named by the task |
+| Validate planner-to-leaf capsule | `python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_context_capsule.py CAPSULE_JSON [RUST_FIX_TASK_JSON]` |
+| Validate direct worker capsule | `python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_worker_capsule.py WORKER_CAPSULE_JSON [RUST_FIX_TASK_JSON]` |
+| Validate nested leaf result envelope | `python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_leaf_result.py CAPSULE_JSON LEAF_RESULT_JSON` |
 
 ## Hard Rules
 

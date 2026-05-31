@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rustmine.local/schemas/context-capsule.schema.json",
+  "title": "Context Capsule",
+  "$comment": "Machine contract for planner-to-leaf delegation. This intentionally mirrors docs/ai/agent-ops.md so the leaf packet can be validated before spawning.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "batch",
+    "agent_role",
+    "objective",
+    "allowed_reads",
+    "allowed_writes",
+    "required_evidence",
+    "exit_condition",
+    "stop_boundary",
+    "write_policy",
+    "return_contract"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "context-capsule/v1"
+    },
+    "batch": {
+      "type": "object",
+      "required": ["id", "leaf_index", "leaf_count"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "leaf_index": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "leaf_count": { "type": "integer", "minimum": 1, "maximum": 2 }
+      },
+      "additionalProperties": false
+    },
+    "agent_role": {
+      "type": "string",
+      "enum": [
+        "rustmine_nested_oracle_cartographer",
+        "rustmine_nested_rust_implementer",
+        "rustmine_nested_test_surface_mapper",
+        "rustmine_nested_compatibility_critic",
+        "rustmine_nested_docs_rewriter"
+      ]
+    },
+    "objective": { "type": "string", "minLength": 1 },
+    "allowed_reads": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/path_entry" }
+    },
+    "allowed_writes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/write_path_entry" }
+    },
+    "required_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "exit_condition": { "type": "string", "minLength": 1 },
+    "stop_boundary": { "type": "string", "minLength": 1 },
+    "fragile_preconditions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "write_policy": {
+      "type": "object",
+      "required": ["mode", "post_run_diff_check", "diff_baseline"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["read_only", "workspace_write"]
+        },
+        "post_run_diff_check": {
+          "type": "boolean",
+          "const": true
+        },
+        "diff_baseline": {
+          "type": "object",
+          "required": ["before_command", "after_command", "delta_rule"],
+          "properties": {
+            "before_command": {
+              "type": "string",
+              "const": "git status --porcelain=v1 --untracked-files=all -- ."
+            },
+            "after_command": {
+              "type": "string",
+              "const": "git status --porcelain=v1 --untracked-files=all -- ."
+            },
+            "delta_rule": {
+              "type": "string",
+              "const": "after_minus_before_status_paths_must_be_subset_of_allowed_writes"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "rust_fix_task_path": { "$ref": "#/$defs/write_path_reference" },
+    "return_contract": {
+      "type": "object",
+      "required": ["must_report", "must_not_claim"],
+      "properties": {
+        "must_report": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "must_not_claim": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "batch": {
+            "properties": {
+              "leaf_count": { "const": 1 }
+            },
+            "required": ["leaf_count"]
+          }
+        },
+        "required": ["batch"]
+      },
+      "then": {
+        "properties": {
+          "batch": {
+            "properties": {
+              "leaf_index": { "maximum": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "write_policy": {
+            "properties": {
+              "mode": { "const": "workspace_write" }
+            },
+            "required": ["mode"]
+          }
+        },
+        "required": ["write_policy"]
+      },
+      "then": {
+        "properties": {
+          "allowed_writes": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "write_policy": {
+            "properties": {
+              "mode": { "const": "read_only" }
+            },
+            "required": ["mode"]
+          }
+        },
+        "required": ["write_policy"]
+      },
+      "then": {
+        "properties": {
+          "allowed_writes": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_role": {
+            "const": "rustmine_nested_rust_implementer"
+          }
+        },
+        "required": ["agent_role"]
+      },
+      "then": {
+        "required": ["rust_fix_task_path"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_role": {
+            "enum": [
+              "rustmine_nested_test_surface_mapper",
+              "rustmine_nested_compatibility_critic"
+            ]
+          }
+        },
+        "required": ["agent_role"]
+      },
+      "then": {
+        "properties": {
+          "allowed_writes": { "maxItems": 0 },
+          "write_policy": {
+            "properties": {
+              "mode": { "const": "read_only" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_role": {
+            "const": "rustmine_nested_docs_rewriter"
+          }
+        },
+        "required": ["agent_role"]
+      },
+      "then": {
+        "required": ["fragile_preconditions"],
+        "properties": {
+          "write_policy": {
+            "properties": {
+              "mode": { "const": "workspace_write" }
+            }
+          },
+          "allowed_writes": {
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                { "$ref": "#/$defs/write_path_entry" },
+                {
+                  "properties": {
+                    "path": {
+                      "pattern": "^(docs/(analysis|next)/.+|CONTEXT\\.md)$"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "path_entry": {
+      "type": "object",
+      "required": ["path", "kind", "scope", "reason"],
+      "properties": {
+        "path": { "$ref": "#/$defs/normalized_project_path" },
+        "kind": {
+          "type": "string",
+          "enum": ["file", "directory"]
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["exact", "subtree"]
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "write_path_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/path_entry" },
+        {
+          "properties": {
+            "kind": { "const": "file" },
+            "scope": { "const": "exact" }
+          }
+        }
+      ]
+    },
+    "write_path_reference": {
+      "allOf": [
+        { "$ref": "#/$defs/path_entry" },
+        {
+          "properties": {
+            "kind": { "const": "file" },
+            "scope": { "const": "exact" }
+          }
+        }
+      ]
+    },
+    "normalized_project_path": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "enum": [
+          ".",
+          "./",
+          "docs",
+          "docs/",
+          "docs/analysis",
+          "docs/analysis/",
+          ".codex",
+          ".codex/",
+          "stevenarella",
+          "stevenarella/",
+          "oracle",
+          "oracle/"
+        ]
+      },
+      "pattern": "^(?!/)(?!\\.($|/))(?!.*(^|/)\\.\\.($|/))(?!.*[\\\\*?\\[\\]{}]).+$"
+    }
+  },
+  "additionalProperties": false
+}

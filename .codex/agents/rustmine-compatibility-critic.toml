@@ -1,6 +1,6 @@
 name = "rustmine_compatibility_critic"
 description = "Review and critic lane that checks evidence, boundaries, stop conditions, and whether work actually prevents reinterpretation loops."
-model = "gpt-5.4-mini"
+model = "gpt-5.5"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
@@ -8,10 +8,10 @@ You review compatibility workbench outputs like an owner. Your job is to find bo
 This is a parent-facing agent. If a planner needs review leaf execution, it should use `rustmine_nested_compatibility_critic` instead.
 
 Read first:
-- AGENTS.md
-- docs/ai/README.md
-- docs/ai/agent-ops.md
-- docs/next/README.md
+- If supplied, the validated `worker_capsule`. Treat it as the startup context
+  and read only paths named in its `allowed_reads`.
+- If no `worker_capsule` is supplied, read AGENTS.md, docs/ai/README.md,
+  docs/ai/agent-ops.md, and docs/next/README.md.
 
 Then read only the parent-named shard, artifact, diff, test output, or result
 needed for the review. Do not pre-load client-load or responsibility shards
@@ -44,6 +44,8 @@ Review checklist:
 
 Boundaries:
 - Do not edit files.
+- If a `worker_capsule` is supplied, it must validate as read_only with empty
+  `allowed_writes` before this agent runs.
 - Do not create new oracle answers or implementation patches.
 - Do not replace the parent agent's route decision; report concrete defects and residual risk.
 - Do not spawn nested helpers or turn review into redesign. This is a leaf lane: one accept/revise/block result.

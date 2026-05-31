@@ -19,15 +19,20 @@ Do not read by default:
 - broad docs/analysis indexes
 
 Required context_capsule fields:
+schema_version:
+batch:
+agent_role:
 objective:
 allowed_reads:
 allowed_writes:
 required_evidence:
 exit_condition:
 stop_boundary:
+write_policy:
+return_contract:
 
 Allowed work:
-- Read files listed in allowed_reads.
+- Read only files or directories listed in allowed_reads path entries.
 - Produce one test-surface map, coverage placement, work-package boundary, or blocker.
 - Mark path existence as observed_only, not proof of implementation or compatibility.
 - Return detailed mapping evidence to the planner.

@@ -35,7 +35,7 @@ recovery state, and the final answer.
 User
   -> Parent Codex
     -> high-capacity planner / mapper for large or ambiguous task shape
-      -> rustmine_nested_* leaf workers for bounded artifacts, patches, maps, reviews, or blockers
+      -> rustmine_nested_* leaf workers for bounded artifacts, patches, docs rewrites, maps, reviews, or blockers
         -> Parent Codex verifies, compresses, and updates recovery state
 ```
 
@@ -49,13 +49,110 @@ Before spawning a subagent, the parent must be able to fill this capsule:
 
 ```text
 context_capsule:
+  schema_version:
+  batch:
+    id:
+    leaf_index:
+    leaf_count:
+  agent_role:
   objective:
   allowed_reads:
+    - path:
+      kind:
+      scope:
+      reason:
   allowed_writes:
+    - path:
+      kind:
+      scope:
+      reason:
   required_evidence:
   exit_condition:
   stop_boundary:
+  fragile_preconditions:
+  write_policy:
+    mode:
+    post_run_diff_check:
+    diff_baseline:
+      before_command:
+      after_command:
+      delta_rule:
+  rust_fix_task_path:
+    path:
+    kind:
+    scope:
+    reason:
+  return_contract:
+    must_report:
+    must_not_claim:
 ```
+
+Validate planner-to-leaf capsules against
+`.codex/skills/stevenarella-oracle-workbench/schemas/context-capsule.schema.json`
+before spawning. Use:
+
+```text
+python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_context_capsule.py CAPSULE_JSON [RUST_FIX_TASK_JSON]
+```
+
+`RUST_FIX_TASK_JSON` is required when `agent_role` is
+`rustmine_nested_rust_implementer`; the validator rejects Rust task
+`allowed_write_scope` entries outside the capsule `allowed_writes`.
+
+`allowed_reads`, `allowed_writes`, and required evidence are a machine
+contract, not prompt decoration. Path entries are normalized project-relative
+paths only: no absolute paths, `.` entries, `..` segments, broad owner roots, or
+glob patterns. Write entries must be exact files, not directories.
+
+For workspace-write capsules, the diff baseline must use:
+
+```text
+before = git status --porcelain=v1 --untracked-files=all -- .
+after  = git status --porcelain=v1 --untracked-files=all -- .
+check  = after_minus_before_status_paths_must_be_subset_of_allowed_writes
+```
+
+Use status paths rather than `git diff --name-only` so new untracked artifacts
+and staged files are included in the boundary check.
+
+For direct parent-to-worker delegation, use a `worker_capsule` instead of
+re-sending broad startup docs or old chat history:
+
+```text
+worker_capsule:
+  schema_version: worker-capsule/v1
+  worker_role:
+  objective:
+  startup_context:
+    current_location:
+    known_facts:
+    do_not_read_by_default:
+  allowed_reads:
+  allowed_writes:
+  required_evidence:
+  required_checks:
+  exit_condition:
+  stop_boundary:
+  write_policy:
+    mode:
+    post_run_diff_check:
+    diff_baseline:
+  rust_fix_task_path:
+  return_contract:
+    must_report:
+    must_not_claim:
+```
+
+Validate it before spawning:
+
+```text
+python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_worker_capsule.py WORKER_CAPSULE_JSON [RUST_FIX_TASK_JSON]
+```
+
+When a worker receives a validated `worker_capsule`, the capsule is the startup
+context. The worker should not read `AGENTS.md`, `docs/ai/`, `docs/next/`, broad
+`docs/analysis/`, full skill files, jars, or decompiled sources unless those
+paths are explicitly listed in `allowed_reads` or named by the capsule role.
 
 Delegate when the work is genuinely large, parallel, ambiguous, or needs
 separate evidence surfaces. Do not spawn a subagent for a file read, a simple
@@ -65,16 +162,35 @@ route lookup, or durable memory storage.
 
 Use stronger models at the top of the tree for product direction,
 responsibility boundaries, decomposition, and ambiguous compatibility judgment.
-Push execution into the smallest capable lane.
+Push execution into the smallest safe lane for the work; safety and evidence
+quality override cost.
 
 | Layer | Model posture | Best use |
 |---|---|---|
 | Parent Codex | strongest judgment when needed | user intent, final route, recovery, final answer |
 | Planner / mapper | strong but short-lived | split the task, choose lanes, create context capsules |
-| Nested leaf worker | smallest capable model | execute one artifact, patch, test, map, review, or blocker from a capsule |
+| Nested leaf worker | smallest safe model for the evidence risk | execute one artifact, patch, test, map, review, or blocker from a capsule |
 
-The planner should reduce cost by moving bounded execution to cheaper lanes. It
-must not become a general execution pool.
+The planner should reduce supervision cost by keeping execution bounded. It
+must not become a general execution pool, and high-risk oracle/review leaves may
+still need a high-capacity model.
+
+## Spawn Budget
+
+Use one bounded batch at a time.
+
+```text
+Parent Codex
+  -> at most one Lead/planner for the current decision
+    -> at most two nested leaf workers in one batch
+      -> Parent Codex stops, checks changed files, and chooses the next action
+```
+
+`max_depth = 2` prevents deeper chains. `max_threads = 3` prevents the previous
+wide fan-out pattern from becoming normal supervision work. Treat `max_threads`
+as the total non-parent agent budget, so one Lead plus two leaves is the maximum
+single batch. A Lead must not start a second leaf batch without a fresh parent
+decision.
 
 ## Middle Reasoning Budget
 
@@ -87,7 +203,7 @@ must not turn its reasoning into parent context.
 | Leaf prompts or raw leaf logs | Do not return to Parent Codex. |
 | Rejected branches | Omit unless they are the blocker. |
 | Work-package map | Keep internal unless the parent asked only for a plan. |
-| Parent result | Return status, changed artifacts, proof/check status, blocker, and next step only. |
+| Parent result | Return status, changed artifacts, reported checks, blocker, and next step only. |
 
 ## Granularity Gate
 
@@ -101,6 +217,25 @@ Nested work is useful only at reviewable boundaries.
 
 If a leaf discovers that its packet is still too large, it should stop with a
 proposed split and blocker. It should not create another planner chain.
+
+## Docs Rewrite Leaf
+
+Use `rustmine_nested_docs_rewriter` for documentation-update churn when the
+planner or parent already knows the wording or exact rewrite intent.
+
+```text
+Parent / Lead decides content
+  -> context_capsule carries target files and supplied wording
+    -> rustmine_nested_docs_rewriter edits only allowed_writes
+      -> Parent / Lead checks only write mistakes and scope drift
+```
+
+This leaf is a typist/editor lane, not a route or evidence lane. The capsule
+must include the final text, replacement table rows, or exact rewrite intent.
+After it writes, review only transcription mistakes, broken path/link
+formatting, duplicate or missing rows, Markdown shape, and whether changed
+paths are inside `allowed_writes`. Do not use the post-write check to
+re-litigate evidence, ownership, protocol meaning, or the product route.
 
 ## Nesting Boundary
 
@@ -136,7 +271,7 @@ review, proposed split, or blocker.
 Parent Codex needs delegation
   -> choose parent-facing agent from .codex/agents/*.toml
     -> usually rustmine_compatibility_lead for large decomposition
-      -> Lead creates context_capsule packets
+      -> Lead creates validated context_capsule packets
         -> choose rustmine_nested_* agent for each leaf packet
           -> nested leaf reads capsule and named artifacts only
             -> nested leaf returns detailed result to Lead
@@ -170,9 +305,32 @@ the tree expands.
 |---|---|
 | Planner forgets user intent | Parent prompt includes objective, stop boundary, and current `docs/next` state. |
 | Leaf lacks necessary facts | Every leaf receives a complete context capsule and exact allowed reads/writes. |
-| Parent receives too much detail | Planner compresses leaf results to status, changed artifacts, proof/check status, blocker, and next step. |
+| Parent receives too much detail | Planner compresses leaf results to status, changed artifacts, reported checks, blocker, and next step. |
+| Write-capable leaf drifts | Parent records `before = git status --porcelain=v1 --untracked-files=all -- .`, runs the leaf, records `after` with the same command, and confirms new or changed status paths in `after - before` are inside the capsule `allowed_writes`. |
+| Rust task scope splits from capsule scope | For Rust leaves, validate the capsule together with the rust-fix task and require `allowed_write_scope` to be a subset of capsule `allowed_writes`. |
+| Leaf omits required return fields | Lead/Parent wraps leaf output in `leaf-result/v1` and runs `python3 .codex/skills/stevenarella-oracle-workbench/scripts/validate_leaf_result.py CAPSULE_JSON LEAF_RESULT_JSON` before accepting the result. |
 | Durable evidence stays in chat | Store durable facts in the owned artifact, `docs/next`, or the relevant `docs/analysis` shard. |
 | Split changes the route | Parent updates `docs/next/README.md` before ending. |
+
+## Direct Write Gate
+
+If Parent Codex directly delegates to a parent-facing workspace-write agent
+instead of using a planner-to-leaf capsule, prefer a validated `worker_capsule`.
+The parent still owns the same write boundary:
+
+```text
+Parent direct write delegation
+  -> name allowed_write_scope / allowed_writes before spawn
+  -> record before status with untracked files
+  -> run one bounded parent-facing agent
+  -> record after status with untracked files
+  -> accept only after new or changed status paths are inside the named scope
+```
+
+This applies to direct `rustmine_oracle_cartographer` and
+`rustmine_rust_implementer` use. `worker_capsule` is the direct-worker contract;
+`context_capsule` remains the planner-to-leaf contract. The status-baseline and
+allowed-write-scope check are not optional for direct write-capable agents.
 
 ## Return Boundary
 
@@ -182,7 +340,7 @@ leaf -> planner / parent:
 
 planner -> parent:
   compact status only
-  include status, changed artifacts, proof/check status, blocker, and next step
+  include status, changed artifacts, reported checks, blocker, and next step
   omit reasoning, raw logs, prompts, rejected branches, and full work-package maps
 
 parent -> user:

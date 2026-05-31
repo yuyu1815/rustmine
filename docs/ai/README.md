@@ -40,7 +40,7 @@ accident.
 | Source policy | `.codex/skills/stevenarella-oracle-workbench/references/source-policy.md` |
 | Oracle version manifests | `oracle/versions` |
 | Oracle/task schemas | `.codex/skills/stevenarella-oracle-workbench/schemas` |
-| Subagent task schema | `.codex/skills/stevenarella-oracle-workbench/schemas/subagent-task.schema.json` |
+| Context capsule schema | `.codex/skills/stevenarella-oracle-workbench/schemas/context-capsule.schema.json` |
 | Rust fix task schema | `.codex/skills/stevenarella-oracle-workbench/schemas/rust-fix-task.schema.json` |
 
 Version-specific facts route through the manifest directory and

@@ -1,6 +1,6 @@
 name = "rustmine_nested_compatibility_critic"
 description = "Nested capsule-driven review leaf for one accept, revise, or block verdict on a bounded artifact/result."
-model = "gpt-5.4-mini"
+model = "gpt-5.5"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
@@ -19,17 +19,23 @@ Do not read by default:
 - unrelated oracle artifacts or implementation files
 
 Required context_capsule fields:
+schema_version:
+batch:
+agent_role:
 objective:
 allowed_reads:
 allowed_writes:
 required_evidence:
 exit_condition:
 stop_boundary:
+write_policy:
+return_contract:
 
 Allowed work:
 - Review one bounded result for evidence, boundary leaks, stop condition, and residual risk.
 - Return concrete findings with file paths and exact missing evidence.
 - Use accept / revise / block as the verdict.
+- Read only files or directories listed in allowed_reads path entries.
 
 Boundaries:
 - Do not edit files.

@@ -65,6 +65,31 @@ for agent topology. It ran from `2026-05-30T18:13:45Z` to
 | Lead / Route / Scope cycles | 18 cycles | Same evidence was repeatedly summarized and reclassified. |
 | Function outputs in parent | 1,843 outputs / about 5.5 MB | Helper output bulk flowed back into the parent context. |
 
+## Current Guardrails
+
+The topology now has both a depth fence and a width fence.
+
+```text
+Parent Codex
+  -> max one Lead/planner for the current decision
+    -> max two nested leaf workers in one batch
+      -> parent checks after-before status paths against allowed_writes
+        -> parent chooses stop / next batch / final answer
+```
+
+| Prior risk | Guardrail |
+|---|---|
+| Capsule text drifted away from machine schema | `.codex/skills/stevenarella-oracle-workbench/schemas/context-capsule.schema.json` is the `context_capsule` schema. |
+| Depth was limited but width could still fan out | `.codex/config.toml` sets `max_threads = 3`, interpreted as one Lead plus at most two leaves; `context_capsule.batch.leaf_count` is capped at 2. |
+| Workspace-write leaves relied on prompt discipline | Every capsule must set the standard `write_policy.diff_baseline` using `git status --porcelain=v1 --untracked-files=all -- .`; parent verifies only `after - before` status paths against `allowed_writes`. |
+| Rust leaf write scopes could split | The capsule validator can take a rust-fix task and rejects `allowed_write_scope` outside capsule `allowed_writes`; Rust leaves may edit only the intersection. |
+| Lead output implied verification | Lead returns `reported_checks`; final proof remains Parent Codex responsibility. |
+| Model lanes and agent definitions drifted | Rust, oracle-workbench, and review agents now declare the matching model lane in their TOML. |
+| Parent-facing and nested roles could drift | The shared delegation contract is the `context_capsule` schema; agent TOML adds only role-specific behavior. |
+| Direct parent-facing workspace-write agents bypassed capsules | Parent direct delegation must still name write scope, take before/after status snapshots, and reject new or changed status paths outside that scope. |
+| Parent-facing workers repeated broad startup reads | Direct workers can now receive a validated `worker-capsule/v1` with startup context, allowed reads/writes, checks, stop boundary, and return contract; worker role TOML treats the capsule as startup context when supplied. |
+| Documentation updates consumed planner tokens | `rustmine_nested_docs_rewriter` is the bounded typist/editor leaf for supplied wording; Parent/Lead checks only transcription mistakes, formatting, link/path breakage, duplicate or missing rows, and scope drift after the write. |
+
 The important split is:
 
 | Cause owner | Runtime cost | Token cost |

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rustmine.local/schemas/leaf-result.schema.json",
+  "title": "Leaf Result",
+  "$comment": "Minimal machine-checkable envelope for nested leaf output. Role-specific detail remains in the leaf body, but must_report keys are checked here.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "batch",
+    "agent_role",
+    "result",
+    "must_report"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "leaf-result/v1"
+    },
+    "batch": {
+      "type": "object",
+      "required": ["id", "leaf_index", "leaf_count"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "leaf_index": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "leaf_count": { "type": "integer", "minimum": 1, "maximum": 2 }
+      },
+      "additionalProperties": false
+    },
+    "agent_role": {
+      "type": "string",
+      "enum": [
+        "rustmine_nested_oracle_cartographer",
+        "rustmine_nested_rust_implementer",
+        "rustmine_nested_test_surface_mapper",
+        "rustmine_nested_compatibility_critic",
+        "rustmine_nested_docs_rewriter"
+      ]
+    },
+    "result": {
+      "type": "string",
+      "enum": ["accepted", "revised", "blocked"]
+    },
+    "must_report": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "must_not_claim": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}
