@@ -33,10 +33,10 @@ listen to intent
 | AI treats a helper as truth | Read helper output as scoped evidence only; ask what it proves and what it cannot prove. |
 | AI guesses protocol facts | Stop and route to official jar, oracle artifact, or named witness. |
 | AI writes too many tiny tests | Choose the behavior boundary, not one test per packet/file. |
-| AI puts facts in the wrong place | Ask whether durable facts belong in the smallest owning shard; keep `docs/ai` as orientation only. |
+| AI puts facts in the wrong place | Ask whether durable facts belong in the smallest owning shard; keep `docs/ai` fixed and `docs/next` compact. |
 | AI shifts project vocabulary | Ask whether resolved vocabulary belongs in `CONTEXT.md`. |
 | AI over-constrains itself | Prefer default routes with escape hatches over `must`, `only`, or `exactly`. |
-| AI loses context after reset/compaction | Ask whether recovery pointers belong in `docs/ai/00-RESUME.md`. |
+| AI loses context after reset/compaction | Ask whether recovery pointers belong in `docs/next/README.md`. |
 
 ## Layer Rule
 
@@ -44,7 +44,10 @@ Specificity belongs lower in the tree.
 
 ```text
 AGENTS.md / docs/ai
-  -> routes, posture, recovery
+  -> fixed startup route and safety posture
+
+docs/next
+  -> compact recovery and next-task state
 
 CONTEXT.md
   -> project glossary, term boundaries, preferred vocabulary
@@ -53,7 +56,7 @@ CONTEXT.md
   -> reusable defaults, role boundaries, escape hatches
 
 docs/analysis/*
-  -> living maps, evidence, uncertainty, responsibility
+  -> AI-shared memory: living maps, evidence, uncertainty, responsibility
 
 oracle/cases/contracts/manifests
   -> concrete version/case facts and machine-checkable contracts
@@ -75,7 +78,7 @@ Yuzu mirrors the operator's judgment. It does not store the result.
 | New or sharpened project vocabulary | root `CONTEXT.md` |
 | Living document update guidance | `docs/analysis/responsibility/agent-ops.md` |
 | Evidence, proof status, or uncertainty | `docs/analysis/current-evidence/` or the smallest owner shard |
-| Current location, next action, or recovery route | `docs/ai/00-RESUME.md` |
+| Current location, next action, or recovery route | `docs/next/README.md` |
 | Task procedure, role contract, or schema | the owning skill, agent, or schema |
 
 ## Evidence Posture

@@ -1,16 +1,16 @@
 # Agent Operations
 
-Purpose: separate vocabulary, orientation routes, fixed workflows, agent roles,
-and mutable evidence.
+Purpose: record ownership decisions for AI operating surfaces. This is shared
+analysis memory, not the startup manual and not the next-task card.
 
 ## Map
 
 ```text
 AGENTS.md
   -> CONTEXT.md project vocabulary
-    -> docs/ai/ orientation and recovery pointers
-      -> .codex/skills/ fixed workflows and read-only lenses
-        -> docs/analysis/* mutable domain facts
+    -> docs/ai/ fixed startup and routing map
+      -> docs/next/ compact recovery and next-task state
+        -> docs/analysis/* AI-shared memory, evidence, and decisions
           -> oracle/* machine-readable evidence
 ```
 
@@ -19,10 +19,11 @@ AGENTS.md
 | Surface | Owns | Must not own |
 |---|---|---|
 | `CONTEXT.md` | project glossary, preferred terms, short term boundaries, resolved vocabulary introduced or sharpened by docs work | workflow, proof status, evidence histories, implementation details, current task state |
-| `docs/ai/` | current location, next action, route pointers, recovery pointer | fixed workflow, packet facts, proof status, long evidence histories |
+| `docs/ai/` | fixed startup route, low-token reading map, stable safety posture | mutable current location, next action, packet facts, proof status, long evidence histories |
+| `docs/next/` | compact mutable recovery state: current location, immediate next action, blocker, stop boundary | durable evidence, proof ledgers, protocol facts, long analysis |
 | `.codex/skills/` | stable procedures, schemas, role contracts; Yuzu is a read-only operator lens | mutable proof status, current phase completion facts, glossary terms, task state |
 | `.codex/agents/` | Codex app/CLI project-scoped subagent role definitions | canonical oracle facts or implementation changes |
-| `docs/analysis/` shards | mutable human-readable evidence, responsibility, and traceability | generated official answers |
+| `docs/analysis/` shards | AI-shared memory: mutable human-readable evidence, responsibility, uncertainty, decisions, and traceability | generated official answers, immediate next-task recovery |
 
 ## Subagent Boundary
 
@@ -44,83 +45,41 @@ operator question
 
 Use subagents when they reduce bounded uncertainty. Do not use them as a full
 delegation mechanism for the active conversation, because compaction recovery
-depends on the parent preserving the route and next action in `docs/ai/`.
+depends on the parent preserving the route and next action in `docs/next/`.
 
-## Glossary Updates
+## Rationale
 
-`CONTEXT.md` owns resolved project vocabulary. When documentation work
-introduces, sharpens, or repeatedly depends on a project term, update
-`CONTEXT.md` with the stable meaning and a short boundary note.
+Keeping startup rules, next-task state, and shared evidence in separate places
+prevents fresh agents from treating long evidence history as required startup
+context.
 
-```text
-new or sharpened term
-  -> resolve meaning in the owning docs work
-    -> update CONTEXT.md only when it is durable project language
-      -> route evidence, workflow, or current state to the owning shard instead
-```
-
-Do not store new terms in Yuzu. Yuzu is only the operator mirror used to check
-whether the route, evidence posture, and responsibility boundary feel right.
-
-## Living Document Desire Paths
-
-Docs are updated to preserve recoverability, evidence traceability, and future
-routing. They are not updated to satisfy ceremony.
-
-Use the document that naturally owns the knowledge:
-
-```text
-durable fact changed
-  -> update the smallest owning domain shard
-
-durable vocabulary changed
-  -> update CONTEXT.md
-
-new durable area appeared
-  -> add a shard or index route so future agents can find it
-
-only current location, next action, or recovery route changed
-  -> update docs/ai/00-RESUME.md
-
-nothing durable changed
-  -> do not write docs
-```
-
-## Route And Name Maintenance
-
-Names are routes. When a file or directory name no longer reflects the current
-concept:
-
-1. Check references.
-2. Rename or delete the stale route.
-3. Prefer canonical paths that express domain shape, such as
-   `protocol/versions/<version>/...`.
-4. Keep compatibility pointers only when they prevent real breakage; otherwise
-   remove them before they train AI toward the old model.
-
-Consequence examples:
-
-| Missed update | Future failure |
+| Misplaced content | Failure mode |
 |---|---|
 | Evidence change not recorded in the owning shard | A later agent re-reads or re-interprets jars, probes, or smoke evidence instead of using the reusable proof trail. |
 | New area has no index route | The work becomes invisible after compaction, handoff, or fresh session recovery. |
-| Durable facts are stuffed into `docs/ai/` | Future agents fixate on orientation notes and bypass the canonical owner. |
-| Project terms are left only in chat | A later agent repeats the terminology debate or uses the wrong boundary. |
-| Uncertainty is not documented where the claim lives | Unknown or partial work is mistaken for completion. |
+| Mutable facts in `docs/ai/` | Future agents fixate on fixed startup docs and bypass the canonical owner. |
+| Long proof ledgers in `docs/next/` | Startup becomes expensive and the next action is hidden inside evidence history. |
+| Project terms left only in chat | A later agent repeats the terminology debate or uses the wrong boundary. |
+| Uncertainty missing from the owning shard | Unknown or partial work is mistaken for completion. |
 
-## Recovery Note
+Earlier operational guidance for update destinations, route hygiene, and startup
+token budget moved to `docs/ai/README.md`, because those are fixed AI startup
+rules rather than analysis memory.
+
+## Historical Note
 
 Completed cleanup efforts, including prior `docs/ai/` orientation cleanup, are
-historical tasks, not standing responsibility areas. If similar topology work
-returns, route it through Agent operations and the responsibility index before
-editing.
+historical tasks, not standing responsibility areas. Similar topology work still
+belongs to Agent operations, but the next action itself belongs in
+`docs/next/README.md`.
 
 ## Current Topology
 
 | Domain | Canonical shard |
 |---|---|
 | Project vocabulary | root `CONTEXT.md`; glossary only, not workflow or proof state |
-| `docs/ai/` orientation | `docs/ai/README.md` route map and `docs/ai/00-RESUME.md` recovery pointer only; add another file only if it carries real orientation value beyond paths |
+| `docs/ai/` startup | `docs/ai/README.md` fixed low-token route map; `docs/ai/00-RESUME.md` is a compatibility pointer to `docs/next/README.md` |
+| Next task recovery | `docs/next/README.md`; compact current location, next action, blocker, and stop boundary only |
 | Client-load phase lens | `docs/analysis/client-load/README.md` |
 | Current evidence | `docs/analysis/current-evidence/README.md` |
 | Protocol version traceability | `docs/analysis/protocol/versions/775/traceability.md` for the current populated 775 shard |

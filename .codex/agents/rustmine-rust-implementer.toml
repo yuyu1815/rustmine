@@ -7,8 +7,8 @@ You are the Rust implementation lane for Stevenarella versioned compatibility fi
 
 Read first:
 - AGENTS.md
-- docs/ai/00-RESUME.md
 - docs/ai/README.md
+- docs/next/README.md
 - .codex/skills/stevenarella-rust-worker/SKILL.md
 - The rust-fix-task packet and named oracle artifacts supplied by the parent agent.
 

@@ -1,16 +1,16 @@
-# AI Orientation
+# AI Startup Map
 
-`docs/ai/` gives reading routes, not conclusions. Use it to recover where to
-look next, then read the canonical owner for any durable fact, proof status, or
-decision.
+`docs/ai/` is fixed startup documentation. Read it at the start of an AI turn
+to choose the right route with low token cost. Do not store mutable task state,
+proof status, packet facts, or next actions here.
 
 ## Read Route
 
 ```text
 AGENTS.md
-  -> docs/ai/00-RESUME.md
   -> docs/ai/README.md
-  -> canonical owner below
+  -> docs/next/README.md
+  -> one canonical owner below
   -> active skill, agent, artifact, or shard
 ```
 
@@ -19,8 +19,8 @@ AGENTS.md
 | Need | Read |
 |---|---|
 | Project glossary | [../../CONTEXT.md](../../CONTEXT.md) |
-| Current recovery pointer | [00-RESUME.md](00-RESUME.md) |
-| Analysis route map | [../analysis/README.md](../analysis/README.md) |
+| Current next task / recovery pointer | [../next/README.md](../next/README.md) |
+| AI shared memory route map | [../analysis/README.md](../analysis/README.md) |
 | Current evidence route | [../analysis/current-evidence/README.md](../analysis/current-evidence/README.md) |
 | Client-load phase route | [../analysis/client-load/README.md](../analysis/client-load/README.md) |
 | Protocol route | [../analysis/protocol/README.md](../analysis/protocol/README.md) |
@@ -44,17 +44,82 @@ always the active target for a later task.
 ```text
 docs/ai/
   README.md
-    -> route map
-      -> canonical owner
-        -> active shard, workflow, lens, agent role, or schema
+    -> fixed startup map
+      -> choose one owner
+        -> read only what the active task needs
 
   00-RESUME.md
-    -> current location and recovery pointer only
+    -> compatibility pointer to docs/next/README.md
+
+docs/next/
+  README.md
+    -> compact mutable recovery and next-task state
+
+docs/analysis/
+  -> AI-shared memory, evidence, decisions, uncertainty, traceability
 
 CONTEXT.md
   -> project vocabulary only
     -> not workflow, evidence, or current state
 ```
 
-Do not add path-only pointer files here. Add a new `docs/ai/` file only when it
-carries orientation value beyond listing paths.
+## Fixed Layer Rule
+
+`docs/ai/` should change rarely. If information changes because work progressed,
+put it in `docs/next/` or the owning `docs/analysis/` shard instead.
+
+| Information | Destination |
+|---|---|
+| Startup route, safety posture, low-token reading map | `docs/ai/` |
+| Current location, next action, immediate blocker, stop boundary | `docs/next/` |
+| Evidence, proof state, decisions, analysis notes shared between AI runs | `docs/analysis/` |
+| Versioned machine-checkable oracle facts | `oracle/` |
+| Project vocabulary | `CONTEXT.md` |
+
+## Update Destinations
+
+Use the document that naturally owns the knowledge:
+
+```text
+durable fact changed
+  -> update the smallest owning docs/analysis shard
+
+durable vocabulary changed
+  -> update CONTEXT.md
+
+new durable area appeared
+  -> add a docs/analysis shard or index route
+
+only current location, next action, blocker, or recovery route changed
+  -> update docs/next/README.md
+
+nothing durable changed
+  -> do not write docs
+```
+
+## Route Hygiene
+
+Names are routes. When a file or directory name no longer reflects the current
+concept:
+
+1. Check references.
+2. Rename or delete the stale route.
+3. Prefer canonical paths that express domain shape, such as
+   `protocol/versions/<version>/...`.
+4. Keep compatibility pointers only when they prevent real breakage.
+
+## Startup Token Budget
+
+The startup route should stay spatial and short:
+
+```text
+fixed route:
+  AGENTS.md
+    -> docs/ai/README.md
+      -> docs/next/README.md
+        -> one owning docs/analysis shard
+```
+
+Do not require fresh agents to read every skill, every agent definition, or the
+full evidence history before choosing the active owner. The active task should
+name the extra shard, skill, artifact, or agent role that needs to be loaded.

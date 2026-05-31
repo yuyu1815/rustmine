@@ -22,11 +22,13 @@ about load or playability progress.
 ## Read First
 
 ```text
-docs/ai/00-RESUME.md
 docs/ai/README.md
+docs/next/README.md
 ```
 
-Then load only the skill or artifact named by the active task.
+`docs/ai/` is the fixed startup and routing layer. `docs/next/` is the compact
+recovery and next-task layer. Then load only the analysis shard, skill, agent,
+or artifact named by the active task.
 
 ## Canonical AI Surfaces
 
@@ -38,14 +40,18 @@ CONTEXT.md
   project glossary: shared vocabulary only, not AI operating rules or evidence
 
 docs/ai/
-  orientation layer: current location, next action, route pointers,
-  and recovery pointer only
+  fixed AI startup, routing, and safety map; not mutable task state
 
-.codex/skills/
-  fixed AI procedures and role contracts; Yuzu is a read-only operator lens
+docs/next/
+  compact mutable recovery card: current location, next action, blockers,
+  and stop boundary
 
 .codex/agents/
   Codex app/CLI project-scoped subagent role/team definitions
+
+.codex/skills/
+  reusable procedures and role contracts; load only when the active task
+  calls for them
 
 .codex/skills/stevenarella-oracle-workbench/schemas/
   machine-checkable task, answer, and failure packets
@@ -54,7 +60,8 @@ oracle/
   version manifests, cases, contracts, generated official answers, test manifests
 
 docs/analysis/
-  human-readable evidence, client-load phase lens, traceability, and responsibility decisions
+  AI-shared memory: human-readable evidence, client-load phase lens,
+  traceability, and responsibility decisions
 ```
 
 Do not add AI operating rules anywhere else.
@@ -92,6 +99,7 @@ evidence:
 read active task scope
   -> choose owner from docs/analysis/responsibility/README.md
   -> read the relevant shard
+  -> read docs/next/README.md only for current recovery and next-task state
   -> if client-load/playability, use the phase map as the diagnostic lens
   -> if protocol work, choose the active version manifest/case
   -> name evidence and stop boundary
@@ -133,7 +141,7 @@ User
 Do not fully delegate the conversation, final answer, recovery pointer, or route
 decision to a subagent. Subagents are evidence and work-package helpers only.
 If subagent work changes the next action or recovery route, parent Codex must
-update `docs/ai/00-RESUME.md` before ending.
+update `docs/next/README.md` before ending.
 
 ## Model Lanes
 
@@ -148,7 +156,7 @@ meaning, or implementation scope.
 
 ## Before Ending
 
-Update `docs/ai/00-RESUME.md` only when the current location, next action, or
-recovery pointer changed. Put evidence and proof-status updates in
+Update `docs/next/README.md` only when the current location, next action,
+blocker, or recovery pointer changed. Put evidence and proof-status updates in
 `docs/analysis/current-evidence/` or the relevant domain shard. Do not rely on
 chat history for recovery.

@@ -8,13 +8,12 @@ You review compatibility workbench outputs like an owner. Your job is to find bo
 
 Read first:
 - AGENTS.md
-- docs/ai/00-RESUME.md
 - docs/ai/README.md
-- docs/analysis/responsibility/README.md
-- .codex/skills/client-load-compatibility/SKILL.md
-- docs/analysis/current-evidence/client-load.md
-- docs/analysis/current-evidence/structural-scan.md
-- Relevant .codex/skills workflow named by the parent task.
+- docs/next/README.md
+
+Then read only the parent-named shard, artifact, diff, test output, or workflow
+needed for the review. Do not pre-load client-load or responsibility shards
+unless the review claim depends on them.
 
 Spatial map:
 claim
@@ -38,8 +37,8 @@ Review checklist:
 - Did the helper output make scoped claims such as answer regeneration or exact Rust test execution, rather than implying broad compatibility?
 - Did the helper describe its checks as structural/cross-reference validation and exact test execution, rather than generic full schema validation?
 - Would an orphan case, orphan manifest, orphan contract, stale answer, duplicate JSONL row, malformed JSONL row, missing exact Rust test, filtered exact Rust test, or failed exact Rust test fail before the result is accepted?
-- Did docs/ai/00-RESUME.md change if current location or next action changed?
-- Did mutable proof state land in the domain shards rather than fixed skills or docs/ai?
+- Did docs/next/README.md change if current location or next action changed?
+- Did mutable proof state land in docs/analysis rather than fixed docs/ai, docs/next, skills, or agent definitions?
 
 Boundaries:
 - Do not edit files.

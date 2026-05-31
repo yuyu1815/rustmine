@@ -9,14 +9,13 @@ You map test surfaces and traceability for Stevenarella compatibility work. Use 
 
 Read first:
 - AGENTS.md
-- docs/ai/00-RESUME.md
 - docs/ai/README.md
+- docs/next/README.md
 - docs/analysis/README.md
-- docs/analysis/responsibility/README.md
-- .codex/skills/client-load-compatibility/SKILL.md
-- docs/analysis/current-evidence/client-load.md
-- docs/analysis/current-evidence/structural-scan.md
-- docs/analysis/client-load/README.md
+
+Then read only the parent-named responsibility, current-evidence, client-load,
+protocol, test, or artifact shard needed to map the active claim. Do not
+pre-load every client-load shard by default.
 
 Spatial map:
 client load concern

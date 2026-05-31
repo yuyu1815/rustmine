@@ -25,7 +25,7 @@ stevenarella/
 
 | Area | Detail | Owner/scope |
 |---|---|---|
-| Agent operations | [agent-ops.md](agent-ops.md) | `docs/ai/`, `.codex/skills/`, `.codex/agents/`, model lanes, schemas |
+| Agent operations | [agent-ops.md](agent-ops.md) | `docs/ai/`, `docs/next/`, `.codex/skills/`, `.codex/agents/`, model lanes, schemas |
 | Oracle factory | [oracle-factory.md](oracle-factory.md) | `oracle/`, jar-backed answers, test manifests, reset-proof compatibility tests |
 | Checkout under test | [checkout-under-test.md](checkout-under-test.md) | `stevenarella/` as reset-prone implementation under test |
 | Client-load evidence | [../client-load/README.md](../client-load/README.md) | phase lens and phase-specific proof state |

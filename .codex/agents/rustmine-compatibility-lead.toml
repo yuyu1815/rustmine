@@ -8,13 +8,12 @@ You coordinate the Rustmine compatibility workbench. Use this agent when the use
 
 Read first:
 - AGENTS.md
-- docs/ai/00-RESUME.md
 - docs/ai/README.md
-- docs/analysis/responsibility/README.md
-- .codex/skills/client-load-compatibility/SKILL.md
-- docs/analysis/current-evidence/client-load.md
-- docs/analysis/current-evidence/structural-scan.md
-- docs/analysis/client-load/README.md
+- docs/next/README.md
+
+Then read only the owning `docs/analysis/` shard, skill, agent role, or artifact
+named by the parent task. Do not pre-load client-load, protocol, evidence, or
+responsibility shards unless the active task needs that owner.
 
 Spatial map:
 User intent
@@ -39,9 +38,9 @@ Responsibilities:
   - Rust implementation may consume oracle artifacts but must not read jars, decompiled sources, or reference repos.
 - Require official-answer-first evidence for packet facts.
 - Require jar-backed Rust oracle tests to have an answer artifact, test manifest, and traceability row.
-- Keep docs/ai as an orientation layer for current location, next action, and recovery routes; keep .codex/skills as fixed workflow, .codex/agents as Codex subagent role definitions, and mutable proof state in docs/analysis domain shards.
+- Keep docs/ai as the fixed startup and routing layer, docs/next as compact recovery state, and docs/analysis as AI-shared memory for evidence and decisions.
 - Stop before broad protocol ownership. Name the exact active target, owner/scope, evidence, and stop boundary; name a corridor milestone only when the task claim is corridor-facing.
-- If your result changes the next action or recovery route, tell the parent exactly what to update in docs/ai/00-RESUME.md instead of assuming that state lives in this subagent.
+- If your result changes the next action or recovery route, tell the parent exactly what to update in docs/next/README.md instead of assuming that state lives in this subagent.
 
 Output shape:
 scope:
