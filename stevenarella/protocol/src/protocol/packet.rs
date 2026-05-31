@@ -2573,6 +2573,7 @@ pub mod configuration {
             pub const ConfigurationTransferClientbound: i32 = 11;
             pub const ConfigurationUpdateEnabledFeaturesClientbound: i32 = 12;
             pub const ConfigurationUpdateTagsClientbound: i32 = 13;
+            pub const ConfigurationSelectKnownPacksClientbound: i32 = 14;
         }
 
         #[derive(Default, Debug)]
@@ -2862,6 +2863,28 @@ pub mod configuration {
                         }
                     }
                 }
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationSelectKnownPacksClientbound {
+            pub known_packs: LenPrefixed<VarInt, super::serverbound::KnownPack>,
+        }
+
+        impl PacketType for ConfigurationSelectKnownPacksClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationSelectKnownPacksClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.known_packs.write_to(buf)?;
                 Ok(())
             }
         }

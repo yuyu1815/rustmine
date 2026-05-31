@@ -512,6 +512,28 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationSelectKnownPacksClientbound => {
+                        let known_pack_count = VarInt::read_from(buf)?.0;
+                        if known_pack_count < 0 {
+                            return Err(Error::Err(format!(
+                                "negative clientbound select_known_packs known-pack count {}",
+                                known_pack_count
+                            )));
+                        }
+                        let mut known_packs = Vec::with_capacity(known_pack_count as usize);
+                        for _ in 0..known_pack_count {
+                            known_packs.push(Serializable::read_from(buf)?);
+                        }
+                        let _packet = packet::configuration::clientbound::ConfigurationSelectKnownPacksClientbound {
+                            known_packs: LenPrefixed::new(known_packs),
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "SelectKnownPacks".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(

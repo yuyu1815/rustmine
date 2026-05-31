@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `configuration_update_tags_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Configuration clientbound `minecraft:update_tags` answer for one empty tag-payload map fixture and decodes it through `packet::packet_by_id(775, State::Configuration, Direction::Clientbound, official id, body)` |
+| Current location | Protocol 775 `configuration_select_known_packs_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Configuration clientbound `minecraft:select_known_packs` answer for one empty known-pack list fixture and decodes it through `packet::packet_by_id(775, State::Configuration, Direction::Clientbound, official id, body)` |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{mod.rs,packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `configuration_update_tags_clientbound_framed_dispatch` proves only the Configuration clientbound update_tags packet id/body dispatch for one official empty tag-payload map fixture and current compatibility alias decode. It does not prove real tag contents, tag registry hydration, Configuration completion, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `configuration_select_known_packs_clientbound_framed_dispatch` proves only the Configuration clientbound select_known_packs packet id/body dispatch for one official empty known-pack list fixture and current compatibility alias decode. It does not prove registry hydration, known-pack negotiation completion, Configuration completion, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
 
 ## Recovery Flow
 
@@ -37,7 +37,7 @@ For future work:
              network_login_configuration
             -> next likely target: ask an oracle subagent to create the next
                missing Configuration clientbound packet proof,
-               likely minecraft:select_known_packs / 0x0e; keep runtime
+               likely minecraft:custom_report_details / 0x0f; keep runtime
                Configuration-to-Play, registry, Play, world, render, and
                interaction readiness as later phases
 ```
