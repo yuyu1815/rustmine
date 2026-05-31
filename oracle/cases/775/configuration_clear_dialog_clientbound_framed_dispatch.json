@@ -1,0 +1,59 @@
+{
+  "case_id": "configuration_clear_dialog_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundClearDialogPacket.INSTANCE",
+      "authority_note": "Official binary source for the singleton Configuration clientbound clear_dialog packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundClearDialogPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for Configuration clientbound clear_dialog body encoding and decoding; bytecode initializes it with StreamCodec.unit(INSTANCE)."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(ClientboundClearDialogPacket.INSTANCE)",
+      "authority_note": "Official binary source for Configuration clientbound clear_dialog framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound clear_dialog framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundClearDialogPacket.type()",
+      "authority_note": "Official binary source for reading the decoded clear_dialog packet type."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:clear_dialog",
+    "packet_class": "ClientboundClearDialogPacket",
+    "input_fields": {
+      "fixture": "ClientboundClearDialogPacket.INSTANCE"
+    },
+    "field_notes": {
+      "fixture": "Official singleton fixture accepted by the official unit codec without initialized dialog UI state."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_clear_dialog_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration clientbound clear_dialog packet framing and dispatch/decode for the official singleton empty-body fixture only; do not infer dialog UI clearing behavior, screen flow, Configuration completion, Play entry, world load, render readiness, or runtime behavior."
+}

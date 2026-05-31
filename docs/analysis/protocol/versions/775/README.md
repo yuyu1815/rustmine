@@ -35,6 +35,7 @@ official jar function
 | `configuration_select_known_packs_clientbound_framed_dispatch` case note | [cases/configuration-select-known-packs-clientbound-framed-dispatch.md](cases/configuration-select-known-packs-clientbound-framed-dispatch.md) |
 | `configuration_custom_report_details_clientbound_framed_dispatch` case note | [cases/configuration-custom-report-details-clientbound-framed-dispatch.md](cases/configuration-custom-report-details-clientbound-framed-dispatch.md) |
 | `configuration_server_links_clientbound_framed_dispatch` case note | [cases/configuration-server-links-clientbound-framed-dispatch.md](cases/configuration-server-links-clientbound-framed-dispatch.md) |
+| `configuration_clear_dialog_clientbound_framed_dispatch` case note | [cases/configuration-clear-dialog-clientbound-framed-dispatch.md](cases/configuration-clear-dialog-clientbound-framed-dispatch.md) |
 | `configuration_select_known_packs_framed_dispatch` case note | [cases/configuration-select-known-packs-framed-dispatch.md](cases/configuration-select-known-packs-framed-dispatch.md) |
 | `configuration_custom_click_action_framed_dispatch` case note | [cases/configuration-custom-click-action-framed-dispatch.md](cases/configuration-custom-click-action-framed-dispatch.md) |
 | `configuration_accept_code_of_conduct_framed_dispatch` case note | [cases/configuration-accept-code-of-conduct-framed-dispatch.md](cases/configuration-accept-code-of-conduct-framed-dispatch.md) |
@@ -67,6 +68,7 @@ At this snapshot, `configuration_client_information_framed_dispatch`,
 `configuration_select_known_packs_clientbound_framed_dispatch`,
 `configuration_custom_report_details_clientbound_framed_dispatch`,
 `configuration_server_links_clientbound_framed_dispatch`,
+`configuration_clear_dialog_clientbound_framed_dispatch`,
 `configuration_select_known_packs_framed_dispatch`,
 `configuration_custom_click_action_framed_dispatch`,
 `configuration_accept_code_of_conduct_framed_dispatch`, and
@@ -147,3 +149,8 @@ behavior.
 evidence for one official empty links list fixture only. It does not prove
 server-links UI behavior, trust/link-opening policy, Configuration completion,
 Play entry, world load, render readiness, or runtime behavior.
+
+`configuration_clear_dialog_clientbound_framed_dispatch` is packet-support
+evidence for the official singleton empty-body clear_dialog packet only. It
+does not prove dialog UI clearing behavior, screen flow, Configuration
+completion, Play entry, world load, render readiness, or runtime behavior.

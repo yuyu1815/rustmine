@@ -2576,6 +2576,7 @@ pub mod configuration {
             pub const ConfigurationSelectKnownPacksClientbound: i32 = 14;
             pub const ConfigurationCustomReportDetailsClientbound: i32 = 15;
             pub const ConfigurationServerLinksClientbound: i32 = 16;
+            pub const ConfigurationClearDialogClientbound: i32 = 17;
         }
 
         #[derive(Default, Debug)]
@@ -2943,6 +2944,28 @@ pub mod configuration {
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 VarInt(self.link_count).write_to(buf)?;
                 buf.write_all(&self.links_data)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationClearDialogClientbound {
+            pub empty: (),
+        }
+
+        impl PacketType for ConfigurationClearDialogClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationClearDialogClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                self.empty.write_to(buf)?;
                 Ok(())
             }
         }

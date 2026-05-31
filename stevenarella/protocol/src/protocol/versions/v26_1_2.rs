@@ -30,6 +30,7 @@ protocol_packet_ids!(
             0x0e => ConfigurationSelectKnownPacksClientbound
             0x0f => ConfigurationCustomReportDetailsClientbound
             0x10 => ConfigurationServerLinksClientbound
+            0x11 => ConfigurationClearDialogClientbound
         }
     }
 );

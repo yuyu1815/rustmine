@@ -586,6 +586,17 @@ macro_rules! state_packets {
                             },
                         )));
                     }
+                    packet::configuration::clientbound::internal_ids::ConfigurationClearDialogClientbound => {
+                        let _packet = packet::configuration::clientbound::ConfigurationClearDialogClientbound {
+                            empty: Serializable::read_from(buf)?,
+                        };
+                        return Ok(Option::Some(Packet::PluginMessageClientbound(
+                            packet::play::clientbound::PluginMessageClientbound {
+                                channel: "ClearDialog".to_owned(),
+                                data: Vec::new(),
+                            },
+                        )));
+                    }
                     packet::configuration::clientbound::internal_ids::ConfigurationFinishConfigurationClientbound => {
                         let _: () = Serializable::read_from(buf)?;
                         return Ok(Option::Some(Packet::PluginMessageClientbound(
