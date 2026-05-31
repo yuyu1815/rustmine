@@ -568,6 +568,10 @@ state_packets!(
                 field event_data: u8 =,
                 field block: VarInt =,
             }
+            packet PlayBlockUpdateClientbound {
+                field location: Position =,
+                field block_state: VarInt =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

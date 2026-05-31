@@ -71,6 +71,7 @@ protocol_packet_ids!(
             0x05 => PlayBlockDestructionClientbound
             0x06 => PlayBlockEntityDataClientbound
             0x07 => PlayBlockEventClientbound
+            0x08 => PlayBlockUpdateClientbound
         }
     }
 );
