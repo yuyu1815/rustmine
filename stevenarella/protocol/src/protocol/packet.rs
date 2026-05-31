@@ -2209,6 +2209,9 @@ state_packets!(
                 field channel: String =,
                 field data: Vec<u8> =,
             }
+            packet LoginCookieRequest {
+                field key: String =,
+            }
         }
     }
     status Status {

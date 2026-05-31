@@ -1,7 +1,7 @@
 use crate::protocol::mapped_packet::handshake::serverbound::Handshake;
 use crate::protocol::mapped_packet::login::clientbound::{
-    EncryptionRequest, EncryptionRequest_ShouldAuthenticate, LoginDisconnect, LoginPluginRequest,
-    LoginSuccess_String, LoginSuccess_UUID, SetInitialCompression,
+    EncryptionRequest, EncryptionRequest_ShouldAuthenticate, LoginCookieRequest, LoginDisconnect,
+    LoginPluginRequest, LoginSuccess_String, LoginSuccess_UUID, SetInitialCompression,
 };
 use crate::protocol::mapped_packet::login::serverbound::{
     EncryptionResponse, LoginAcknowledged, LoginCookieResponse, LoginPluginResponse, LoginStart,
@@ -1367,6 +1367,9 @@ state_mapped_packets!(
                 field channel: String,
                 field data: Vec<u8>,
             }
+            packet LoginCookieRequest {
+                field key: String,
+            }
         }
     }
     status Status {
@@ -2474,6 +2477,11 @@ impl MappablePacket for packet::Packet {
                     message_id: plugin_request.message_id.0,
                     channel: plugin_request.channel,
                     data: plugin_request.data,
+                })
+            }
+            packet::Packet::LoginCookieRequest(cookie_request) => {
+                mapped_packet::MappedPacket::LoginCookieRequest(LoginCookieRequest {
+                    key: cookie_request.key,
                 })
             }
             packet::Packet::LoginPluginResponse(plugin_response) => {

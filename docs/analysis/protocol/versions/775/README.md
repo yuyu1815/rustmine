@@ -33,6 +33,7 @@ official jar function
 | `login_finished_clientbound_framed_dispatch` case note | [cases/login-finished-clientbound-framed-dispatch.md](cases/login-finished-clientbound-framed-dispatch.md) |
 | `login_compression_clientbound_framed_dispatch` case note | [cases/login-compression-clientbound-framed-dispatch.md](cases/login-compression-clientbound-framed-dispatch.md) |
 | `login_custom_query_clientbound_framed_dispatch` case note | [cases/login-custom-query-clientbound-framed-dispatch.md](cases/login-custom-query-clientbound-framed-dispatch.md) |
+| `login_cookie_request_clientbound_framed_dispatch` case note | [cases/login-cookie-request-clientbound-framed-dispatch.md](cases/login-cookie-request-clientbound-framed-dispatch.md) |
 | `configuration_client_information_framed_dispatch` case note | [cases/configuration-client-information-framed-dispatch.md](cases/configuration-client-information-framed-dispatch.md) |
 | `configuration_cookie_request_framed_dispatch` case note | [cases/configuration-cookie-request-framed-dispatch.md](cases/configuration-cookie-request-framed-dispatch.md) |
 | `configuration_cookie_response_framed_dispatch` case note | [cases/configuration-cookie-response-framed-dispatch.md](cases/configuration-cookie-response-framed-dispatch.md) |
@@ -75,6 +76,7 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `login_finished_clientbound_framed_dispatch`,
 `login_compression_clientbound_framed_dispatch`,
 `login_custom_query_clientbound_framed_dispatch`,
+`login_cookie_request_clientbound_framed_dispatch`,
 `configuration_client_information_framed_dispatch`,
 `configuration_cookie_request_framed_dispatch`,
 `configuration_cookie_response_framed_dispatch`,
@@ -184,8 +186,30 @@ Identifier, empty `DiscardedQueryPayload` body, and full body consumption
 through Stevenarella dispatch. It does not prove plugin channel handling,
 custom query semantics, login acknowledgement behavior,
 Login-to-Configuration state transition handling, Configuration entry, Play
-readiness, or client-load completion. The next missing Login clientbound
-packet-support target is `minecraft:cookie_request` / `0x05`.
+readiness, or client-load completion.
+
+`login_cookie_request_clientbound_framed_dispatch` is packet-support evidence
+for one official Login clientbound cookie_request fixture only. It proves the
+official `minecraft:cookie_request` / `0x05` row, one Identifier key field,
+and full body consumption through Stevenarella dispatch. It does not prove
+cookie storage policy, cookie request/response runtime behavior,
+Login-to-Configuration state transition handling, Configuration entry, Play
+readiness, or client-load completion. Login clientbound packet-support is now
+complete through the current official `LoginProtocols.CLIENTBOUND_TEMPLATE`
+rows.
+
+The next packet-support table target is an official Play table audit from
+`GameProtocols.CLIENTBOUND_TEMPLATE` and `GameProtocols.SERVERBOUND_TEMPLATE`
+before selecting a Play packet case. A throwaway JShell official table check on
+2026-05-31 observed the first Play clientbound rows as
+`minecraft:bundle_delimiter` / `0x00`, `minecraft:add_entity` / `0x01`,
+`minecraft:animate` / `0x02`, `minecraft:award_stats` / `0x03`, and
+`minecraft:block_changed_ack` / `0x04`; first Play serverbound rows as
+`minecraft:accept_teleportation` / `0x00`, `minecraft:attack` / `0x01`,
+`minecraft:block_entity_tag_query` / `0x02`,
+`minecraft:bundle_item_selected` / `0x03`, and
+`minecraft:change_difficulty` / `0x04`. This observation is a routing clue,
+not a packet-support proof package.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

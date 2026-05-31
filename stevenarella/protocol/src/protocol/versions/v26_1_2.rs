@@ -20,6 +20,7 @@ protocol_packet_ids!(
             0x02 => LoginSuccess_UUID
             0x03 => SetInitialCompression
             0x04 => LoginPluginRequest
+            0x05 => LoginCookieRequest
         }
     }
     configuration Configuration {
