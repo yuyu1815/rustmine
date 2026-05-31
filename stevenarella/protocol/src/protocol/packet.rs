@@ -548,6 +548,9 @@ state_packets!(
             packet PlayAwardStatsClientbound {
                 field stat_count: VarInt =,
             }
+            packet PlayBlockChangedAckClientbound {
+                field sequence: VarInt =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {

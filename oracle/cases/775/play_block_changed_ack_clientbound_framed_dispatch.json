@@ -1,0 +1,47 @@
+{
+  "case_id": "play_block_changed_ack_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the block_changed_ack packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundBlockChangedAckPacket(int), ClientboundBlockChangedAckPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for constructing, decoding, and writing the block_changed_ack body."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.FriendlyByteBuf.readVarInt(), FriendlyByteBuf.writeVarInt(int)",
+      "authority_note": "Official binary source for the sequence field body shape."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound block_changed_ack frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:block_changed_ack",
+    "packet_class": "ClientboundBlockChangedAckPacket",
+    "input_fields": {
+      "sequence": 12345
+    },
+    "field_notes": {
+      "fixture": "Uses the official constructor and STREAM_CODEC with a single integer sequence, then re-encodes through the official Play clientbound protocol codec. The sequence value is context-free and does not require initialized Minecraft/game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_block_changed_ack_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound block_changed_ack packet framing and dispatch/decode for one official sequence fixture only; do not infer block prediction semantics, client world correction behavior, initialized game state, spawn readiness, world load, render readiness, or client-load completion."
+}

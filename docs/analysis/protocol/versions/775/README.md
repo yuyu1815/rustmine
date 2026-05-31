@@ -65,6 +65,7 @@ official jar function
 | `play_add_entity_clientbound_framed_dispatch` case note | [cases/play-add-entity-clientbound-framed-dispatch.md](cases/play-add-entity-clientbound-framed-dispatch.md) |
 | `play_animate_clientbound_framed_dispatch` case note | [cases/play-animate-clientbound-framed-dispatch.md](cases/play-animate-clientbound-framed-dispatch.md) |
 | `play_award_stats_clientbound_framed_dispatch` case note | [cases/play-award-stats-clientbound-framed-dispatch.md](cases/play-award-stats-clientbound-framed-dispatch.md) |
+| `play_block_changed_ack_clientbound_framed_dispatch` case note | [cases/play-block-changed-ack-clientbound-framed-dispatch.md](cases/play-block-changed-ack-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -108,7 +109,8 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `play_bundle_delimiter_clientbound_framed_dispatch`,
 `play_add_entity_clientbound_framed_dispatch`,
 `play_animate_clientbound_framed_dispatch`, and
-`play_award_stats_clientbound_framed_dispatch` are the passing jar-backed
+`play_award_stats_clientbound_framed_dispatch`, and
+`play_block_changed_ack_clientbound_framed_dispatch` are the passing jar-backed
 answer rows in this 775 shard. Their answers were regenerated from the
 official client jar and the manifest-declared Rust oracle tests passed against
 the current Leafish checkout.
@@ -241,9 +243,17 @@ the official `minecraft:award_stats` / `0x03` row, body shape for an
 per entry, the empty fixture body count `0`, and full body consumption through
 Stevenarella dispatch. It does not prove non-empty Stat registry entry
 decoding, stat semantics, UI/stat screen behavior, spawn readiness, world load,
-render readiness, or client-load completion. The next packet-support target by
-the same ordering rule is Play clientbound `minecraft:block_changed_ack` /
-`0x04`.
+render readiness, or client-load completion.
+
+`play_block_changed_ack_clientbound_framed_dispatch` is packet-support
+evidence for one official Play clientbound block_changed_ack sequence fixture
+only. It proves the official `minecraft:block_changed_ack` / `0x04` row, body
+shape as a single sequence VarInt, fixture sequence `12345`, and full body
+consumption through Stevenarella dispatch. It does not prove block prediction
+semantics, client world correction behavior, initialized game state, spawn
+readiness, world load, render readiness, or client-load completion. The next
+packet-support target by the same ordering rule is Play clientbound
+`minecraft:block_destruction` / `0x05`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary
