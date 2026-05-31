@@ -1,0 +1,25 @@
+{
+  "task_id": "play_chunk_batch_finished_clientbound_framed_dispatch_rust_fix",
+  "case_id": "play_chunk_batch_finished_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "failure_packet": "oracle/failures/775/play_chunk_batch_finished_clientbound_framed_dispatch.why-what-answer.jsonl",
+  "contract_path": "oracle/contracts/775/play_chunk_batch_finished_clientbound_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/play_chunk_batch_finished_clientbound_framed_dispatch.answer.jsonl",
+  "test_manifest_path": "oracle/test-manifests/775/play_chunk_batch_finished_clientbound_framed_dispatch.test-manifest.json",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "play_chunk_batch_finished_clientbound_framed_dispatch_matches_official_oracle_answer",
+  "allowed_write_scope": [
+    "stevenarella/protocol/src/protocol/packet.rs",
+    "stevenarella/protocol/src/protocol/mapped_packet.rs",
+    "stevenarella/protocol/src/protocol/versions/v26_1_2.rs"
+  ],
+  "required_behavior": "Dispatch Protocol 775 Play clientbound minecraft:chunk_batch_finished / 0x0b to a batchSize VarInt body decoder, preserve the official batchSize from the generated answer artifact, and fully consume the official body bytes.",
+  "forbidden": [
+    "Do not read official jars or decompiled sources in the Rust implementation lane.",
+    "Do not edit oracle/contracts/**, oracle/answers/**, or expected values.",
+    "Do not expand beyond the listed allowed_write_scope."
+  ],
+  "done_when": [
+    "cargo test --manifest-path oracle/rust-tests/Cargo.toml --test oracle_contracts play_chunk_batch_finished_clientbound_framed_dispatch_matches_official_oracle_answer -- --exact passes"
+  ]
+}

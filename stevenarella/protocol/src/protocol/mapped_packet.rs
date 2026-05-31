@@ -21,10 +21,10 @@ use crate::protocol::mapped_packet::play::clientbound::{
     PlayAddEntityClientbound, PlayAnimateClientbound, PlayAwardStatsClientbound,
     PlayBlockChangedAckClientbound, PlayBlockDestructionClientbound,
     PlayBlockEntityDataClientbound, PlayBlockEventClientbound, PlayBlockUpdateClientbound,
-    PlayerAbilities, PlayerInfo, PlayerInfo_String, PlayerListHeaderFooter,
-    PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay, ScoreboardObjective,
-    SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression, SetCooldown,
-    SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
+    PlayChunkBatchFinishedClientbound, PlayerAbilities, PlayerInfo, PlayerInfo_String,
+    PlayerListHeaderFooter, PluginMessageClientbound, ResourcePackSend, Respawn, ScoreboardDisplay,
+    ScoreboardObjective, SelectAdvancementTab, ServerDifficulty, ServerMessage, SetCompression,
+    SetCooldown, SetCurrentHotbarSlot, SetExperience, SetPassengers, SignEditorOpen, SoundEffect,
     SpawnExperienceOrb, SpawnGlobalEntity, SpawnMob, SpawnObject, SpawnPainting, SpawnPlayer,
     SpawnPosition, Statistics, StopSound, TabCompleteReply, Tags, Teams, TeleportPlayer,
     TimeUpdate, Title, TradeList, UnlockRecipes, UpdateBlockEntity, UpdateHealth, UpdateLight,
@@ -449,6 +449,9 @@ state_mapped_packets!(
             packet PlayBlockUpdateClientbound {
                 field location: Position,
                 field block_state: i32,
+            }
+            packet PlayChunkBatchFinishedClientbound {
+                field batch_size: i32,
             }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
@@ -1569,6 +1572,13 @@ impl MappablePacket for packet::Packet {
                     PlayBlockUpdateClientbound {
                         location: block_update.location,
                         block_state: block_update.block_state.0,
+                    },
+                )
+            }
+            packet::Packet::PlayChunkBatchFinishedClientbound(chunk_batch_finished) => {
+                mapped_packet::MappedPacket::PlayChunkBatchFinishedClientbound(
+                    PlayChunkBatchFinishedClientbound {
+                        batch_size: chunk_batch_finished.batch_size.0,
                     },
                 )
             }
