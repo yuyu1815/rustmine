@@ -8,13 +8,13 @@ use crate::protocol::mapped_packet::login::serverbound::{
 };
 use crate::protocol::mapped_packet::play::clientbound::{
     AcknowledgePlayerDigging, Advancements, Animation, BlockAction, BlockBreakAnimation,
-    BlockChange, BossBar, Camera, ChangeGameState, ChunkData, ChunkDataBulk, ChunkDataBulk_17,
-    ChunkData_17, ChunkData_Biomes3D, ChunkData_Biomes3D_bool, ChunkData_Biomes3D_i32,
-    ChunkData_HeightMap, ChunkData_NoEntities, ChunkData_NoEntities_u16, ChunkUnload,
-    CoFHLib_SendUUID, CollectItem, CombatEvent, ConfirmTransaction, CraftRecipeResponse,
-    DeclareCommands, DeclareRecipes, Disconnect, Effect, Entity, EntityAction, EntityAttach,
-    EntityDestroy, EntityEffect, EntityEquipment_Array, EntityEquipment_Single, EntityHeadLook,
-    EntityLook, EntityLookAndMove, EntityMetadata, EntityMove, EntityProperties,
+    BlockChange, BossBar, BundleDelimiterClientbound, Camera, ChangeGameState, ChunkData,
+    ChunkDataBulk, ChunkDataBulk_17, ChunkData_17, ChunkData_Biomes3D, ChunkData_Biomes3D_bool,
+    ChunkData_Biomes3D_i32, ChunkData_HeightMap, ChunkData_NoEntities, ChunkData_NoEntities_u16,
+    ChunkUnload, CoFHLib_SendUUID, CollectItem, CombatEvent, ConfirmTransaction,
+    CraftRecipeResponse, DeclareCommands, DeclareRecipes, Disconnect, Effect, Entity, EntityAction,
+    EntityAttach, EntityDestroy, EntityEffect, EntityEquipment_Array, EntityEquipment_Single,
+    EntityHeadLook, EntityLook, EntityLookAndMove, EntityMetadata, EntityMove, EntityProperties,
     EntityRemoveEffect, EntitySoundEffect, EntityStatus, EntityTeleport, EntityUpdateNBT,
     EntityUsedBed, EntityVelocity, Explosion, FacePlayer, JoinGame, KeepAliveClientbound, Maps,
     MultiBlockChange, NBTQueryResponse, NamedSoundEffect, OpenBook, Particle, PlayerAbilities,
@@ -400,6 +400,9 @@ state_mapped_packets!(
             }
         }
         clientbound Clientbound {
+            packet BundleDelimiterClientbound {
+                field empty: (),
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {
@@ -1447,6 +1450,13 @@ pub trait MappablePacket {
 impl MappablePacket for packet::Packet {
     fn map(self) -> MappedPacket {
         match self {
+            packet::Packet::BundleDelimiterClientbound(delimiter) => {
+                mapped_packet::MappedPacket::BundleDelimiterClientbound(
+                    BundleDelimiterClientbound {
+                        empty: delimiter.empty,
+                    },
+                )
+            }
             packet::Packet::Advancements(advancements) => {
                 mapped_packet::MappedPacket::Advancements(Advancements {
                     data: advancements.data,

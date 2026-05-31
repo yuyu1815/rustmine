@@ -61,6 +61,7 @@ official jar function
 | `configuration_keepalive_runtime_protocol_echo` case note | [cases/configuration-keepalive-runtime-protocol-echo.md](cases/configuration-keepalive-runtime-protocol-echo.md) |
 | `configuration_keepalive_runtime_spawn_reader_reaction` case note | [cases/configuration-keepalive-runtime-spawn-reader-reaction.md](cases/configuration-keepalive-runtime-spawn-reader-reaction.md) |
 | `configuration_finish_framed_terminal` case note | [cases/configuration-finish-framed-terminal.md](cases/configuration-finish-framed-terminal.md) |
+| `play_bundle_delimiter_clientbound_framed_dispatch` case note | [cases/play-bundle-delimiter-clientbound-framed-dispatch.md](cases/play-bundle-delimiter-clientbound-framed-dispatch.md) |
 | Oracle workbench workflow | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
 
 ## Evidence Snapshot
@@ -99,8 +100,9 @@ At this snapshot, `handshake_intention_framed_dispatch`,
 `configuration_code_of_conduct_clientbound_framed_dispatch`,
 `configuration_select_known_packs_framed_dispatch`,
 `configuration_custom_click_action_framed_dispatch`,
-`configuration_accept_code_of_conduct_framed_dispatch`, and
-`configuration_finish_framed_terminal` are the passing jar-backed answer rows
+`configuration_accept_code_of_conduct_framed_dispatch`,
+`configuration_finish_framed_terminal`, and
+`play_bundle_delimiter_clientbound_framed_dispatch` are the passing jar-backed answer rows
 in this 775 shard. Their answers were regenerated from the official client jar
 and the manifest-declared Rust oracle tests passed against the current Leafish
 checkout.
@@ -198,18 +200,22 @@ readiness, or client-load completion. Login clientbound packet-support is now
 complete through the current official `LoginProtocols.CLIENTBOUND_TEMPLATE`
 rows.
 
-The next packet-support table target is an official Play table audit from
-`GameProtocols.CLIENTBOUND_TEMPLATE` and `GameProtocols.SERVERBOUND_TEMPLATE`
-before selecting a Play packet case. A throwaway JShell official table check on
-2026-05-31 observed the first Play clientbound rows as
-`minecraft:bundle_delimiter` / `0x00`, `minecraft:add_entity` / `0x01`,
-`minecraft:animate` / `0x02`, `minecraft:award_stats` / `0x03`, and
-`minecraft:block_changed_ack` / `0x04`; first Play serverbound rows as
-`minecraft:accept_teleportation` / `0x00`, `minecraft:attack` / `0x01`,
-`minecraft:block_entity_tag_query` / `0x02`,
+`play_bundle_delimiter_clientbound_framed_dispatch` is packet-support evidence
+for the official Play clientbound bundle_delimiter registered singleton only.
+It proves the official `minecraft:bundle_delimiter` / `0x00` row, empty body,
+and full body consumption through Stevenarella dispatch. It does not prove
+bundle grouping behavior, Play state transition handling, world load, spawn
+readiness, render readiness, or client-load completion. The generated answer
+observed 141 Play clientbound rows from `GameProtocols.CLIENTBOUND_TEMPLATE`
+and 69 Play serverbound rows from `GameProtocols.SERVERBOUND_TEMPLATE`; first
+Play clientbound rows are `minecraft:bundle_delimiter` / `0x00`,
+`minecraft:add_entity` / `0x01`, `minecraft:animate` / `0x02`,
+`minecraft:award_stats` / `0x03`, and `minecraft:block_changed_ack` / `0x04`;
+first Play serverbound rows are `minecraft:accept_teleportation` / `0x00`,
+`minecraft:attack` / `0x01`, `minecraft:block_entity_tag_query` / `0x02`,
 `minecraft:bundle_item_selected` / `0x03`, and
-`minecraft:change_difficulty` / `0x04`. This observation is a routing clue,
-not a packet-support proof package.
+`minecraft:change_difficulty` / `0x04`. The next packet-support target by the
+same ordering rule is Play clientbound `minecraft:add_entity` / `0x01`.
 
 `configuration_custom_payload_framed_dispatch` is packet-support evidence for
 one official BrandPayload fixture only. It does not prove arbitrary

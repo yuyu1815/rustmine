@@ -1,0 +1,47 @@
+{
+  "case_id": "play_bundle_delimiter_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the bundle_delimiter packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().decode(...)",
+      "authority_note": "Official binary source for dispatching the Play clientbound bundle_delimiter packet id to the registered delimiter singleton."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode(...)",
+      "authority_note": "Official binary source for writing the full Play clientbound bundle_delimiter frame from the registered delimiter singleton."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.ClientboundBundleDelimiterPacket.type(), net.minecraft.network.protocol.BundleDelimiterPacket",
+      "authority_note": "Official binary source for the decoded packet class and empty-body delimiter packet type."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:bundle_delimiter",
+    "packet_class": "ClientboundBundleDelimiterPacket",
+    "input_fields": {
+      "fixture": "official table id decoded to registered delimiter singleton"
+    },
+    "field_notes": {
+      "fixture": "The first Play clientbound table row is a bundle delimiter singleton. A fresh constructor instance cannot be encoded by the official unit codec identity check, so the harness obtains the registered singleton by decoding the official table id and then re-encodes that official packet."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_bundle_delimiter_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound bundle_delimiter packet framing and dispatch/decode for the official registered empty-body delimiter singleton only; do not infer bundle grouping behavior, Play state transition handling, world load, spawn readiness, render readiness, or client-load completion."
+}

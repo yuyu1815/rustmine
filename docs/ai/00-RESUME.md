@@ -7,10 +7,10 @@ session, or handoff. This file is a recovery pointer only.
 
 | Field | Value |
 |---|---|
-| Current location | Protocol 775 `login_cookie_request_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Login clientbound `minecraft:cookie_request` answer for one Identifier key fixture `a:a` and decodes it through `packet::packet_by_id(775, State::Login, Direction::Clientbound, official id, body)` with full body consumption. The generated 26.1.2 Configuration clientbound and serverbound packet tables are complete through their current official rows; the Handshaking serverbound table has its official `minecraft:intention` / `0x00` row; Login serverbound packet-support is complete through current official rows: `minecraft:hello` / `0x00`, `minecraft:key` / `0x01`, `minecraft:custom_query_answer` / `0x02`, `minecraft:login_acknowledged` / `0x03`, and `minecraft:cookie_response` / `0x04`; Login clientbound packet-support is complete through current official rows: `minecraft:login_disconnect` / `0x00`, `minecraft:hello` / `0x01`, `minecraft:login_finished` / `0x02`, `minecraft:login_compression` / `0x03`, `minecraft:custom_query` / `0x04`, and `minecraft:cookie_request` / `0x05`. |
+| Current location | Protocol 775 `play_bundle_delimiter_clientbound_framed_dispatch` packet-support package now passes: the exact oracle test validates the official Play clientbound `minecraft:bundle_delimiter` / `0x00` answer for the registered empty-body delimiter singleton and decodes it through `packet::packet_by_id(775, State::Play, Direction::Clientbound, official id, body)` with full body consumption. The generated 26.1.2 Play table audit observed 141 clientbound rows and 69 serverbound rows from `GameProtocols.CLIENTBOUND_TEMPLATE` / `SERVERBOUND_TEMPLATE`; first Play clientbound rows are `minecraft:bundle_delimiter` / `0x00`, `minecraft:add_entity` / `0x01`, `minecraft:animate` / `0x02`, `minecraft:award_stats` / `0x03`, and `minecraft:block_changed_ack` / `0x04`; first Play serverbound rows are `minecraft:accept_teleportation` / `0x00`, `minecraft:attack` / `0x01`, `minecraft:block_entity_tag_query` / `0x02`, `minecraft:bundle_item_selected` / `0x03`, and `minecraft:change_difficulty` / `0x04`. Configuration clientbound/serverbound, Handshaking serverbound, Login serverbound, and Login clientbound packet-support are complete through their current official rows. |
 | Last touched area | `oracle/cases/775/`, `oracle/contracts/775/`, `oracle/answers/775/`, `oracle/test-manifests/775/`, `oracle/failures/775/`, `oracle/rust-tests/`, `oracle/harness/java/`, `stevenarella/protocol/src/protocol/{packet.rs,mapped_packet.rs,versions/v26_1_2.rs}`, `docs/analysis/protocol/versions/775/`, `docs/analysis/client-load/`, `docs/analysis/current-evidence/client-load.md`, `docs/ai/00-RESUME.md` |
 | Next read entry | `docs/ai/README.md`, `CONTEXT.md` for project terms, then `docs/analysis/responsibility/README.md` and the shard named by the active task |
-| Explicit uncertainty | `login_cookie_request_clientbound_framed_dispatch` proves only Login clientbound cookie_request packet id/body dispatch for one official key `a:a` fixture. It does not prove cookie storage policy, cookie request/response runtime behavior, Login-to-Configuration state transition handling, Configuration entry, runtime Configuration-to-Play transition, Play readiness, world load, render readiness, or client load completion. |
+| Explicit uncertainty | `play_bundle_delimiter_clientbound_framed_dispatch` proves only Play clientbound bundle_delimiter packet id/body dispatch for the official registered empty-body delimiter singleton. It does not prove bundle grouping behavior, runtime Configuration-to-Play transition, successful Play entry, world load, spawn readiness, render readiness, or client-load completion. |
 
 ## Recovery Flow
 
@@ -33,24 +33,14 @@ For future work:
          final summaries, and recovery pointer updates
         -> use subagents only for bounded evidence, mapping, review, or
            implementation work packages
-          -> for packet-support loop, network_login_configuration now has
-             Configuration clientbound/serverbound table proof through current
-             official rows, Handshaking serverbound proof for
-             minecraft:intention / 0x00, and Login serverbound proof for
-             minecraft:hello / 0x00, minecraft:key / 0x01,
-             minecraft:custom_query_answer / 0x02,
-             minecraft:login_acknowledged / 0x03, and
-             minecraft:cookie_response / 0x04, plus Login clientbound proof
-             for minecraft:login_disconnect / 0x00, minecraft:hello / 0x01,
-             minecraft:login_finished / 0x02,
-             minecraft:login_compression / 0x03,
-             minecraft:custom_query / 0x04, and
-             minecraft:cookie_request / 0x05
-            -> Login serverbound and Login clientbound packet-support are
-               complete through current official rows
-              -> next packet-support table target is an official Play table
-                 audit from GameProtocols.CLIENTBOUND_TEMPLATE /
-                 SERVERBOUND_TEMPLATE before choosing a Play packet case
+          -> for packet-support loop, Play table audit now exists from
+             GameProtocols.CLIENTBOUND_TEMPLATE / SERVERBOUND_TEMPLATE and
+             Play clientbound minecraft:bundle_delimiter / 0x00 proof passes
+            -> next packet-support target by the same official Play
+               clientbound table order is minecraft:add_entity / 0x01
+              -> first determine whether a smallest official add_entity fixture
+                 can be generated without initialized Minecraft/game state;
+                 stop with an initialized-harness blocker if it cannot
 ```
 
 ## Stop Boundary

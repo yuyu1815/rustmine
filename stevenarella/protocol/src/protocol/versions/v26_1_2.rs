@@ -59,4 +59,11 @@ protocol_packet_ids!(
             0x13 => ConfigurationCodeOfConductClientbound
         }
     }
+    play Play {
+        serverbound Serverbound {
+        }
+        clientbound Clientbound {
+            0x00 => BundleDelimiterClientbound
+        }
+    }
 );
