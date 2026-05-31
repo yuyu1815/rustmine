@@ -1,0 +1,26 @@
+{
+  "manifest_id": "login_disconnect_clientbound_framed_dispatch_test",
+  "case_id": "login_disconnect_clientbound_framed_dispatch",
+  "contract_path": "oracle/contracts/775/login_disconnect_clientbound_framed_dispatch.contract.json",
+  "answer_path": "oracle/answers/775/login_disconnect_clientbound_framed_dispatch.answer.jsonl",
+  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
+  "rust_test_name": "login_disconnect_clientbound_framed_dispatch_matches_official_oracle_answer",
+  "comparison_surface": "framed_dispatch_decode",
+  "comparison_surface_note": "Compares official Login clientbound login_disconnect framed packet id and empty literal Component reason body by splitting the generated frame and dispatching the official body bytes through Stevenarella packet_by_id.",
+  "test_topology_note": "The target file and test name are this manifest's current adapter, not the universal runner topology for all oracle cases.",
+  "official_source": {
+    "jar_role": "client",
+    "jar_path": "_analysis/minecraft-26.1.2/client.jar",
+    "function_or_member": "Component.literal(String), ClientboundLoginDisconnectPacket(Component), ClientboundLoginDisconnectPacket.STREAM_CODEC, LoginProtocols.CLIENTBOUND.codec().encode/decode(ClientboundLoginDisconnectPacket), LoginProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), ClientboundLoginDisconnectPacket.reason(), Component.getString(), ClientLoginPacketListener extends ClientCookiePacketListener",
+    "bytecode_source_command": "_tools/java/jdk-25-full/Contents/Home/bin/javap -classpath _analysis/minecraft-26.1.2/client.jar -c -p net.minecraft.network.protocol.login.LoginProtocols net.minecraft.network.protocol.login.LoginPacketTypes net.minecraft.network.protocol.login.ClientboundLoginDisconnectPacket net.minecraft.network.protocol.login.ClientLoginPacketListener"
+  },
+  "internal_owner": {
+    "domain": "wire_protocol",
+    "path": "stevenarella/protocol/src/protocol/mod.rs",
+    "symbol_or_test_surface": "packet::packet_by_id(775, State::Login, Direction::Clientbound, official packet id, official body)",
+    "scope_note": "Current implementation witness for Login clientbound login_disconnect framed dispatch/decode; not UI disconnect handling, screen flow, authentication failure handling, Configuration entry, Play readiness, or client-load completion."
+  },
+  "corridor": "Handshake -> Login -> Configuration",
+  "traceability_path": "docs/analysis/protocol/versions/775/traceability.md",
+  "stop_boundary": "This manifest proves Login clientbound login_disconnect packet framing and dispatch/decode for one official empty literal Component reason fixture only; it does not prove UI disconnect handling, screen flow, authentication failure handling, Configuration entry, Play readiness, or client-load completion."
+}

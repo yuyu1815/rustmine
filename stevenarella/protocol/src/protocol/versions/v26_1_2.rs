@@ -15,6 +15,7 @@ protocol_packet_ids!(
             0x04 => LoginCookieResponse
         }
         clientbound Clientbound {
+            0x00 => LoginDisconnect
         }
     }
     configuration Configuration {

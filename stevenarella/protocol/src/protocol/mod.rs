@@ -90,6 +90,16 @@ pub(crate) fn read_nbt_string_component<R: io::Read>(
     Ok(format::Component::from_str(&text))
 }
 
+pub(crate) fn read_lenient_json_component<R: io::Read>(
+    buf: &mut R,
+) -> Result<format::Component, Error> {
+    let raw: String = Serializable::read_from(buf)?;
+    match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(serde_json::Value::String(text)) => Ok(format::Component::from_str(&text)),
+        Ok(_) | Err(_) => Ok(format::Component::from_str(&raw)),
+    }
+}
+
 /// Helper macro for defining packets
 #[macro_export]
 macro_rules! state_packets {
@@ -177,6 +187,19 @@ macro_rules! state_packets {
                     let _profile_id: UUID = Serializable::read_from(buf)?;
                     return Ok(Option::Some(Packet::LoginStart(
                         packet::login::serverbound::LoginStart { username },
+                    )));
+                }
+            }
+
+            if let (775, State::Login, Direction::Clientbound) = (version, state, dir) {
+                let internal_id = packet::versions::translate_internal_packet_id_for_version(
+                    version, state, dir, id, true,
+                );
+                if internal_id == packet::login::clientbound::internal_ids::LoginDisconnect {
+                    return Ok(Option::Some(Packet::LoginDisconnect(
+                        packet::login::clientbound::LoginDisconnect {
+                            reason: read_lenient_json_component(buf)?,
+                        },
                     )));
                 }
             }
