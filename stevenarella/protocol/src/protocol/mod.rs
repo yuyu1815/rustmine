@@ -202,6 +202,22 @@ macro_rules! state_packets {
                         },
                     )));
                 }
+                if internal_id == packet::login::clientbound::internal_ids::LoginSuccess_UUID {
+                    let uuid: UUID = Serializable::read_from(buf)?;
+                    let username: String = Serializable::read_from(buf)?;
+                    let property_count: VarInt = Serializable::read_from(buf)?;
+                    for _ in 0..property_count.0 {
+                        let _property_name: String = Serializable::read_from(buf)?;
+                        let _property_value: String = Serializable::read_from(buf)?;
+                        let has_signature: bool = Serializable::read_from(buf)?;
+                        if has_signature {
+                            let _property_signature: String = Serializable::read_from(buf)?;
+                        }
+                    }
+                    return Ok(Option::Some(Packet::LoginSuccess_UUID(
+                        packet::login::clientbound::LoginSuccess_UUID { uuid, username },
+                    )));
+                }
             }
 
             if let (State::Configuration, Direction::Serverbound) = (state, dir) {

@@ -17,6 +17,7 @@ protocol_packet_ids!(
         clientbound Clientbound {
             0x00 => LoginDisconnect
             0x01 => EncryptionRequest_ShouldAuthenticate
+            0x02 => LoginSuccess_UUID
         }
     }
     configuration Configuration {

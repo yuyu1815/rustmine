@@ -1,0 +1,68 @@
+{
+  "case_id": "login_finished_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Handshake -> Login -> Configuration",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "com.mojang.authlib.GameProfile(UUID, String)",
+      "authority_note": "Official binary dependency for constructing the smallest GameProfile accepted by the Login clientbound finished packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.ClientboundLoginFinishedPacket(GameProfile)",
+      "authority_note": "Official binary source for constructing the Login clientbound login_finished packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.ClientboundLoginFinishedPacket.STREAM_CODEC.encode(...)",
+      "authority_note": "Official binary source for Login clientbound login_finished packet body encoding through ByteBufCodecs.GAME_PROFILE."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND.codec().encode(ClientboundLoginFinishedPacket)",
+      "authority_note": "Official binary source for Login clientbound login_finished framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Login clientbound login_finished framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.login.LoginProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Login clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundLoginFinishedPacket.gameProfile(), isTerminal(), ClientLoginPacketListener.handleLoginFinished(ClientboundLoginFinishedPacket)",
+      "authority_note": "Official binary source for reading decoded login_finished fields, terminal flag, and confirming the Login listener clientbound surface."
+    }
+  ],
+  "question": {
+    "state": "Login",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:login_finished",
+    "packet_class": "ClientboundLoginFinishedPacket",
+    "input_fields": {
+      "profile_id": "00000000-0000-0000-0000-000000000000",
+      "profile_name": ""
+    },
+    "field_notes": {
+      "profile_id": "Smallest zero UUID accepted by GameProfile(UUID, String) and ByteBufCodecs.GAME_PROFILE.",
+      "profile_name": "Smallest non-null String accepted by GameProfile(UUID, String) and the official PLAYER_NAME stringUtf8(16) codec.",
+      "properties": "Omitted by using GameProfile(UUID, String), which official bytecode delegates to PropertyMap.EMPTY."
+    }
+  },
+  "answer_path": "oracle/answers/775/login_finished_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Login clientbound login_finished packet framing and dispatch/decode for one official zero-UUID empty-name empty-property GameProfile fixture only; do not infer authentication success, Login-to-Configuration state transition handling, profile property semantics, skin/session trust, Configuration entry, Play readiness, or client-load completion."
+}
