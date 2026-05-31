@@ -2574,6 +2574,7 @@ pub mod configuration {
             pub const ConfigurationUpdateEnabledFeaturesClientbound: i32 = 12;
             pub const ConfigurationUpdateTagsClientbound: i32 = 13;
             pub const ConfigurationSelectKnownPacksClientbound: i32 = 14;
+            pub const ConfigurationCustomReportDetailsClientbound: i32 = 15;
         }
 
         #[derive(Default, Debug)]
@@ -2885,6 +2886,38 @@ pub mod configuration {
 
             fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
                 self.known_packs.write_to(buf)?;
+                Ok(())
+            }
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCustomReportDetail {
+            pub key: String,
+            pub value: String,
+        }
+
+        #[derive(Default, Debug)]
+        pub struct ConfigurationCustomReportDetailsClientbound {
+            pub details: Vec<ConfigurationCustomReportDetail>,
+        }
+
+        impl PacketType for ConfigurationCustomReportDetailsClientbound {
+            fn packet_id(&self, version: i32) -> i32 {
+                packet::versions::translate_internal_packet_id_for_version(
+                    version,
+                    State::Configuration,
+                    Direction::Clientbound,
+                    internal_ids::ConfigurationCustomReportDetailsClientbound,
+                    false,
+                )
+            }
+
+            fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
+                VarInt(self.details.len() as i32).write_to(buf)?;
+                for detail in &self.details {
+                    detail.key.write_to(buf)?;
+                    detail.value.write_to(buf)?;
+                }
                 Ok(())
             }
         }

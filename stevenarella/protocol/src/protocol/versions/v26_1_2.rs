@@ -28,6 +28,7 @@ protocol_packet_ids!(
             0x0c => ConfigurationUpdateEnabledFeaturesClientbound
             0x0d => ConfigurationUpdateTagsClientbound
             0x0e => ConfigurationSelectKnownPacksClientbound
+            0x0f => ConfigurationCustomReportDetailsClientbound
         }
     }
 );

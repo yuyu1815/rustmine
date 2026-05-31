@@ -1,0 +1,59 @@
+{
+  "case_id": "configuration_custom_report_details_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Login -> Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundCustomReportDetailsPacket(Map<String, String>)",
+      "authority_note": "Official binary source for constructing the Configuration clientbound custom_report_details packet fixture."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.common.ClientboundCustomReportDetailsPacket.STREAM_CODEC",
+      "authority_note": "Official binary source for Configuration clientbound custom_report_details body encoding and decoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().encode(new ClientboundCustomReportDetailsPacket(...))",
+      "authority_note": "Official binary source for Configuration clientbound custom_report_details framed packet encoding."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND.codec().decode(...)",
+      "authority_note": "Official binary source for Configuration clientbound custom_report_details framed packet dispatch/decode."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.configuration.ConfigurationProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Configuration clientbound packet table."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundCustomReportDetailsPacket.details()",
+      "authority_note": "Official binary source for reading the decoded custom report details map."
+    }
+  ],
+  "question": {
+    "state": "Configuration",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:custom_report_details",
+    "packet_class": "ClientboundCustomReportDetailsPacket",
+    "input_fields": {
+      "details": {}
+    },
+    "field_notes": {
+      "details": "Explicit empty Map<String, String> fixture accepted by the official constructor/codec without initialized Minecraft state."
+    }
+  },
+  "answer_path": "oracle/answers/775/configuration_custom_report_details_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Configuration clientbound custom_report_details packet framing and dispatch/decode for one official empty details map fixture only; do not infer report UI behavior, moderation/reporting semantics, Configuration completion, Play entry, world load, render readiness, or runtime behavior."
+}
