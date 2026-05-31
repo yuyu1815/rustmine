@@ -55,6 +55,7 @@ import net.minecraft.network.protocol.game.ClientboundChunksBiomesPacket;
 import net.minecraft.network.protocol.game.ClientboundClearTitlesPacket;
 import net.minecraft.network.protocol.game.ClientboundCommandsPacket;
 import net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket;
+import net.minecraft.network.protocol.game.ClientboundContainerClosePacket;
 import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.login.ClientLoginPacketListener;
@@ -375,6 +376,10 @@ public final class OracleHarness {
         }
         if ("play_commands_clientbound_framed_dispatch".equals(caseId)) {
             writeAnswer(input, playCommandsClientboundFramedDispatch(input));
+            return;
+        }
+        if ("play_container_close_clientbound_framed_dispatch".equals(caseId)) {
+            writeAnswer(input, playContainerCloseClientboundFramedDispatch(input));
             return;
         }
 
@@ -4467,6 +4472,91 @@ public final class OracleHarness {
         answerBody.put("decoded_entry_count", privateListSize(decodedCommands, "entries"));
         answerBody.put("stream_decoded_root_index", privateInt(streamDecoded, "rootIndex"));
         answerBody.put("decoded_root_index", privateInt(decodedCommands, "rootIndex"));
+        answerBody.put("remaining_after_packet_stream_decode", packetIn.readableBytes());
+        answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
+        answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));
+        answerBody.put("fixture_body_hex", HexFormat.of().formatHex(fixtureBody));
+        answerBody.put("remaining_after_official_decode", framedIn.readableBytes());
+        answerBody.put("play_clientbound_packet_table", playClientboundPackets);
+        answer.put("answer", answerBody);
+        return answer;
+    }
+
+    private static Map<String, Object> playContainerCloseClientboundFramedDispatch(JsonObject input) {
+        JsonObject inputFields = input.getAsJsonObject("question").getAsJsonObject("input_fields");
+        int containerId = inputFields.get("container_id").getAsInt();
+        ClientboundContainerClosePacket packet = new ClientboundContainerClosePacket(containerId);
+
+        FriendlyByteBuf fixtureBodyOut = new FriendlyByteBuf(Unpooled.buffer());
+        ClientboundContainerClosePacket.STREAM_CODEC.encode(fixtureBodyOut, packet);
+        byte[] fixtureBody = readableBytes(fixtureBodyOut);
+
+        FriendlyByteBuf packetIn = new FriendlyByteBuf(Unpooled.wrappedBuffer(fixtureBody));
+        ClientboundContainerClosePacket streamDecoded =
+            ClientboundContainerClosePacket.STREAM_CODEC.decode(packetIn);
+
+        List<Map<String, Object>> playClientboundPackets = new ArrayList<>();
+        final int[] containerClosePacketId = { -1 };
+        GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets((packetType, packetId) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("packet_id", packetId);
+            row.put("packet_type", packetType.id().toString());
+            row.put("flow", packetType.flow().id());
+            playClientboundPackets.add(row);
+            if ("minecraft:container_close".equals(packetType.id().toString())) {
+                containerClosePacketId[0] = packetId;
+            }
+        });
+        if (containerClosePacketId[0] < 0) {
+            throw new IllegalStateException("missing official Play clientbound container_close packet id");
+        }
+
+        RegistryAccess registryAccess = RegistryAccess.EMPTY;
+        var protocolInfo = GameProtocols.CLIENTBOUND_TEMPLATE.bind(
+            RegistryFriendlyByteBuf.decorator(registryAccess)
+        );
+        RegistryFriendlyByteBuf framedOut =
+            new RegistryFriendlyByteBuf(Unpooled.buffer(), registryAccess);
+        protocolInfo.codec().encode(framedOut, packet);
+        byte[] framed = readableBytes(framedOut);
+        byte[] body = bytesAfterVarIntPrefix(framed);
+
+        RegistryFriendlyByteBuf framedIn =
+            new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(framed), registryAccess);
+        Packet<? super ClientGamePacketListener> decodedPacket =
+            protocolInfo.codec().decode(framedIn);
+        if (!(decodedPacket instanceof ClientboundContainerClosePacket decodedContainerClose)) {
+            throw new IllegalStateException(
+                "decoded Play container_close as unexpected packet " + decodedPacket.getClass().getName()
+            );
+        }
+
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("case_id", input.get("case_id").getAsString());
+        answer.put("generated_by", Map.of(
+            "tool", "oracle/harness/java",
+            "version_manifest", "oracle/versions/26.1.2.toml",
+            "timestamp_utc", Instant.now().toString()
+        ));
+        answer.put("official_source", Map.of(
+            "jar_role", "client",
+            "jar_path", "_analysis/minecraft-26.1.2/client.jar",
+            "sha1", "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+            "function_or_member", "ClientboundContainerClosePacket(int), ClientboundContainerClosePacket.STREAM_CODEC, ClientboundContainerClosePacket(FriendlyByteBuf), ClientboundContainerClosePacket.write(FriendlyByteBuf), FriendlyByteBuf.readContainerId/writeContainerId, GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...), GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...), ClientGamePacketListener.handleContainerClose(ClientboundContainerClosePacket)",
+            "bytecode_source_command", "CP=\"_analysis/minecraft-26.1.2/client.jar:$(cat oracle/harness/java/build/classpath.txt)\"; _tools/java/jdk-25-full/Contents/Home/bin/javap -classpath \"$CP\" -c -p net.minecraft.network.protocol.game.ClientboundContainerClosePacket net.minecraft.network.protocol.game.GamePacketTypes net.minecraft.network.protocol.game.GameProtocols net.minecraft.network.protocol.game.ClientGamePacketListener"
+        ));
+
+        Map<String, Object> answerBody = new LinkedHashMap<>();
+        answerBody.put("state", "Play");
+        answerBody.put("flow", "Clientbound");
+        answerBody.put("packet_type", "minecraft:container_close");
+        answerBody.put("decoded_packet_type", decodedPacket.type().id().toString());
+        answerBody.put("decoded_packet_class", decodedPacket.getClass().getName());
+        answerBody.put("fixture", "official ClientboundContainerClosePacket(int) constructor fixture with containerId from the case; context-free container id body with no initialized Menu, screen, Level, or game state");
+        answerBody.put("official_body_shape", "containerId encoded by ClientboundContainerClosePacket.write(FriendlyByteBuf) via FriendlyByteBuf.writeContainerId and read by the private ClientboundContainerClosePacket(FriendlyByteBuf) constructor via FriendlyByteBuf.readContainerId");
+        answerBody.put("input_container_id", containerId);
+        answerBody.put("stream_decoded_container_id", streamDecoded.getContainerId());
+        answerBody.put("decoded_container_id", decodedContainerClose.getContainerId());
         answerBody.put("remaining_after_packet_stream_decode", packetIn.readableBytes());
         answerBody.put("encoded_framed_hex", HexFormat.of().formatHex(framed));
         answerBody.put("encoded_body_hex", HexFormat.of().formatHex(body));

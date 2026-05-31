@@ -80,6 +80,7 @@ protocol_packet_ids!(
             0x0e => PlayClearTitlesClientbound
             0x0f => PlayCommandSuggestionsClientbound
             0x10 => DeclareCommands
+            0x11 => WindowClose
         }
     }
 );
