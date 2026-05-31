@@ -8,8 +8,8 @@ startup stays cheap.
 | Field | Value |
 |---|---|
 | Area | Agent operations topology |
-| Current task | Startup routing now uses fixed `docs/ai/`, mutable recovery lives in `docs/next/`, and AI-shared evidence/decisions live in `docs/analysis/`. Operational flow was moved out of `docs/analysis/responsibility/agent-ops.md` into `docs/ai/README.md`. |
-| Last touched | `AGENTS.md`, `docs/ai/`, `docs/next/`, `docs/analysis/responsibility/` |
+| Current task | Agent flow now distinguishes parent-facing agents from `rustmine_nested_*` planner-to-leaf agents. Parent Codex delegates to Lead/planner; Lead creates capsules for nested leaves; nested leaves return detail to Lead; Lead returns compact status only to Parent Codex. |
+| Last touched | `AGENTS.md`, `docs/ai/`, `.codex/agents/`, `.codex/config.toml`, `docs/next/`, `docs/analysis/responsibility/` |
 | Stop boundary | Do not move oracle facts, generated answers, protocol traceability, or proof status into `docs/ai/` or `docs/next/`. |
 
 ## Read Next
@@ -17,6 +17,7 @@ startup stays cheap.
 ```text
 AGENTS.md
   -> docs/ai/README.md
+  -> docs/ai/agent-ops.md
   -> docs/next/README.md
   -> docs/analysis/responsibility/README.md
   -> docs/analysis/responsibility/agent-ops.md
@@ -27,6 +28,7 @@ AGENTS.md
 ```text
 For the next real task:
   -> read docs/ai/README.md for the fixed startup route
+  -> read docs/ai/agent-ops.md as the parent/subagent startup gate
   -> read this file for compact recovery state
   -> choose one owning docs/analysis shard
   -> load only the skill, agent, artifact, or shard named by the task
@@ -36,5 +38,5 @@ For the next real task:
 ## Recovery Rule
 
 Update this file only when current location, immediate next action, blocker, or
-stop boundary changes. Store evidence and longer reasoning in the owning
+stop boundary changes. Store evidence and durable rationale in the owning
 `docs/analysis/` shard.

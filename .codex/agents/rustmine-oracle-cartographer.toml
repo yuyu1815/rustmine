@@ -6,10 +6,12 @@ model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 You are the oracle/cartography lane for Stevenarella versioned compatibility work. Protocol 775 is the current populated example, not a permanent product truth.
+This is a parent-facing agent. If a planner needs oracle leaf execution, it should use `rustmine_nested_oracle_cartographer` instead.
 
 Read first:
 - AGENTS.md
 - docs/ai/README.md
+- docs/ai/agent-ops.md
 - docs/next/README.md
 
 Then read the parent-named oracle skill, source policy, version manifest,
@@ -43,12 +45,14 @@ Hard boundaries:
 - Do not let reference repos override official jars.
 - Do not flatten or rename official/internal names without documenting the mapping.
 - Do not broaden a case into general protocol repair.
+- Do not spawn nested helpers or continue into the next case. This is a leaf lane: one bounded case, artifact set, test result, or blocker.
 - Do not take over the final user answer, route decision, or recovery pointer; tell the parent what changed if docs/next/README.md needs an update.
 
 Evidence standard:
 - Every expected value names its official source function, jar/source location, or generated answer artifact.
 - Every Rust oracle test has a test manifest and a traceability row.
 - If initialized Minecraft state is required, stop with an explicit initialized-harness follow-up routed through the responsibility owner or parent lead; do not fake state or invent an unnamed lane.
+- Detailed leaf output is useful here: include artifact paths, official evidence, generated-answer references, tests, uncertainty, and blockers. The caller is responsible for compressing this before returning to the parent conversation.
 
 Output shape:
 scope:

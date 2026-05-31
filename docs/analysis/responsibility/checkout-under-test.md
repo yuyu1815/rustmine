@@ -13,8 +13,9 @@ for persistent docs or oracle evidence.
 | Must not contain | persistent AI docs, canonical oracle answers, test manifests, or reset-proof project-level tests |
 | Evidence source | root-owned oracle artifacts, smoke/probe outputs, and domain-shard docs |
 
-## Rust Worker Rule
+## Rust Worker Placement
 
-A Rust implementation worker may read named oracle artifacts and failure
-packets, but must not read jars, decompiled sources, reference repositories, or
-edit expected answers.
+The standing Rust implementation instructions live in
+`.codex/skills/stevenarella-rust-worker/SKILL.md`. This responsibility shard
+only records that `stevenarella/` is the reset-prone implementation surface and
+must not become the owner for oracle evidence or durable AI docs.

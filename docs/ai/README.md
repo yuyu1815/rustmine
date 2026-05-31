@@ -9,31 +9,39 @@ proof status, packet facts, or next actions here.
 ```text
 AGENTS.md
   -> docs/ai/README.md
+  -> docs/ai/agent-ops.md
   -> docs/next/README.md
   -> one canonical owner below
   -> active skill, agent, artifact, or shard
 ```
 
+`docs/ai/agent-ops.md` is always part of startup. It decides the parent/subagent
+posture before owner selection, so delegation is not discovered late by
+accident.
+
 ## Route Map
 
 | Need | Read |
 |---|---|
-| Project glossary | [../../CONTEXT.md](../../CONTEXT.md) |
-| Current next task / recovery pointer | [../next/README.md](../next/README.md) |
-| AI shared memory route map | [../analysis/README.md](../analysis/README.md) |
-| Current evidence route | [../analysis/current-evidence/README.md](../analysis/current-evidence/README.md) |
-| Client-load phase route | [../analysis/client-load/README.md](../analysis/client-load/README.md) |
-| Protocol route | [../analysis/protocol/README.md](../analysis/protocol/README.md) |
-| Responsibility route | [../analysis/responsibility/README.md](../analysis/responsibility/README.md) |
-| Agent-ops responsibility | [../analysis/responsibility/agent-ops.md](../analysis/responsibility/agent-ops.md) |
-| Operator collaboration lens | [../../.codex/skills/yuzu/SKILL.md](../../.codex/skills/yuzu/SKILL.md) |
-| Fixed workflows and lenses | [../../.codex/skills/](../../.codex/skills/) |
-| Codex custom agents | [../../.codex/agents/](../../.codex/agents/) |
-| Source policy | [../../.codex/skills/stevenarella-oracle-workbench/references/source-policy.md](../../.codex/skills/stevenarella-oracle-workbench/references/source-policy.md) |
-| Oracle version manifests | [../../oracle/versions/](../../oracle/versions/) |
-| Oracle/task schemas | [../../.codex/skills/stevenarella-oracle-workbench/schemas/](../../.codex/skills/stevenarella-oracle-workbench/schemas/) |
-| Subagent task schema | [../../.codex/skills/stevenarella-oracle-workbench/schemas/subagent-task.schema.json](../../.codex/skills/stevenarella-oracle-workbench/schemas/subagent-task.schema.json) |
-| Rust fix task schema | [../../.codex/skills/stevenarella-oracle-workbench/schemas/rust-fix-task.schema.json](../../.codex/skills/stevenarella-oracle-workbench/schemas/rust-fix-task.schema.json) |
+| Project glossary | `CONTEXT.md` |
+| Current next task / recovery pointer | `docs/next/README.md` |
+| AI shared memory route map | `docs/analysis/README.md` |
+| Current evidence route | `docs/analysis/current-evidence/README.md` |
+| Client-load phase route | `docs/analysis/client-load/README.md` |
+| Protocol route | `docs/analysis/protocol/README.md` |
+| Responsibility route | `docs/analysis/responsibility/README.md` |
+| Agent operation startup rules | `docs/ai/agent-ops.md` |
+| Agent-ops responsibility/evidence | `docs/analysis/responsibility/agent-ops.md` |
+| Operator collaboration lens | `.codex/skills/yuzu/SKILL.md` |
+| Fixed workflows and lenses | `.codex/skills` |
+| Codex custom agents | `.codex/agents` |
+| Oracle workbench router | `.codex/skills/stevenarella-oracle-workbench/SKILL.md` |
+| Oracle case builder | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
+| Source policy | `.codex/skills/stevenarella-oracle-workbench/references/source-policy.md` |
+| Oracle version manifests | `oracle/versions` |
+| Oracle/task schemas | `.codex/skills/stevenarella-oracle-workbench/schemas` |
+| Subagent task schema | `.codex/skills/stevenarella-oracle-workbench/schemas/subagent-task.schema.json` |
+| Rust fix task schema | `.codex/skills/stevenarella-oracle-workbench/schemas/rust-fix-task.schema.json` |
 
 Version-specific facts route through the manifest directory and
 `docs/analysis/protocol/versions/`. Do not infer that one populated version is
@@ -45,8 +53,13 @@ always the active target for a later task.
 docs/ai/
   README.md
     -> fixed startup map
-      -> choose one owner
-        -> read only what the active task needs
+      -> read agent-ops startup gate
+        -> choose parent-only or bounded delegation posture
+          -> choose one owner
+            -> read only what the active task needs
+
+  agent-ops.md
+    -> fixed subagent delegation, nesting, return, and wait rules
 
   00-RESUME.md
     -> compatibility pointer to docs/next/README.md
@@ -71,6 +84,7 @@ put it in `docs/next/` or the owning `docs/analysis/` shard instead.
 | Information | Destination |
 |---|---|
 | Startup route, safety posture, low-token reading map | `docs/ai/` |
+| Stable subagent delegation, nesting, return, and wait rules | `docs/ai/agent-ops.md` and `.codex/agents/*.toml` |
 | Current location, next action, immediate blocker, stop boundary | `docs/next/` |
 | Evidence, proof state, decisions, analysis notes shared between AI runs | `docs/analysis/` |
 | Versioned machine-checkable oracle facts | `oracle/` |
@@ -116,8 +130,9 @@ The startup route should stay spatial and short:
 fixed route:
   AGENTS.md
     -> docs/ai/README.md
-      -> docs/next/README.md
-        -> one owning docs/analysis shard
+      -> docs/ai/agent-ops.md
+        -> docs/next/README.md
+          -> one owning docs/analysis shard
 ```
 
 Do not require fresh agents to read every skill, every agent definition, or the

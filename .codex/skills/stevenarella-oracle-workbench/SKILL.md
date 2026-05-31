@@ -1,96 +1,57 @@
 ---
 name: stevenarella-oracle-workbench
-description: Build versioned oracle cases from official Minecraft client/server jars, generate answer artifacts, and write oracle tests that compare Stevenarella against official behavior. Use when reading jars, creating protocol contracts, producing why/what/answer failures, or adding compatibility tests. Protocol 775 is the current populated example.
+description: Route Stevenarella oracle work to the smallest needed oracle skill or reference. Use when reading official jars, creating oracle cases/contracts/answers/tests, producing why/what/answer failures, or deciding whether packet/state evidence belongs to oracle work.
 ---
 
-# Stevenarella Oracle Workbench
+# Stevenarella Oracle Workbench Router
+
+This is the lightweight entry point for oracle work. It chooses the smallest
+oracle route and avoids loading the heavy generation workflow unless the active
+task needs it.
 
 ## Owner
 
 ```text
 official jar/decompiled source
-  -> active version
-  -> oracle case
-  -> contract artifact
-  -> official answer artifact
-  -> test manifest
-  -> oracle test
-  -> traceability row
-  -> why/what/answer failure
+  -> bounded oracle route
+    -> case builder / source policy / failure format / model lane
 ```
 
-This skill may write `oracle/**`, `.codex/skills/stevenarella-oracle-workbench/schemas/**`, and oracle tests. It must
-not edit Stevenarella Rust implementation.
+This skill may route work under `oracle/**`, oracle tests,
+`.codex/skills/stevenarella-oracle-workbench/schemas/**`, and protocol
+traceability. It must not edit Stevenarella Rust implementation.
 
 For client-load claims, read `.codex/skills/client-load-compatibility/SKILL.md`
-first. Protocol packet work for the active version is one load surface, not the
+only when the task is about loading, playable readiness, registry/world/render
+readiness, or phase selection. Protocol packet work is one load surface, not the
 whole client-load definition.
 
-## Workflow
+## Route
 
-1. Choose the active version and one bounded case; default to the current populated protocol manifest only when the task does not name a version.
-2. Read `oracle/versions/<version>.toml`.
-3. Read official jar/decompiled source first.
-4. Use reference repositories only as witnesses.
-5. Write or update one `oracle/cases/<protocol_version>/*.json` case.
-6. Write or update one `oracle/contracts/<protocol_version>/*.contract.json` contract.
-7. Generate one `oracle/answers/<protocol_version>/*.answer.jsonl` artifact from an official function.
-8. Write or update one `oracle/test-manifests/<protocol_version>/*.test-manifest.json` manifest.
-9. Write or update a Rust oracle test that reads the answer artifact and manifest.
-10. Update `docs/analysis/protocol/versions/<protocol_version>/traceability.md` and the relevant `docs/analysis/protocol/versions/<protocol_version>/cases/*.md` note.
-11. Run the helper/oracle test and read each `PASS:` line as scoped evidence for the named case, artifact link, answer regeneration, structural cross-reference check, or exact Rust test execution only.
-12. If the case/test is wrong, fix only oracle-owned files.
-13. If Stevenarella is wrong, emit a `why/what/answer` failure and a `rust-fix-task` packet.
+| Need | Read |
+|---|---|
+| Create or update a jar-backed case, contract, answer, manifest, Rust oracle test, traceability row, or failure packet | `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` |
+| Decide official jar vs reference witness policy | `.codex/skills/stevenarella-oracle-workbench/references/source-policy.md` |
+| Report an oracle-vs-Rust mismatch | `.codex/skills/stevenarella-oracle-workbench/references/failure-format.md` |
+| Choose model lane or worker capacity | `.codex/skills/stevenarella-oracle-workbench/references/model-lanes.toml` |
+| Validate schema shape | `.codex/skills/stevenarella-oracle-workbench/schemas/*.schema.json` named by the task |
 
-## Source Policy
+## Hard Rules
 
-Read `references/source-policy.md` before touching any jar, source, or reference
-repository.
+| Rule | Meaning |
+|---|---|
+| Official answer first | Expected values come from official jars/functions or generated oracle answer artifacts. |
+| No Rust implementation edits | Oracle work may emit a failure packet for Rust, but does not patch Stevenarella. |
+| References are witnesses | Reference repositories may explain or cross-check; official jars win. |
+| One bounded case | Do not broaden a case into general protocol repair. |
+| Mutable proof state lives lower | Put evidence and proof status in `docs/analysis/` or `oracle/`, not in this router. |
 
-## Failure Format
-
-Read `references/failure-format.md` before reporting a failed oracle test.
-
-## Test Generation
-
-Read `references/test-generation.md` before creating a new jar-backed oracle
-test, extractor, test manifest, or Rust oracle test surface.
-
-## Direct Official Calls
-
-Use the lightweight Java harness first:
+## Output Shape
 
 ```text
-oracle/harness/java/scripts/compile.sh
-oracle/harness/java/scripts/run_case.sh oracle/cases/<protocol_version>/<case>.json
+scope:
+route:
+evidence_needed:
+stop_boundary:
+next_or_blocker:
 ```
-
-To verify every existing jar-backed case plus the Rust oracle contract surface,
-run:
-
-```text
-bash oracle/scripts/run_jar_backed_oracle_tests.sh
-```
-
-The runner is a scoped integrity check, not a broad compatibility verdict. It
-must perform structural case/contract/manifest cross-reference validation,
-remove the target answer before jar generation, validate the regenerated JSONL
-answer with bespoke runner checks, and execute each manifest-declared Rust
-oracle test by exact name before Cargo output is treated as evidence.
-
-For the current populated packet-table example, call:
-
-```text
-ConfigurationProtocols.SERVERBOUND.details().listPackets(...)
-<Packet>.STREAM_CODEC.encode(...)
-<Packet>.STREAM_CODEC.decode(...)
-```
-
-For registry, gameplay, or initialized client/server behavior, create an
-explicit initialized-harness follow-up such as Fabric Loader JUnit or GameTest.
-Do not fake initialized Minecraft state.
-
-## Stop
-
-Stop if the expected value cannot be produced by an official function or a
-generated answer artifact. Do not hand-write expected packet bytes.

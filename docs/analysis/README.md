@@ -20,11 +20,11 @@ docs/analysis/
 
 | Need | Canonical location |
 |---|---|
-| Client-load phase map | [client-load/README.md](client-load/README.md) |
-| Current evidence | [current-evidence/README.md](current-evidence/README.md) |
-| Protocol analysis index | [protocol/README.md](protocol/README.md) |
-| Protocol 775 traceability | [protocol/versions/775/traceability.md](protocol/versions/775/traceability.md) |
-| Responsibility decisions | [responsibility/README.md](responsibility/README.md) |
+| Client-load phase map | `docs/analysis/client-load/README.md` |
+| Current evidence | `docs/analysis/current-evidence/README.md` |
+| Protocol analysis index | `docs/analysis/protocol/README.md` |
+| Protocol 775 traceability | `docs/analysis/protocol/versions/775/traceability.md` |
+| Responsibility decisions | `docs/analysis/responsibility/README.md` |
 
 ## Index Rule
 
@@ -32,4 +32,4 @@ Do not add evidence rows, packet facts, or current proof status here. Put those
 in the shard named by the index.
 
 Do not put next-task recovery state here. Put current location, immediate next
-action, blocker, and stop boundary in [../next/README.md](../next/README.md).
+action, blocker, and stop boundary in `docs/next/README.md`.

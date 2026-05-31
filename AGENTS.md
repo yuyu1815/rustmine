@@ -23,12 +23,15 @@ about load or playability progress.
 
 ```text
 docs/ai/README.md
+docs/ai/agent-ops.md
 docs/next/README.md
 ```
 
-`docs/ai/` is the fixed startup and routing layer. `docs/next/` is the compact
-recovery and next-task layer. Then load only the analysis shard, skill, agent,
-or artifact named by the active task.
+`docs/ai/` is the fixed startup and routing layer. `docs/ai/agent-ops.md` is a
+startup gate, not a conditional subagent reference: read it before choosing
+whether parent Codex should work alone or delegate a bounded packet.
+`docs/next/` is the compact recovery and next-task layer. Then load only the
+analysis shard, skill, agent, or artifact named by the active task.
 
 ## Canonical AI Surfaces
 
@@ -47,7 +50,8 @@ docs/next/
   and stop boundary
 
 .codex/agents/
-  Codex app/CLI project-scoped subagent role/team definitions
+  Codex app/CLI project-scoped subagent role/team definitions;
+  parent-facing agents and rustmine_nested_* planner-to-leaf agents
 
 .codex/skills/
   reusable procedures and role contracts; load only when the active task
@@ -113,7 +117,8 @@ read active task scope
 |---|---|
 | `.codex/skills/yuzu/SKILL.md` | Reading the operator's collaboration lens: visual maps, evidence skepticism, non-fixating docs, route naming, and helper-output trust boundaries. |
 | `.codex/skills/client-load-compatibility/SKILL.md` | Mapping client-load claims, playable readiness, load phases, and phase-specific oracle/test surfaces. |
-| `.codex/skills/stevenarella-oracle-workbench/SKILL.md` | Reading official jars, creating oracle cases/contracts/answers, or writing oracle tests. |
+| `.codex/skills/stevenarella-oracle-workbench/SKILL.md` | Lightweight routing for oracle work: choose source policy, case-builder, failure-format, model-lane, or schema route without loading the full workflow. |
+| `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` | Building or updating one bounded jar-backed oracle case package: case, contract, answer, manifest, Rust oracle test, traceability row, or failure packet. |
 | `.codex/skills/stevenarella-rust-worker/SKILL.md` | Implementing Rust changes from an oracle failure packet. |
 
 ## Codex Custom Agents
@@ -128,20 +133,15 @@ Project-scoped Codex app/CLI subagent role definitions live in:
 Use them only to split or review bounded compatibility work. They do not replace
 the fixed `.codex/skills/` workflows, oracle schemas, or responsibility gate.
 
-Parent Codex remains the user-facing owner:
+The startup route already reads the parent/subagent gate:
 
 ```text
-User
-  -> parent Codex answers, routes, and preserves recovery state
-    -> optional bounded subagent work package
-      -> scoped result back to parent Codex
-        -> parent Codex decides what to tell the user
+docs/ai/agent-ops.md
 ```
 
-Do not fully delegate the conversation, final answer, recovery pointer, or route
-decision to a subagent. Subagents are evidence and work-package helpers only.
-If subagent work changes the next action or recovery route, parent Codex must
-update `docs/next/README.md` before ending.
+After that gate, use `.codex/agents/*.toml` only for a selected bounded role.
+Subagents are evidence and work-package helpers only. Parent Codex remains the
+user-facing owner of route choice, recovery state, and final answer.
 
 ## Model Lanes
 

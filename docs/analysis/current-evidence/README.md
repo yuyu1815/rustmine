@@ -34,6 +34,6 @@ proof kind and domain shard entry.
 
 | Need | Location |
 |---|---|
-| Client-load proof state | [client-load.md](client-load.md) |
-| Structural scan rule and command | [structural-scan.md](structural-scan.md) |
-| Client-load phase lens | [../client-load/README.md](../client-load/README.md) |
+| Client-load proof state | `docs/analysis/current-evidence/client-load.md` |
+| Structural scan rule and command | `docs/analysis/current-evidence/structural-scan.md` |
+| Client-load phase lens | `docs/analysis/client-load/README.md` |
