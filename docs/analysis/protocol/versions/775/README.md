@@ -575,9 +575,11 @@ They prove the official `minecraft:player_info_remove` / `0x45` frame
 `minecraft:set_chunk_cache_radius` / `0x5f` frame `5f0c`, with full body
 consumption through Stevenarella dispatch. They do not prove GameProfile or
 player-list state, entity existence, advancement UI behavior, chunk loading,
-world hydration, render readiness, or client-load completion. The skipped
-YELLOW rows through `0x64` remain parked in `play-clientbound-deferred.md`; the
-next official Play clientbound row after this safe batch is
+world hydration, render readiness, or client-load completion. At this point in
+the historical batch sequence, the skipped YELLOW rows through `0x64` remained
+parked in `play-clientbound-deferred.md`; later parked-row passes promoted
+safe scoped fixtures, including final GameTest-backed `0x64`, `0x6b`, and
+`0x74` rows. The next official Play clientbound row after this safe batch was
 `minecraft:set_cursor_item` / `0x60`.
 
 `play_set_border_center_clientbound_framed_dispatch`,
