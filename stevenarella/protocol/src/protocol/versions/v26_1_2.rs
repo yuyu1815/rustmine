@@ -78,6 +78,7 @@ protocol_packet_ids!(
             0x0c => PlayChunkBatchStartClientbound
             0x0d => PlayChunksBiomesClientbound
             0x0e => PlayClearTitlesClientbound
+            0x0f => PlayCommandSuggestionsClientbound
         }
     }
 );

@@ -1,0 +1,43 @@
+{
+  "case_id": "play_command_suggestions_clientbound_framed_dispatch",
+  "protocol_version": 775,
+  "minecraft_version": "26.1.2",
+  "corridor": "Configuration -> Play",
+  "oracle_kind": "codec",
+  "official_sources": [
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.details().listPackets(...)",
+      "authority_note": "Official binary source for the Play clientbound packet table and the command_suggestions packet id."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "ClientboundCommandSuggestionsPacket(int, Suggestions), ClientboundCommandSuggestionsPacket.STREAM_CODEC, ClientboundCommandSuggestionsPacket(int, int, int, List<Entry>), ClientboundCommandSuggestionsPacket.toSuggestions(), ClientboundCommandSuggestionsPacket.Entry.STREAM_CODEC, ByteBufCodecs.VAR_INT, ByteBufCodecs.STRING_UTF8, ComponentSerialization.TRUSTED_OPTIONAL_STREAM_CODEC",
+      "authority_note": "Official binary source for constructing, decoding, writing, and observing the command_suggestions id/range/suggestion-list body."
+    },
+    {
+      "role": "client_jar",
+      "path": "_analysis/minecraft-26.1.2/client.jar",
+      "function_or_member": "net.minecraft.network.protocol.game.GameProtocols.CLIENTBOUND_TEMPLATE.bind(RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY)).codec().encode/decode(...)",
+      "authority_note": "Official binary source for writing and dispatch-decoding the full Play clientbound command_suggestions frame."
+    }
+  ],
+  "question": {
+    "state": "Play",
+    "flow": "Clientbound",
+    "packet_type": "minecraft:command_suggestions",
+    "packet_class": "ClientboundCommandSuggestionsPacket",
+    "input_fields": {
+      "command_id": 123,
+      "range_start": 1,
+      "range_end": 4
+    },
+    "field_notes": {
+      "fixture": "Uses the official ClientboundCommandSuggestionsPacket(int, Suggestions) constructor with StringRange.between(1, 4) and an empty suggestion list. This is a smallest context-free fixture and does not require an initialized command tree, command context, client Level, or game state."
+    }
+  },
+  "answer_path": "oracle/answers/775/play_command_suggestions_clientbound_framed_dispatch.answer.jsonl",
+  "stop_boundary": "Proves Play clientbound command_suggestions packet framing and dispatch/decode for one official empty-suggestions fixture only; do not infer non-empty suggestion Entry text/tooltip handling, Brigadier command tree semantics, command context behavior, command UI behavior, runtime Play entry, world load, render readiness, or client-load completion."
+}

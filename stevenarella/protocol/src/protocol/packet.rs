@@ -584,6 +584,12 @@ state_packets!(
             packet PlayClearTitlesClientbound {
                 field reset_times: bool =,
             }
+            packet PlayCommandSuggestionsClientbound {
+                field id: VarInt =,
+                field start: VarInt =,
+                field length: VarInt =,
+                field suggestion_count: VarInt =,
+            }
             /// SpawnObject is used to spawn an object or vehicle into the world when it
             /// is in range of the client.
             packet SpawnObject {
