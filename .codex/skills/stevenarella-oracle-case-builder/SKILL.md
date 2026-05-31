@@ -50,8 +50,10 @@ must not edit Stevenarella Rust implementation.
    an official function.
 8. Write or update one
    `oracle/test-manifests/<protocol_version>/*.test-manifest.json` manifest.
-9. Write or update a Rust oracle test that reads the answer artifact and
-   manifest.
+9. Write or update one SRP Rust oracle test file under
+   `oracle/rust-tests/tests/oracle_contracts/cases/<phase>/<rust_test_name>.rs`,
+   and update the include map in `oracle/rust-tests/tests/oracle_contracts.rs`.
+   Preserve the manifest-declared exact test function name.
 10. Update `docs/analysis/protocol/versions/<protocol_version>/traceability.md`
     and the relevant `docs/analysis/protocol/versions/<protocol_version>/cases/*.md`
     note.
@@ -70,6 +72,11 @@ Use the lightweight Java harness first:
 oracle/harness/java/scripts/compile.sh
 oracle/harness/java/scripts/run_case.sh oracle/cases/<protocol_version>/<case>.json
 ```
+
+Successful Java harness case runs should emit only `.` on stderr. Treat any
+extra success log text as harness noise to remove; failure diagnostics are
+allowed. When regenerating several answers, prefer one `OracleHarness` process
+with all target case paths.
 
 To verify every existing jar-backed case plus the Rust oracle contract surface,
 run:

@@ -105,18 +105,76 @@ reference repositories
 ```
 
 The preferred Rust shape is one public integration test surface per contract
-family, not one mirrored test file per packet:
+family, with SRP physical files behind that surface:
 
 ```text
 oracle/rust-tests/tests/oracle_contracts.rs
-  -> reset-proof project-level codec and packet-id contracts
+  -> imports and include map only
+  -> oracle_contracts/model/*.rs
+  -> oracle_contracts/support/*.rs
+  -> oracle_contracts/cases/<phase>/<rust_test_name>.rs
 
 oracle/rust-tests/tests/oracle_runtime_contracts.rs
   -> future reset-proof multi-module runtime reaction contracts
 ```
 
+Case test files must follow this layout contract:
+
+```text
+oracle_contracts.rs
+  keeps cargo's integration test target and exact test-name matching
+
+oracle_contracts/cases/<phase>/<rust_test_name>.rs
+  owns exactly one #[test] function
+  uses the manifest-declared rust_test_name as the function name
+  contains only case-local adapter/assertion code
+  reads expected values from the manifest and answer artifact
+
+oracle_contracts/support/*.rs
+  owns reusable IO, runner-scope, packet-table, frame/hex, or assertion helpers
+
+oracle_contracts/model/*.rs
+  owns deserialization structs only
+```
+
+Do not add new test bodies, case constants, or expected bytes directly to
+`oracle/rust-tests/tests/oracle_contracts.rs`. Do not wrap generated tests in
+Rust modules unless the manifest and runner are intentionally updated, because
+module paths change `cargo test -- --exact <rust_test_name>` matching. If a case
+file is included at the top level, avoid shared case-local `const` names that
+can collide with other included cases; prefer literals read from the manifest or
+unique helper functions.
+
 New cases should move toward typed Rust readers for answer/manifest rows. Avoid
 copying expected packet ids or bytes into test source.
+
+## Java Harness Generation Contract
+
+The Java oracle harness must keep the same SRP shape:
+
+```text
+OracleHarness.java
+  -> CLI entry only: boot shared Minecraft state once, read one or more case
+     JSON paths, route each case, write answers
+
+OracleCases.java
+  -> case_id router only
+
+cases/<phase>/<CaseName>Case.java
+  -> exactly one oracle case generate(JsonObject input)
+
+Oracle* helper classes
+  -> one helper responsibility each: JSON IO, buffers, reflection, answer rows,
+     packet tables, play answer bodies, field writers, game events, or special
+     packet construction
+```
+
+Successful Java harness runs print only `.` to stderr and no stdout text. Keep
+diagnostic logs for failures only; do not add success messages such as
+`wrote <answer path>`.
+Batch runners should pass multiple case paths to one `OracleHarness` process
+when they need to regenerate many answers, so Minecraft bootstrap and JVM
+startup are paid once instead of once per case.
 
 ## Traceability Requirement
 

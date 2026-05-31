@@ -1,0 +1,115 @@
+#[test]
+fn configuration_reset_chat_clientbound_framed_dispatch_matches_official_oracle_answer() {
+    let manifest: TestManifest = read_json("oracle/test-manifests/775/configuration_reset_chat_clientbound_framed_dispatch.test-manifest.json");
+    assert_eq!(
+        manifest.case_id,
+        "configuration_reset_chat_clientbound_framed_dispatch"
+    );
+    assert_eq!(
+        manifest.contract_path,
+        "oracle/contracts/775/configuration_reset_chat_clientbound_framed_dispatch.contract.json"
+    );
+    assert_eq!(
+        manifest.answer_path,
+        "oracle/answers/775/configuration_reset_chat_clientbound_framed_dispatch.answer.jsonl"
+    );
+    assert_eq!(manifest.rust_test_target, ORACLE_CONTRACTS_RUST_TARGET);
+    assert_eq!(
+        manifest.rust_test_name,
+        "configuration_reset_chat_clientbound_framed_dispatch_matches_official_oracle_answer"
+    );
+    assert_eq!(
+        manifest.comparison_surface,
+        "framed_dispatch_decode"
+    );
+    assert_runner_scope("oracle/test-manifests/775/configuration_reset_chat_clientbound_framed_dispatch.test-manifest.json", &manifest);
+
+    let oracle = read_answer(&manifest.answer_path, &manifest.case_id);
+    assert_eq!(oracle.case_id, manifest.case_id);
+    assert_eq!(
+        oracle.answer.packet_type.as_deref(),
+        Some("minecraft:reset_chat")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_type.as_deref(),
+        Some("minecraft:reset_chat")
+    );
+    assert_eq!(
+        oracle.answer.instance_packet_type.as_deref(),
+        Some("minecraft:reset_chat")
+    );
+    assert_eq!(
+        oracle.answer.decoded_packet_class.as_deref(),
+        Some("net.minecraft.network.protocol.configuration.ClientboundResetChatPacket")
+    );
+    assert_eq!(oracle.answer.decoded_equals_instance, Some(true));
+    assert_eq!(oracle.answer.remaining_after_official_decode, Some(0));
+
+    let expected_packet_id = packet_id_for(
+        &oracle.answer.configuration_clientbound_packet_table,
+        "minecraft:reset_chat",
+    );
+    let framed_hex = oracle
+        .answer
+        .encoded_framed_hex
+        .as_deref()
+        .expect("clientbound reset_chat answer missing encoded_framed_hex");
+    let framed = decode_hex(framed_hex, "encoded_framed_hex");
+    let body = decode_hex(&oracle.answer.encoded_body_hex, "encoded_body_hex");
+    let (framed_packet_id, body_offset) = read_varint_prefix(&framed);
+
+    assert_eq!(framed_packet_id, expected_packet_id);
+    assert_eq!(&framed[body_offset..], body.as_slice());
+    assert!(
+        body.is_empty(),
+        "official reset_chat singleton body should be empty because ClientboundResetChatPacket.STREAM_CODEC is StreamCodec.unit(INSTANCE)"
+    );
+
+    let mut body_slice = body.as_slice();
+    let decoded_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        packet::packet_by_id(
+            775,
+            State::Configuration,
+            Direction::Clientbound,
+            framed_packet_id,
+            &mut body_slice,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        panic!(
+            "Stevenarella panicked while dispatching official Configuration clientbound reset_chat packet id {}",
+            framed_packet_id
+        )
+    });
+
+    let decoded = decoded_result
+        .unwrap_or_else(|err| {
+            panic!("Stevenarella errored while decoding clientbound reset_chat packet: {err}")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "Stevenarella did not dispatch official Configuration clientbound reset_chat packet id {}",
+                framed_packet_id
+            )
+        });
+    match decoded {
+        packet::Packet::PluginMessageClientbound(packet) => {
+            assert_eq!(
+                packet.channel, "ResetChat",
+                "decoded packet did not preserve reset_chat compatibility channel"
+            );
+            assert!(
+                packet.data.is_empty(),
+                "decoded reset_chat compatibility packet carried unexpected data"
+            );
+        }
+        other => {
+            panic!("decoded packet did not preserve clientbound reset_chat identity: {other:?}")
+        }
+    }
+    assert!(
+        body_slice.is_empty(),
+        "decoded clientbound reset_chat packet did not consume the official empty body"
+    );
+}
+

@@ -512,16 +512,27 @@ backup_and_clear_answer() {
 
 validate_artifact_graph "pre-generation"
 
+declare -a CASE_IDS=()
+declare -a CASE_PATHS=()
+declare -a ANSWER_PATHS=()
+
 while IFS= read -r case_row; do
   case_id="$(json_field "$case_row" case_id)"
   case_path="$(json_field "$case_row" case_path)"
   answer_path="$(json_field "$case_row" answer_path)"
 
   backup_and_clear_answer "$case_id" "$answer_path"
-  echo "SCOPE: generating oracle answer for $case_id from $case_path"
-  "$ROOT/oracle/harness/java/scripts/run_case.sh" "$case_path"
-  validate_answer "$case_id" "$answer_path"
+  CASE_IDS+=("$case_id")
+  CASE_PATHS+=("$case_path")
+  ANSWER_PATHS+=("$answer_path")
 done < <(list_cases)
+
+echo "SCOPE: generating ${#CASE_PATHS[@]} oracle answers with one Java harness process"
+"$ROOT/oracle/harness/java/scripts/run_case.sh" "${CASE_PATHS[@]}"
+echo
+for index in "${!CASE_PATHS[@]}"; do
+  validate_answer "${CASE_IDS[$index]}" "${ANSWER_PATHS[$index]}"
+done
 
 validate_artifact_graph "post-generation"
 

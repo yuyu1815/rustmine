@@ -8,8 +8,8 @@ SUN_MISC_UNSAFE_MEMORY_ACCESS="${SUN_MISC_UNSAFE_MEMORY_ACCESS:-allow}"
 CP_FILE="$HARNESS/build/classpath.txt"
 CLASSES="$HARNESS/build/classes"
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: $0 oracle/cases/775/<case>.json" >&2
+if [ "$#" -lt 1 ]; then
+  echo "usage: $0 oracle/cases/775/<case>.json [oracle/cases/775/<case>.json ...]" >&2
   exit 2
 fi
 
@@ -20,4 +20,4 @@ fi
 "$JAVA_BIN" \
   "--sun-misc-unsafe-memory-access=$SUN_MISC_UNSAFE_MEMORY_ACCESS" \
   -cp "$CLASSES:$(cat "$CP_FILE")" \
-  dev.rustmine.oracle.OracleHarness "$1"
+  dev.rustmine.oracle.OracleHarness "$@"
