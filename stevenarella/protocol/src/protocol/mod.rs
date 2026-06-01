@@ -1156,9 +1156,8 @@ impl Conn {
     fn get_server_addresses(hostname: &str) -> Vec<(String, u16)> {
         let mut addresses = vec![];
 
-        let records = RESOLVER.srv_lookup(format!("_minecraft._tcp.{}", hostname));
-        if records.is_ok() {
-            for record in records.unwrap() {
+        if let Ok(records) = RESOLVER.srv_lookup(format!("_minecraft._tcp.{}", hostname)) {
+            for record in records {
                 debug!("{}:{}", record.target(), record.port());
                 addresses.push((record.target().to_string(), record.port()));
             }

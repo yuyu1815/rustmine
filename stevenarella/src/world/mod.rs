@@ -810,7 +810,7 @@ impl World {
         if sec.is_none() {
             return None;
         }
-        return Some(sec.as_ref().unwrap().capture_snapshot(chunk.biomes));
+        Some(sec.as_ref().unwrap().capture_snapshot(chunk.biomes))
     }
 
     pub fn unload_chunk(&self, x: i32, z: i32, m: &mut ecs::Manager) {
@@ -1123,9 +1123,9 @@ impl World {
 
             let section = chunk.sections[i].as_mut().unwrap();
 
-            for bi in 0..4096 {
+            for (bi, block_type) in block_types[i][..4096].iter().enumerate() {
                 let id = ((block_add[i].get(bi) as u16) << 12)
-                    | ((block_types[i][bi] as u16) << 4)
+                    | ((*block_type as u16) << 4)
                     | (block_meta[i].get(bi) as u16);
                 section.blocks.set(
                     bi,

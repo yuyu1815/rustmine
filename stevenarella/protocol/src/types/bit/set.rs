@@ -35,12 +35,12 @@ fn test_set() {
 impl Set {
     pub fn new(size: usize) -> Set {
         Set {
-            data: vec![0; (size + 63) / 64],
+            data: vec![0; size.div_ceil(64)],
         }
     }
 
     pub fn resize(&mut self, new_size: usize) {
-        self.data.resize((new_size + 63) / 64, 0);
+        self.data.resize(new_size.div_ceil(64), 0);
     }
 
     pub fn capacity(&self) -> usize {

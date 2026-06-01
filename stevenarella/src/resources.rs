@@ -411,7 +411,7 @@ impl Manager {
                     // ignore errors, as either the asset in question may not be available or
                     // an error might have occoured connecting to the asset server
                     if let Ok(res) = client
-                        .get(&format!(
+                        .get(format!(
                             "http://resources.download.minecraft.net/{}",
                             hash_path
                         ))

@@ -23,10 +23,7 @@ pub(crate) fn read_cookie_response_configuration_serverbound_packet_by_internal_
             Ok(Some(Packet::PluginMessageServerbound(
                 packet::play::serverbound::PluginMessageServerbound {
                     channel: "CookieResponse".to_owned(),
-                    data: packet
-                        .payload
-                        .map(|payload| payload.data)
-                        .unwrap_or_else(Vec::new),
+                    data: packet.payload.map(|payload| payload.data).unwrap_or_default(),
                 },
             )))
         }

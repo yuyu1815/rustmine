@@ -602,7 +602,7 @@ impl InventoryType {
             "minecraft:beacon" => InventoryType::Beacon,
             "minecraft:brewing_stand" => InventoryType::BrewingStand,
             "minecraft:chest" | "minecraft:container" => {
-                if slot_count % 9 != 0 {
+                if !slot_count.is_multiple_of(9) {
                     warn!("Chest slot count of {slot_count} wasn't divisible by 9");
                     return None;
                 }

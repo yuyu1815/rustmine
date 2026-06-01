@@ -11,8 +11,9 @@ pub(crate) fn read_keep_alive_ping_configuration_clientbound_packet_by_internal_
 ) -> Result<Option<Packet>, Error> {
     match internal_id {
         packet::configuration::clientbound::internal_ids::ConfigurationKeepAliveClientbound_i64 => {
-            let mut packet = packet::play::clientbound::KeepAliveClientbound_i64::default();
-            packet.id = Serializable::read_from(buf)?;
+            let packet = packet::play::clientbound::KeepAliveClientbound_i64 {
+                id: Serializable::read_from(buf)?,
+            };
             Ok(Some(Packet::KeepAliveClientbound_i64(packet)))
         }
         packet::configuration::clientbound::internal_ids::ConfigurationPingClientbound_i32 => {

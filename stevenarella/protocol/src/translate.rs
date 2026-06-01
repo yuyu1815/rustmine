@@ -8,7 +8,7 @@ use std::fmt;
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum ComponentData {
-    Chat(Chat),
+    Chat(Box<Chat>),
     Str(String),
 }
 

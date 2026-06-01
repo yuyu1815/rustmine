@@ -571,7 +571,7 @@ impl PlayerMovement {
     }
 
     fn is_key_pressed(&self, key: Actionkey) -> bool {
-        self.pressed_keys.get(&key).map_or(false, |v| *v)
+        self.pressed_keys.get(&key).is_some_and(|v| *v)
     }
 }
 
@@ -674,7 +674,7 @@ pub fn handle_movement(
                 if movement.is_key_pressed(Actionkey::Sneak) {
                     position.position.y -= speed + additional_speed;
                 }
-            } else if gravity.as_ref().map_or(false, |v| v.on_ground) {
+            } else if gravity.as_ref().is_some_and(|v| v.on_ground) {
                 if movement.is_key_pressed(Actionkey::Jump) && velocity.velocity.y.abs() < 0.001 {
                     velocity.velocity.y = 0.42;
                 }
@@ -729,7 +729,7 @@ pub fn handle_movement(
                 // Currently we implement this as a teleport to the
                 // top of the block if we could move there
                 // but this isn't smooth.
-                if (xhit || zhit) && gravity.as_ref().map_or(false, |v| v.on_ground) {
+                if (xhit || zhit) && gravity.as_ref().is_some_and(|v| v.on_ground) {
                     let mut ox = position.position.x;
                     let mut oz = position.position.z;
                     position.position.x = target.x;
