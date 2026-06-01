@@ -30,6 +30,14 @@ pub(crate) fn read_update_clientbound_packet_by_internal_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        super::update_mob_effect::read_update_mob_effect_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::PlayUpdateAdvancementsClientbound => {
@@ -62,25 +70,6 @@ pub(crate) fn read_update_clientbound_packet_by_internal_id<R: io::Read>(
                     removed_count,
                     progress_count,
                     show_advancements: bool::read_from(buf)?,
-                },
-            )))
-        }
-        packet::play::clientbound::internal_ids::PlayUpdateMobEffectClientbound => {
-            let entity_id = VarInt::read_from(buf)?;
-            let effect_holder_id = VarInt::read_from(buf)?;
-            if effect_holder_id.0 != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported Play update_mob_effect MobEffect holder id {}",
-                    effect_holder_id.0
-                )));
-            }
-            Ok(Some(Packet::PlayUpdateMobEffectClientbound(
-                packet::play::clientbound::PlayUpdateMobEffectClientbound {
-                    entity_id,
-                    effect_holder_id,
-                    amplifier: VarInt::read_from(buf)?,
-                    duration: VarInt::read_from(buf)?,
-                    flags: u8::read_from(buf)?,
                 },
             )))
         }
