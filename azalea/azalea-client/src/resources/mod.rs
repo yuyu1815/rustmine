@@ -4,7 +4,7 @@
 //! rendering, audio, or packet handling.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt, fs, io,
     path::{Path, PathBuf},
 };
@@ -22,6 +22,9 @@ pub const DRY_FOLIAGE_COLORMAP_RESOURCE: &str =
     "assets/minecraft/textures/colormap/dry_foliage.png";
 pub const GPU_WARNLIST_RESOURCE: &str = "assets/minecraft/gpu_warnlist.json";
 pub const REGIONAL_COMPLIANCIES_RESOURCE: &str = "assets/minecraft/regional_compliancies.json";
+pub const EQUIPMENT_MANIFEST_DIR: &str = "assets/minecraft/equipment";
+pub const PARTICLE_MANIFEST_DIR: &str = "assets/minecraft/particles";
+pub const WAYPOINT_STYLE_MANIFEST_DIR: &str = "assets/minecraft/waypoint_style";
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
@@ -39,6 +42,14 @@ const DEFAULT_COLORMAPS: &[&str] = &[
     FOLIAGE_COLORMAP_RESOURCE,
     DRY_FOLIAGE_COLORMAP_RESOURCE,
 ];
+const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
+    "assets/minecraft/models/block/stone.json",
+    "assets/minecraft/models/item/stick.json",
+    "assets/minecraft/blockstates/stone.json",
+    "assets/minecraft/items/stone.json",
+];
+const DEFAULT_PARTICLE_MANIFEST_IDS: &[&str] = &["rain", "firework", "splash"];
+const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
@@ -666,6 +677,364 @@ fn read_client_json_resource(
     Ok(ClientJsonResource { value, report })
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientJsonManifestSet {
+    manifests: Vec<ClientJsonManifest>,
+}
+
+impl ClientJsonManifestSet {
+    pub fn manifests(&self) -> &[ClientJsonManifest] {
+        &self.manifests
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = &ClientJsonResourceReloadReport> {
+        self.manifests
+            .iter()
+            .map(|manifest| manifest.resource.report())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientJsonManifest {
+    id: String,
+    resource: ClientJsonResource,
+}
+
+impl ClientJsonManifest {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn resource(&self) -> &ClientJsonResource {
+        &self.resource
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParticleManifestReloadListener {
+    ids: Vec<String>,
+}
+
+impl ParticleManifestReloadListener {
+    pub fn new(ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn ids(&self) -> &[String] {
+        &self.ids
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonManifestSet> {
+        load_client_json_manifest_set(stack, PARTICLE_MANIFEST_DIR, &self.ids)
+    }
+}
+
+impl Default for ParticleManifestReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_PARTICLE_MANIFEST_IDS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for ParticleManifestReloadListener {
+    fn name(&self) -> &str {
+        "particle_manifests"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(available_manifest_paths(
+            stack,
+            PARTICLE_MANIFEST_DIR,
+            &self.ids,
+        )))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(manifest_report_items(
+            &manifests,
+        )))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaypointStyleManifestReloadListener {
+    ids: Vec<String>,
+}
+
+impl WaypointStyleManifestReloadListener {
+    pub fn new(ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn ids(&self) -> &[String] {
+        &self.ids
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonManifestSet> {
+        load_client_json_manifest_set(stack, WAYPOINT_STYLE_MANIFEST_DIR, &self.ids)
+    }
+}
+
+impl Default for WaypointStyleManifestReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for WaypointStyleManifestReloadListener {
+    fn name(&self) -> &str {
+        "waypoint_style_manifests"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(available_manifest_paths(
+            stack,
+            WAYPOINT_STYLE_MANIFEST_DIR,
+            &self.ids,
+        )))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(manifest_report_items(
+            &manifests,
+        )))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EquipmentAssetsReloadListener {
+    directory: String,
+}
+
+impl EquipmentAssetsReloadListener {
+    pub fn new(directory: impl Into<String>) -> Self {
+        Self {
+            directory: directory.into(),
+        }
+    }
+
+    pub fn directory(&self) -> &str {
+        &self.directory
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonManifestSet> {
+        load_client_json_manifest_directory(stack, &self.directory)
+    }
+}
+
+impl Default for EquipmentAssetsReloadListener {
+    fn default() -> Self {
+        Self::new(EQUIPMENT_MANIFEST_DIR)
+    }
+}
+
+impl ResourceReloadListener for EquipmentAssetsReloadListener {
+    fn name(&self) -> &str {
+        "equipment_assets"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            manifest_ids_in_directory(stack, &self.directory)?
+                .into_iter()
+                .map(|id| {
+                    manifest_resource_path(&self.directory, &id)
+                        .to_string_lossy()
+                        .into_owned()
+                }),
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(manifest_report_items(
+            &manifests,
+        )))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelEntrySmokeReloadListener {
+    resources: Vec<String>,
+}
+
+impl ModelEntrySmokeReloadListener {
+    pub fn new(resources: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            resources: resources.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn resources(&self) -> &[String] {
+        &self.resources
+    }
+}
+
+impl Default for ModelEntrySmokeReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_MODEL_SMOKE_RESOURCES.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for ModelEntrySmokeReloadListener {
+    fn name(&self) -> &str {
+        "model_entry_smoke"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for resource in &self.resources {
+            stack.require_resource(resource)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(self.resources.clone()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let mut loaded = Vec::with_capacity(self.resources.len());
+        for resource in &self.resources {
+            let resource = load_client_json_resource(stack, resource)?;
+            loaded.push(json_resource_report_item(resource.report()));
+        }
+
+        Ok(ResourceReloadTaskReport::new(loaded))
+    }
+}
+
+pub fn load_client_json_manifest_set(
+    stack: &ClientResourceStack,
+    directory: &str,
+    ids: &[String],
+) -> ResourceReloadResult<ClientJsonManifestSet> {
+    let mut manifests = Vec::new();
+
+    for id in ids {
+        let resource = manifest_resource_path(directory, id);
+        let Some(location) = stack.find_resource(&resource) else {
+            continue;
+        };
+        let resource = read_client_json_resource(&resource, &location)?;
+        manifests.push(ClientJsonManifest {
+            id: id.clone(),
+            resource,
+        });
+    }
+
+    Ok(ClientJsonManifestSet { manifests })
+}
+
+pub fn load_client_json_manifest_directory(
+    stack: &ClientResourceStack,
+    directory: &str,
+) -> ResourceReloadResult<ClientJsonManifestSet> {
+    let ids = manifest_ids_in_directory(stack, directory)?;
+    load_client_json_manifest_set(stack, directory, &ids)
+}
+
+fn available_manifest_paths(
+    stack: &ClientResourceStack,
+    directory: &str,
+    ids: &[String],
+) -> Vec<String> {
+    ids.iter()
+        .map(|id| manifest_resource_path(directory, id))
+        .filter(|resource| stack.find_resource(resource).is_some())
+        .map(|resource| resource.to_string_lossy().into_owned())
+        .collect()
+}
+
+fn manifest_ids_in_directory(
+    stack: &ClientResourceStack,
+    directory: &str,
+) -> ResourceReloadResult<Vec<String>> {
+    let mut ids = BTreeSet::new();
+
+    for pack in stack.packs() {
+        let pack_directory = pack.resource_path(directory);
+        if !pack_directory.exists() {
+            continue;
+        }
+
+        let entries =
+            fs::read_dir(&pack_directory).map_err(|source| ResourceReloadError::ReadResource {
+                resource: directory.to_owned(),
+                path: pack_directory.clone(),
+                source,
+            })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+                resource: directory.to_owned(),
+                path: pack_directory.clone(),
+                source,
+            })?;
+            let path = entry.path();
+            if !path.is_file()
+                || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+            {
+                continue;
+            }
+
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            ids.insert(stem.to_owned());
+        }
+    }
+
+    if ids.is_empty() {
+        return Err(ResourceReloadError::MissingResource(format!(
+            "{directory}/*.json"
+        )));
+    }
+
+    Ok(ids.into_iter().collect())
+}
+
+fn manifest_report_items(manifests: &ClientJsonManifestSet) -> Vec<String> {
+    manifests.reports().map(json_resource_report_item).collect()
+}
+
+fn json_resource_report_item(report: &ClientJsonResourceReloadReport) -> String {
+    format!(
+        "{}:{}",
+        report.loaded_resource_pack(),
+        report.top_level_shape().report_fragment()
+    )
+}
+
+fn manifest_resource_path(directory: &str, id: &str) -> PathBuf {
+    PathBuf::from(directory).join(format!("{id}.json"))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientLanguageResources {
     translations: BTreeMap<String, String>,
@@ -1178,6 +1547,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1500,6 +1870,263 @@ mod tests {
     }
 
     #[test]
+    fn particle_manifest_listener_reports_priority_pack_and_shape() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/particles/rain.json",
+            r#"{"textures":["minecraft:base_rain"]}"#,
+        );
+        base.write(
+            "assets/minecraft/particles/splash.json",
+            r#"{"textures":["minecraft:base_splash"]}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/particles/rain.json",
+            r#"{"textures":["minecraft:override_rain"],"override":true}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ParticleManifestReloadListener::default())
+            .run()
+            .expect("particle manifest reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "particle_manifests");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/particles/rain.json".to_owned(),
+                "assets/minecraft/particles/splash.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/particles/rain.json@override:object keys:override,textures"
+                    .to_owned(),
+                "assets/minecraft/particles/splash.json@base:object keys:textures".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn waypoint_style_manifest_listener_reports_priority_pack_and_shape() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0"]}"#,
+        );
+        base.write(
+            "assets/minecraft/waypoint_style/bowtie.json",
+            r#"{"sprites":["minecraft:bowtie"]}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/waypoint_style/bowtie.json",
+            r#"{"near_distance":64,"sprites":["minecraft:override_bowtie"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(WaypointStyleManifestReloadListener::default())
+            .run()
+            .expect("waypoint style manifest reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "waypoint_style_manifests");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/waypoint_style/default.json".to_owned(),
+                "assets/minecraft/waypoint_style/bowtie.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/waypoint_style/default.json@base:object keys:sprites"
+                    .to_owned(),
+                "assets/minecraft/waypoint_style/bowtie.json@override:object keys:near_distance,sprites"
+                    .to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn equipment_assets_listener_reports_priority_pack_and_shape() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/equipment/diamond.json",
+            r#"{"layers":{"humanoid":[]}}"#,
+        );
+        base.write(
+            "assets/minecraft/equipment/elytra.json",
+            r#"{"layers":{"wings":[]}}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/equipment/diamond.json",
+            r#"{"layers":{"humanoid":[]},"override":true}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(EquipmentAssetsReloadListener::default())
+            .run()
+            .expect("equipment asset reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "equipment_assets");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/equipment/diamond.json".to_owned(),
+                "assets/minecraft/equipment/elytra.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/equipment/diamond.json@override:object keys:layers,override"
+                    .to_owned(),
+                "assets/minecraft/equipment/elytra.json@base:object keys:layers".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn model_entry_smoke_listener_reports_priority_pack_and_shape() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/models/block/stone.json",
+            r#"{"parent":"block/cube_all","textures":{}}"#,
+        );
+        base.write(
+            "assets/minecraft/models/item/stick.json",
+            r#"{"parent":"item/generated","textures":{}}"#,
+        );
+        base.write(
+            "assets/minecraft/blockstates/stone.json",
+            r#"{"variants":{}}"#,
+        );
+        base.write(
+            "assets/minecraft/items/stone.json",
+            r#"{"model":{"type":"minecraft:model"}}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/models/item/stick.json",
+            r#"{"parent":"item/generated","textures":{},"override":true}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ModelEntrySmokeReloadListener::default())
+            .run()
+            .expect("model entry smoke reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "model_entry_smoke");
+        assert_eq!(listener.preparation.items(), DEFAULT_MODEL_SMOKE_RESOURCES);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/models/block/stone.json@base:object keys:parent,textures"
+                    .to_owned(),
+                "assets/minecraft/models/item/stick.json@override:object keys:override,parent,textures"
+                    .to_owned(),
+                "assets/minecraft/blockstates/stone.json@base:object keys:variants".to_owned(),
+                "assets/minecraft/items/stone.json@base:object keys:model".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn json_manifest_reload_skips_requested_ids_that_are_not_present() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/particles/rain.json",
+            r#"{"textures":["minecraft:rain"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = ParticleManifestReloadListener::new(["rain", "missing"]);
+        let manifests = listener
+            .load(&stack)
+            .expect("present particle manifests should load");
+
+        assert_eq!(manifests.manifests().len(), 1);
+        assert_eq!(manifests.manifests()[0].id(), "rain");
+        assert_eq!(
+            manifests.manifests()[0].resource().report().pack_id(),
+            "test"
+        );
+    }
+
+    #[test]
+    fn json_manifest_reload_rejects_invalid_present_manifest() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/particles/rain.json", "{not json");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ParticleManifestReloadListener::new(["rain"])
+            .load(&stack)
+            .expect_err("invalid particle manifest json should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/particles/rain.json")
+        );
+    }
+
+    #[test]
+    fn equipment_asset_reload_rejects_invalid_present_manifest() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/equipment/diamond.json", "{not json");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = EquipmentAssetsReloadListener::default()
+            .load(&stack)
+            .expect_err("invalid equipment asset json should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/equipment/diamond.json")
+        );
+    }
+
+    #[test]
+    fn model_entry_smoke_reload_rejects_invalid_json() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/models/block/stone.json", "{not json");
+        temp.write("assets/minecraft/models/item/stick.json", "{}");
+        temp.write("assets/minecraft/blockstates/stone.json", "{}");
+        temp.write("assets/minecraft/items/stone.json", "{}");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(ModelEntrySmokeReloadListener::default())
+            .run()
+            .expect_err("invalid model entry json should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/models/block/stone.json")
+        );
+    }
+
+    #[test]
     fn committed_vanilla_gpu_warnlist_loads() {
         let resource =
             load_client_json_resource(&ClientResourceStack::vanilla(), GPU_WARNLIST_RESOURCE)
@@ -1515,6 +2142,105 @@ mod tests {
                     "version".to_owned()
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_particle_manifest_listener_loads_default_manifest_set() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ParticleManifestReloadListener::default())
+            .run()
+            .expect("committed vanilla particle manifests should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "particle_manifests");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/particles/rain.json".to_owned(),
+                "assets/minecraft/particles/firework.json".to_owned(),
+                "assets/minecraft/particles/splash.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/particles/rain.json@vanilla:object keys:textures".to_owned(),
+                "assets/minecraft/particles/firework.json@vanilla:object keys:textures".to_owned(),
+                "assets/minecraft/particles/splash.json@vanilla:object keys:textures".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_waypoint_style_manifest_listener_loads_default_manifest_set() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(WaypointStyleManifestReloadListener::default())
+            .run()
+            .expect("committed vanilla waypoint style manifests should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "waypoint_style_manifests");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/waypoint_style/default.json".to_owned(),
+                "assets/minecraft/waypoint_style/bowtie.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/waypoint_style/default.json@vanilla:object keys:sprites"
+                    .to_owned(),
+                "assets/minecraft/waypoint_style/bowtie.json@vanilla:object keys:near_distance,sprites"
+                    .to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_equipment_asset_listener_loads_representative_manifests() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(EquipmentAssetsReloadListener::default())
+            .run()
+            .expect("committed vanilla equipment assets should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "equipment_assets");
+        assert!(listener.preparation.items().len() >= 40);
+        assert_eq!(
+            listener.preparation.items().len(),
+            listener.reload.items().len()
+        );
+        assert!(listener.reload.items().contains(
+            &"assets/minecraft/equipment/diamond.json@vanilla:object keys:layers".to_owned()
+        ));
+        assert!(listener.reload.items().contains(
+            &"assets/minecraft/equipment/elytra.json@vanilla:object keys:layers".to_owned()
+        ));
+    }
+
+    #[test]
+    fn committed_vanilla_model_entry_smoke_listener_loads_default_resources() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ModelEntrySmokeReloadListener::default())
+            .run()
+            .expect("committed vanilla model entry smoke resources should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "model_entry_smoke");
+        assert_eq!(listener.preparation.items(), DEFAULT_MODEL_SMOKE_RESOURCES);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/models/block/stone.json@vanilla:object keys:parent,textures"
+                    .to_owned(),
+                "assets/minecraft/models/item/stick.json@vanilla:object keys:parent,textures"
+                    .to_owned(),
+                "assets/minecraft/blockstates/stone.json@vanilla:object keys:variants".to_owned(),
+                "assets/minecraft/items/stone.json@vanilla:object keys:model".to_owned(),
+            ]
         );
     }
 
@@ -1746,6 +2472,8 @@ mod tests {
         root: PathBuf,
     }
 
+    static TEMP_PACK_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     const MINIMAL_PNG: &[u8] = &[
         137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
         0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4, 0, 9,
@@ -1764,8 +2492,9 @@ mod tests {
                 .expect("system clock should be after unix epoch")
                 .as_nanos();
             let root = std::env::temp_dir().join(format!(
-                "azalea-client-resource-test-{}-{nanos}",
-                std::process::id()
+                "azalea-client-resource-test-{}-{nanos}-{}",
+                std::process::id(),
+                TEMP_PACK_COUNTER.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(&root).expect("temp resource pack directory should be created");
             Self { root }
