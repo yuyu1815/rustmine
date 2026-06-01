@@ -34,6 +34,7 @@ pub const PARTICLE_MANIFEST_DIR: &str = "assets/minecraft/particles";
 pub const WAYPOINT_STYLE_MANIFEST_DIR: &str = "assets/minecraft/waypoint_style";
 pub const FONT_DEFINITION_DIR: &str = "assets/minecraft/font";
 pub const SHADER_SOURCE_DIR: &str = "assets/minecraft/shaders";
+pub const BLOCKSTATE_DEFINITION_DIR: &str = "assets/minecraft/blockstates";
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
@@ -62,6 +63,10 @@ const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
     "assets/minecraft/blockstates/stone.json",
     "assets/minecraft/items/stone.json",
 ];
+const DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES: &[&str] = &["assets/minecraft/blockstates/stone.json"];
+const DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS: &[&str] =
+    &["assets/minecraft/models/block/stone.json"];
+const DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS: &[&str] = &["assets/minecraft/models/item/stick.json"];
 const DEFAULT_REPRESENTATIVE_SHADER_SOURCES: &[&str] = &[
     "assets/minecraft/shaders/core/position_tex.vsh",
     "assets/minecraft/shaders/core/gui.fsh",
@@ -1692,6 +1697,537 @@ impl ResourceReloadListener for ModelEntrySmokeReloadListener {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessBlockstateModelReferenceReloadListener {
+    blockstate_ids: Vec<String>,
+}
+
+impl HeadlessBlockstateModelReferenceReloadListener {
+    pub fn new(blockstate_ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            blockstate_ids: blockstate_ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn blockstate_ids(&self) -> &[String] {
+        &self.blockstate_ids
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<Vec<HeadlessBlockstateModelReferenceReport>> {
+        let manifests =
+            load_client_json_manifest_set(stack, BLOCKSTATE_DEFINITION_DIR, &self.blockstate_ids)?;
+        manifests
+            .manifests()
+            .iter()
+            .map(|manifest| {
+                let model_references =
+                    extract_blockstate_model_references(manifest.resource().value()).map_err(
+                        |reason| ResourceReloadError::InvalidBlockstateModelReferences {
+                            resource: manifest.resource().report().resource().to_owned(),
+                            pack_id: manifest.resource().report().pack_id().to_owned(),
+                            reason,
+                        },
+                    )?;
+
+                Ok(HeadlessBlockstateModelReferenceReport {
+                    resource_report: manifest.resource().report().clone(),
+                    model_references,
+                })
+            })
+            .collect()
+    }
+}
+
+impl Default for HeadlessBlockstateModelReferenceReloadListener {
+    fn default() -> Self {
+        Self::new(["stone"])
+    }
+}
+
+impl ResourceReloadListener for HeadlessBlockstateModelReferenceReloadListener {
+    fn name(&self) -> &str {
+        "blockstate_model_references"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(available_manifest_paths(
+            stack,
+            BLOCKSTATE_DEFINITION_DIR,
+            &self.blockstate_ids,
+        )))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            self.load(stack)?
+                .iter()
+                .map(blockstate_model_reference_report_item),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessBlockstateModelReferenceReport {
+    resource_report: ClientJsonResourceReloadReport,
+    model_references: BTreeSet<String>,
+}
+
+impl HeadlessBlockstateModelReferenceReport {
+    pub fn resource_report(&self) -> &ClientJsonResourceReloadReport {
+        &self.resource_report
+    }
+
+    pub fn model_references(&self) -> &BTreeSet<String> {
+        &self.model_references
+    }
+}
+
+pub fn extract_blockstate_model_references(
+    blockstate: &serde_json::Value,
+) -> Result<BTreeSet<String>, String> {
+    let object = blockstate
+        .as_object()
+        .ok_or_else(|| "blockstate root must be an object".to_owned())?;
+    let mut model_references = BTreeSet::new();
+
+    if let Some(variants) = object.get("variants") {
+        let variants = variants
+            .as_object()
+            .ok_or_else(|| "blockstate variants must be an object".to_owned())?;
+
+        for variant in variants.values() {
+            collect_blockstate_variant_model_references(variant, &mut model_references)?;
+        }
+    }
+
+    if let Some(multipart) = object.get("multipart") {
+        let multipart = multipart
+            .as_array()
+            .ok_or_else(|| "blockstate multipart must be an array".to_owned())?;
+
+        for entry in multipart {
+            let entry = entry
+                .as_object()
+                .ok_or_else(|| "blockstate multipart entries must be objects".to_owned())?;
+            let Some(apply) = entry.get("apply") else {
+                continue;
+            };
+            collect_blockstate_variant_model_references(apply, &mut model_references)?;
+        }
+    }
+
+    if !object.contains_key("variants") && !object.contains_key("multipart") {
+        return Err("blockstate must contain variants or multipart".to_owned());
+    }
+
+    Ok(model_references)
+}
+
+fn collect_blockstate_variant_model_references(
+    variant: &serde_json::Value,
+    model_references: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    match variant {
+        serde_json::Value::String(model) => {
+            model_references.insert(model.clone());
+            Ok(())
+        }
+        serde_json::Value::Object(object) => {
+            collect_blockstate_model_object_reference(object, model_references)
+        }
+        serde_json::Value::Array(array) => {
+            for entry in array {
+                let object = entry
+                    .as_object()
+                    .ok_or_else(|| "blockstate model arrays must contain objects".to_owned())?;
+                collect_blockstate_model_object_reference(object, model_references)?;
+            }
+            Ok(())
+        }
+        _ => Err("blockstate model entry must be an object, array, or string".to_owned()),
+    }
+}
+
+fn collect_blockstate_model_object_reference(
+    object: &serde_json::Map<String, serde_json::Value>,
+    model_references: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    let Some(model) = object.get("model") else {
+        return Ok(());
+    };
+    let model = model
+        .as_str()
+        .ok_or_else(|| "blockstate model field must be a string".to_owned())?;
+    model_references.insert(model.to_owned());
+    Ok(())
+}
+
+fn blockstate_model_reference_report_item(
+    report: &HeadlessBlockstateModelReferenceReport,
+) -> String {
+    format!(
+        "{}:{}",
+        report.resource_report().loaded_resource_pack(),
+        report
+            .model_references()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelDependencyReloadListener {
+    blockstates: Vec<String>,
+    block_models: Vec<String>,
+    item_models: Vec<String>,
+}
+
+impl ModelDependencyReloadListener {
+    pub fn new(
+        blockstates: impl IntoIterator<Item = impl Into<String>>,
+        block_models: impl IntoIterator<Item = impl Into<String>>,
+        item_models: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            blockstates: blockstates.into_iter().map(Into::into).collect(),
+            block_models: block_models.into_iter().map(Into::into).collect(),
+            item_models: item_models.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ModelDependencyReport> {
+        load_model_dependencies(
+            stack,
+            &self.blockstates,
+            &self.block_models,
+            &self.item_models,
+        )
+    }
+
+    fn resources(&self) -> impl Iterator<Item = &String> {
+        self.blockstates
+            .iter()
+            .chain(self.block_models.iter())
+            .chain(self.item_models.iter())
+    }
+}
+
+impl Default for ModelDependencyReloadListener {
+    fn default() -> Self {
+        Self::new(
+            DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES.iter().copied(),
+            DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS.iter().copied(),
+            DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS.iter().copied(),
+        )
+    }
+}
+
+impl ResourceReloadListener for ModelDependencyReloadListener {
+    fn name(&self) -> &str {
+        "model_dependencies"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let mut resources = Vec::with_capacity(
+            self.blockstates.len() + self.block_models.len() + self.item_models.len(),
+        );
+        for resource in self.resources() {
+            stack.require_resource(resource)?;
+            resources.push(resource.clone());
+        }
+
+        Ok(ResourceReloadTaskReport::new(resources))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let report = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            model_dependency_report_items(&report),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelDependencyReport {
+    resources: Vec<ModelDependencyResourceReport>,
+    counts_by_top_priority_pack: BTreeMap<String, ModelDependencyPackCounts>,
+    blockstate_models: BTreeSet<String>,
+    parents: BTreeSet<String>,
+    textures: BTreeSet<String>,
+}
+
+impl ModelDependencyReport {
+    pub fn resources(&self) -> &[ModelDependencyResourceReport] {
+        &self.resources
+    }
+
+    pub fn counts_by_top_priority_pack(&self) -> &BTreeMap<String, ModelDependencyPackCounts> {
+        &self.counts_by_top_priority_pack
+    }
+
+    pub fn blockstate_models(&self) -> &BTreeSet<String> {
+        &self.blockstate_models
+    }
+
+    pub fn parents(&self) -> &BTreeSet<String> {
+        &self.parents
+    }
+
+    pub fn textures(&self) -> &BTreeSet<String> {
+        &self.textures
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelDependencyResourceReport {
+    resource: String,
+    pack_id: String,
+    kind: ModelDependencyResourceKind,
+}
+
+impl ModelDependencyResourceReport {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn kind(&self) -> ModelDependencyResourceKind {
+        self.kind
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModelDependencyResourceKind {
+    Blockstate,
+    BlockModel,
+    ItemModel,
+}
+
+impl ModelDependencyResourceKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Blockstate => "blockstates",
+            Self::BlockModel => "block_models",
+            Self::ItemModel => "item_models",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ModelDependencyPackCounts {
+    pub blockstates: usize,
+    pub block_models: usize,
+    pub item_models: usize,
+}
+
+impl ModelDependencyPackCounts {
+    fn increment(&mut self, kind: ModelDependencyResourceKind) {
+        match kind {
+            ModelDependencyResourceKind::Blockstate => self.blockstates += 1,
+            ModelDependencyResourceKind::BlockModel => self.block_models += 1,
+            ModelDependencyResourceKind::ItemModel => self.item_models += 1,
+        }
+    }
+}
+
+pub fn load_model_dependencies(
+    stack: &ClientResourceStack,
+    blockstates: &[String],
+    block_models: &[String],
+    item_models: &[String],
+) -> ResourceReloadResult<ModelDependencyReport> {
+    let mut resources =
+        Vec::with_capacity(blockstates.len() + block_models.len() + item_models.len());
+    let mut counts_by_top_priority_pack = BTreeMap::new();
+    let mut blockstate_models = BTreeSet::new();
+    let mut parents = BTreeSet::new();
+    let mut textures = BTreeSet::new();
+
+    for blockstate in blockstates {
+        let resource = load_client_json_resource(stack, blockstate)?;
+        let model_references = extract_blockstate_model_references(resource.value())
+            .map_err(|reason| invalid_model_dependency(&resource, reason))?;
+        blockstate_models.extend(model_references);
+        push_model_dependency_resource(
+            &mut resources,
+            &mut counts_by_top_priority_pack,
+            resource.report(),
+            ModelDependencyResourceKind::Blockstate,
+        );
+    }
+
+    for block_model in block_models {
+        let resource = load_client_json_resource(stack, block_model)?;
+        collect_model_json_dependencies(&resource, &mut parents, &mut textures)?;
+        push_model_dependency_resource(
+            &mut resources,
+            &mut counts_by_top_priority_pack,
+            resource.report(),
+            ModelDependencyResourceKind::BlockModel,
+        );
+    }
+
+    for item_model in item_models {
+        let resource = load_client_json_resource(stack, item_model)?;
+        collect_model_json_dependencies(&resource, &mut parents, &mut textures)?;
+        push_model_dependency_resource(
+            &mut resources,
+            &mut counts_by_top_priority_pack,
+            resource.report(),
+            ModelDependencyResourceKind::ItemModel,
+        );
+    }
+
+    Ok(ModelDependencyReport {
+        resources,
+        counts_by_top_priority_pack,
+        blockstate_models,
+        parents,
+        textures,
+    })
+}
+
+fn push_model_dependency_resource(
+    resources: &mut Vec<ModelDependencyResourceReport>,
+    counts_by_top_priority_pack: &mut BTreeMap<String, ModelDependencyPackCounts>,
+    report: &ClientJsonResourceReloadReport,
+    kind: ModelDependencyResourceKind,
+) {
+    counts_by_top_priority_pack
+        .entry(report.pack_id().to_owned())
+        .or_default()
+        .increment(kind);
+    resources.push(ModelDependencyResourceReport {
+        resource: report.resource().to_owned(),
+        pack_id: report.pack_id().to_owned(),
+        kind,
+    });
+}
+
+fn collect_model_json_dependencies(
+    resource: &ClientJsonResource,
+    parents: &mut BTreeSet<String>,
+    textures: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let Some(object) = resource.value().as_object() else {
+        return Err(invalid_model_dependency(
+            resource,
+            "model top-level value must be an object",
+        ));
+    };
+
+    if let Some(parent) = object.get("parent") {
+        let Some(parent) = parent.as_str() else {
+            return Err(invalid_model_dependency(
+                resource,
+                "model parent must be a string",
+            ));
+        };
+        parents.insert(parent.to_owned());
+    }
+
+    if let Some(texture_values) = object.get("textures") {
+        let Some(texture_values) = texture_values.as_object() else {
+            return Err(invalid_model_dependency(
+                resource,
+                "model textures must be an object",
+            ));
+        };
+        for (texture_key, texture) in texture_values {
+            let Some(texture) = texture.as_str() else {
+                return Err(invalid_model_dependency(
+                    resource,
+                    format!("model texture `{texture_key}` must be a string"),
+                ));
+            };
+            textures.insert(texture.to_owned());
+        }
+    }
+
+    Ok(())
+}
+
+fn invalid_model_dependency(
+    resource: &ClientJsonResource,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidModelDependency {
+        resource: resource.report().resource().to_owned(),
+        pack_id: resource.report().pack_id().to_owned(),
+        reason: reason.into(),
+    }
+}
+
+fn model_dependency_report_items(report: &ModelDependencyReport) -> Vec<String> {
+    let mut items = Vec::new();
+
+    for resource in report.resources() {
+        items.push(format!(
+            "{}@{}:{}",
+            resource.resource(),
+            resource.pack_id(),
+            resource.kind().label()
+        ));
+    }
+
+    for (pack_id, counts) in report.counts_by_top_priority_pack() {
+        items.push(format!(
+            "pack:{pack_id}:blockstates:{} block_models:{} item_models:{}",
+            counts.blockstates, counts.block_models, counts.item_models
+        ));
+    }
+
+    items.push(format!(
+        "blockstate_models:{}",
+        report
+            .blockstate_models()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
+    items.push(format!(
+        "parents:{}",
+        report
+            .parents()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
+    items.push(format!(
+        "textures:{}",
+        report
+            .textures()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
+
+    items
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HeadlessShaderSourceReloadListener {
     sources: Vec<String>,
     includes: Vec<String>,
@@ -3118,6 +3654,18 @@ pub enum ResourceReloadError {
         path: PathBuf,
         reason: String,
     },
+    #[error("invalid model dependency `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidModelDependency {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
+    #[error("invalid blockstate model references `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidBlockstateModelReferences {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
 }
 
 #[cfg(test)]
@@ -4505,6 +5053,164 @@ mod tests {
     }
 
     #[test]
+    fn blockstate_model_reference_extraction_reads_variant_object_and_string_forms() {
+        let blockstate = serde_json::json!({
+            "variants": {
+                "": { "model": "minecraft:block/stone" },
+                "powered=true": "minecraft:block/redstone_torch"
+            }
+        });
+
+        assert_eq!(
+            extract_blockstate_model_references(&blockstate)
+                .expect("variant model references should extract"),
+            std::collections::BTreeSet::from([
+                "minecraft:block/redstone_torch".to_owned(),
+                "minecraft:block/stone".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn blockstate_model_reference_extraction_reads_variant_array_form() {
+        let blockstate = serde_json::json!({
+            "variants": {
+                "axis=y": [
+                    { "model": "minecraft:block/oak_log" },
+                    { "model": "minecraft:block/oak_log_horizontal" }
+                ]
+            }
+        });
+
+        assert_eq!(
+            extract_blockstate_model_references(&blockstate)
+                .expect("variant array model references should extract"),
+            std::collections::BTreeSet::from([
+                "minecraft:block/oak_log".to_owned(),
+                "minecraft:block/oak_log_horizontal".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn blockstate_model_reference_extraction_reads_multipart_apply_object_and_array_forms() {
+        let blockstate = serde_json::json!({
+            "multipart": [
+                {
+                    "when": { "north": "true" },
+                    "apply": { "model": "minecraft:block/oak_fence_side" }
+                },
+                {
+                    "apply": [
+                        { "model": "minecraft:block/oak_fence_post" },
+                        { "model": "minecraft:block/oak_fence_inventory" }
+                    ]
+                }
+            ]
+        });
+
+        assert_eq!(
+            extract_blockstate_model_references(&blockstate)
+                .expect("multipart apply model references should extract"),
+            std::collections::BTreeSet::from([
+                "minecraft:block/oak_fence_inventory".to_owned(),
+                "minecraft:block/oak_fence_post".to_owned(),
+                "minecraft:block/oak_fence_side".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn blockstate_model_reference_extraction_rejects_invalid_json_shape() {
+        let blockstate = serde_json::json!({
+            "variants": [
+                { "model": "minecraft:block/stone" }
+            ]
+        });
+
+        assert_eq!(
+            extract_blockstate_model_references(&blockstate)
+                .expect_err("invalid blockstate shape should fail"),
+            "blockstate variants must be an object"
+        );
+    }
+
+    #[test]
+    fn blockstate_model_reference_listener_reports_priority_pack_and_models() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/blockstates/stone.json",
+            r#"{"variants":{"":{"model":"minecraft:block/stone"}}}"#,
+        );
+        base.write(
+            "assets/minecraft/blockstates/oak_fence.json",
+            r#"{"multipart":[{"apply":{"model":"minecraft:block/oak_fence_post"}}]}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/blockstates/oak_fence.json",
+            r#"{"multipart":[{"apply":[{"model":"minecraft:block/oak_fence_post"},{"model":"minecraft:block/oak_fence_side"}]}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(HeadlessBlockstateModelReferenceReloadListener::new([
+                "stone",
+                "oak_fence",
+            ]))
+            .run()
+            .expect("blockstate model reference reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "blockstate_model_references");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/blockstates/stone.json".to_owned(),
+                "assets/minecraft/blockstates/oak_fence.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/blockstates/stone.json@base:minecraft:block/stone".to_owned(),
+                "assets/minecraft/blockstates/oak_fence.json@override:minecraft:block/oak_fence_post,minecraft:block/oak_fence_side".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn blockstate_model_reference_listener_rejects_invalid_json_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/stone.json",
+            r#"{"variants":[{"model":"minecraft:block/stone"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(HeadlessBlockstateModelReferenceReloadListener::new([
+                "stone",
+            ]))
+            .run()
+            .expect_err("invalid blockstate shape should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidBlockstateModelReferences {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/blockstates/stone.json"
+                && pack_id == "test"
+                && reason == "blockstate variants must be an object"
+        ));
+    }
+
+    #[test]
     fn json_manifest_reload_skips_requested_ids_that_are_not_present() {
         let temp = TempPack::new();
         temp.write(
@@ -4572,6 +5278,110 @@ mod tests {
 
         assert!(
             matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/models/block/stone.json")
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_model_dependency_listener_loads_stone_and_stick_resources() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ModelDependencyReloadListener::default())
+            .run()
+            .expect("committed vanilla model dependency resources should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "model_dependencies");
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/blockstates/stone.json".to_owned(),
+                "assets/minecraft/models/block/stone.json".to_owned(),
+                "assets/minecraft/models/item/stick.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/blockstates/stone.json@vanilla:blockstates".to_owned(),
+                "assets/minecraft/models/block/stone.json@vanilla:block_models".to_owned(),
+                "assets/minecraft/models/item/stick.json@vanilla:item_models".to_owned(),
+                "pack:vanilla:blockstates:1 block_models:1 item_models:1".to_owned(),
+                "blockstate_models:minecraft:block/stone,minecraft:block/stone_mirrored".to_owned(),
+                "parents:minecraft:block/cube_all,minecraft:item/handheld".to_owned(),
+                "textures:minecraft:block/stone,minecraft:item/stick".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn model_dependency_listener_reports_counts_by_top_priority_pack() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/blockstates/stone.json",
+            r#"{"variants":{"":{"model":"minecraft:block/stone"}}}"#,
+        );
+        base.write(
+            "assets/minecraft/models/block/stone.json",
+            r#"{"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/stone"}}"#,
+        );
+        base.write(
+            "assets/minecraft/models/item/stick.json",
+            r#"{"parent":"minecraft:item/handheld","textures":{"layer0":"minecraft:item/stick"}}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/models/item/stick.json",
+            r#"{"parent":"minecraft:item/generated","textures":{"layer0":"minecraft:item/custom_stick"}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ModelDependencyReloadListener::default())
+            .run()
+            .expect("model dependency reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/blockstates/stone.json@base:blockstates".to_owned(),
+                "assets/minecraft/models/block/stone.json@base:block_models".to_owned(),
+                "assets/minecraft/models/item/stick.json@override:item_models".to_owned(),
+                "pack:base:blockstates:1 block_models:1 item_models:0".to_owned(),
+                "pack:override:blockstates:0 block_models:0 item_models:1".to_owned(),
+                "blockstate_models:minecraft:block/stone".to_owned(),
+                "parents:minecraft:block/cube_all,minecraft:item/generated".to_owned(),
+                "textures:minecraft:block/stone,minecraft:item/custom_stick".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn model_dependency_listener_rejects_invalid_model_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/stone.json",
+            r#"{"variants":{"":{"model":"minecraft:block/stone"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/stone.json",
+            r#"{"parent":42,"textures":{"all":"minecraft:block/stone"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/item/stick.json",
+            r#"{"parent":"minecraft:item/handheld","textures":{"layer0":"minecraft:item/stick"}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(ModelDependencyReloadListener::default())
+            .run()
+            .expect_err("invalid model dependency shape should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidModelDependency { resource, pack_id, reason } if resource == "assets/minecraft/models/block/stone.json" && pack_id == "test" && reason == "model parent must be a string")
         );
     }
 
