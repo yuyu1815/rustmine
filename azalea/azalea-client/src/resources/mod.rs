@@ -660,6 +660,74 @@ impl ServerResourcePackApplyState {
             max: SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES,
         })
     }
+
+    #[cfg(feature = "online-mode")]
+    pub async fn download_and_cache(
+        &mut self,
+        client: &reqwest::Client,
+        cache_dir: impl AsRef<Path>,
+    ) -> Result<ServerResourcePackCacheReport, ServerResourcePackCacheError> {
+        if self.validate_url().is_err() {
+            return Err(ServerResourcePackCacheError::Rejected(self.invalid_url()));
+        }
+
+        let url = self.request.url().to_owned();
+        self.start_download();
+
+        let mut response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|source| self.download_error(source))?
+            .error_for_status()
+            .map_err(|source| self.download_error(source))?;
+
+        if !server_resource_pack_content_length_is_allowed(response.content_length()) {
+            let len = response
+                .content_length()
+                .and_then(|len| usize::try_from(len).ok())
+                .unwrap_or(usize::MAX);
+            return Err(self.download_too_large(len));
+        }
+
+        let capacity = response
+            .content_length()
+            .and_then(|len| usize::try_from(len).ok())
+            .unwrap_or(0);
+        let mut bytes = Vec::with_capacity(capacity);
+
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|source| self.download_error(source))?
+        {
+            let Some(next_len) =
+                server_resource_pack_download_len_after_chunk(bytes.len(), chunk.len())
+            else {
+                return Err(self.download_too_large(bytes.len().saturating_add(chunk.len())));
+            };
+            bytes.reserve(next_len - bytes.len());
+            bytes.extend_from_slice(&chunk);
+        }
+
+        self.cache_downloaded_bytes_with_report(cache_dir, &bytes)
+    }
+
+    #[cfg(feature = "online-mode")]
+    fn download_too_large(&mut self, len: usize) -> ServerResourcePackCacheError {
+        let ack = self.download_failed();
+        ServerResourcePackCacheError::TooLarge {
+            ack,
+            len,
+            max: SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES,
+        }
+    }
+
+    #[cfg(feature = "online-mode")]
+    fn download_error(&mut self, source: reqwest::Error) -> ServerResourcePackCacheError {
+        let ack = self.download_failed();
+        ServerResourcePackCacheError::Download { ack, source }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -675,6 +743,11 @@ pub enum ServerResourcePackCacheError {
         len: usize,
         max: usize,
     },
+    #[cfg(feature = "online-mode")]
+    Download {
+        ack: ServerResourcePackAck,
+        source: reqwest::Error,
+    },
     Io {
         ack: ServerResourcePackAck,
         source: io::Error,
@@ -685,6 +758,8 @@ impl ServerResourcePackCacheError {
     pub fn ack(&self) -> ServerResourcePackAck {
         match self {
             Self::Rejected(ack) | Self::TooLarge { ack, .. } | Self::Io { ack, .. } => *ack,
+            #[cfg(feature = "online-mode")]
+            Self::Download { ack, .. } => *ack,
         }
     }
 }
@@ -752,6 +827,23 @@ fn server_resource_pack_download_size_is_allowed(len: usize) -> bool {
     len <= SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES
 }
 
+#[cfg(feature = "online-mode")]
+fn server_resource_pack_content_length_is_allowed(content_length: Option<u64>) -> bool {
+    content_length
+        .map(|len| len <= SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES as u64)
+        .unwrap_or(true)
+}
+
+#[cfg(feature = "online-mode")]
+fn server_resource_pack_download_len_after_chunk(
+    current_len: usize,
+    chunk_len: usize,
+) -> Option<usize> {
+    current_len
+        .checked_add(chunk_len)
+        .filter(|len| server_resource_pack_download_size_is_allowed(*len))
+}
+
 fn cached_server_resource_pack_matches(path: &Path, expected_sha1: &str) -> io::Result<bool> {
     if !path.exists() {
         return Ok(false);
@@ -799,6 +891,12 @@ impl fmt::Display for ServerResourcePackCacheError {
                 "server resource pack `{}` cache write failed with {:?}: {source}",
                 ack.id, ack.action
             ),
+            #[cfg(feature = "online-mode")]
+            Self::Download { ack, source } => write!(
+                f,
+                "server resource pack `{}` download failed with {:?}: {source}",
+                ack.id, ack.action
+            ),
         }
     }
 }
@@ -808,6 +906,8 @@ impl std::error::Error for ServerResourcePackCacheError {
         match self {
             Self::Rejected(_) | Self::TooLarge { .. } => None,
             Self::Io { source, .. } => Some(source),
+            #[cfg(feature = "online-mode")]
+            Self::Download { source, .. } => Some(source),
         }
     }
 }
@@ -5094,6 +5194,39 @@ mod tests {
             ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download)
         );
         assert_eq!(pack.downloaded(), None);
+    }
+
+    #[test]
+    fn server_pack_download_content_length_guard_allows_missing_or_max_len() {
+        assert!(server_resource_pack_content_length_is_allowed(None));
+        assert!(server_resource_pack_content_length_is_allowed(Some(
+            SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES as u64
+        )));
+        assert!(!server_resource_pack_content_length_is_allowed(Some(
+            SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES as u64 + 1
+        )));
+    }
+
+    #[test]
+    fn server_pack_download_chunk_len_guard_rejects_overflow_or_oversize() {
+        assert_eq!(
+            server_resource_pack_download_len_after_chunk(
+                SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES - 1,
+                1
+            ),
+            Some(SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES)
+        );
+        assert_eq!(
+            server_resource_pack_download_len_after_chunk(
+                SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES,
+                1
+            ),
+            None
+        );
+        assert_eq!(
+            server_resource_pack_download_len_after_chunk(usize::MAX, 1),
+            None
+        );
     }
 
     #[test]
