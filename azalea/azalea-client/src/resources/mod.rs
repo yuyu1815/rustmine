@@ -7831,9 +7831,9 @@ impl ResourceReloadListener for ClientLanguageReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        stack.require_resource(language_resource_path(DEFAULT_LANGUAGE_CODE))?;
+        require_any_language_resource(stack, DEFAULT_LANGUAGE_CODE)?;
         Ok(ResourceReloadTaskReport::new(
-            language_resource_paths(&self.requested_language_code)
+            language_resource_paths(stack, &self.requested_language_code)?
                 .into_iter()
                 .map(|path| path.to_string_lossy().into_owned()),
         ))
@@ -7856,13 +7856,13 @@ pub fn load_client_language_resources(
     stack: &ClientResourceStack,
     requested_language_code: &str,
 ) -> ResourceReloadResult<ClientLanguageResources> {
-    stack.require_resource(language_resource_path(DEFAULT_LANGUAGE_CODE))?;
+    require_any_language_resource(stack, DEFAULT_LANGUAGE_CODE)?;
 
     let requested_language_code = requested_language_code.to_ascii_lowercase();
     let mut translations = BTreeMap::new();
     let mut loaded_files = Vec::new();
 
-    for resource in language_resource_paths(&requested_language_code) {
+    for resource in language_resource_paths(stack, &requested_language_code)? {
         for location in stack.resource_stack(&resource) {
             let language_entries = read_language_resource(&resource, &location)?;
             translations.extend(language_entries);
@@ -7879,16 +7879,140 @@ pub fn load_client_language_resources(
     })
 }
 
-fn language_resource_paths(language_code: &str) -> Vec<PathBuf> {
-    let mut paths = vec![language_resource_path(DEFAULT_LANGUAGE_CODE)];
-    if language_code != DEFAULT_LANGUAGE_CODE {
-        paths.push(language_resource_path(language_code));
+fn require_any_language_resource(
+    stack: &ClientResourceStack,
+    language_code: &str,
+) -> ResourceReloadResult<()> {
+    if language_resource_paths_for_code(stack, language_code)?
+        .into_iter()
+        .any(|resource| !stack.resource_stack(&resource).is_empty())
+    {
+        return Ok(());
     }
-    paths
+
+    Err(ResourceReloadError::MissingResource(format!(
+        "assets/*/lang/{language_code}.json"
+    )))
 }
 
-fn language_resource_path(language_code: &str) -> PathBuf {
-    PathBuf::from(format!("assets/minecraft/lang/{language_code}.json"))
+fn language_resource_paths(
+    stack: &ClientResourceStack,
+    language_code: &str,
+) -> ResourceReloadResult<Vec<PathBuf>> {
+    let mut paths = language_resource_paths_for_code(stack, DEFAULT_LANGUAGE_CODE)?;
+    if language_code != DEFAULT_LANGUAGE_CODE {
+        paths.extend(language_resource_paths_for_code(stack, language_code)?);
+    }
+    Ok(paths)
+}
+
+fn language_resource_paths_for_code(
+    stack: &ClientResourceStack,
+    language_code: &str,
+) -> ResourceReloadResult<Vec<PathBuf>> {
+    Ok(discover_client_resource_namespaces(stack)?
+        .into_iter()
+        .map(|namespace| language_resource_path(&namespace, language_code))
+        .collect())
+}
+
+fn language_resource_path(namespace: &str, language_code: &str) -> PathBuf {
+    PathBuf::from(format!("assets/{namespace}/lang/{language_code}.json"))
+}
+
+fn discover_client_resource_namespaces(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<Vec<String>> {
+    let mut namespaces = BTreeSet::new();
+
+    for pack in stack.packs() {
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_client_resource_namespaces(root, &mut namespaces)?
+            }
+            ClientResourcePackSource::RootZip(root) => {
+                discover_zip_client_resource_namespaces(root, &mut namespaces)?
+            }
+            ClientResourcePackSource::Unavailable(_) => {}
+        }
+    }
+
+    Ok(namespaces.into_iter().collect())
+}
+
+fn discover_directory_client_resource_namespaces(
+    root: &Path,
+    namespaces: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(&assets).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets".to_owned(),
+        path: assets.clone(),
+        source,
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets".to_owned(),
+            path: assets.clone(),
+            source,
+        })?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(namespace) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !namespace.is_empty() {
+            namespaces.insert(namespace.to_owned());
+        }
+    }
+
+    Ok(())
+}
+
+fn discover_zip_client_resource_namespaces(
+    root: &Path,
+    namespaces: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets".to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets".to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: "assets".to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        let Some((namespace, _rest)) = entry.name().strip_prefix("assets/").and_then(|rest| {
+            let (namespace, rest) = rest.split_once('/')?;
+            Some((namespace, rest))
+        }) else {
+            continue;
+        };
+        if !namespace.is_empty() {
+            namespaces.insert(namespace.to_owned());
+        }
+    }
+
+    Ok(())
 }
 
 fn read_language_resource(
@@ -15484,6 +15608,151 @@ mod tests {
             ]
         );
         assert_eq!(resources.report().translation_count(), 4);
+    }
+
+    #[test]
+    fn language_reload_discovers_multiple_namespaces() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play"}"#,
+        );
+        temp.write(
+            "assets/example/lang/en_us.json",
+            r#"{"example.status":"Ready"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let resources = load_client_language_resources(&stack, DEFAULT_LANGUAGE_CODE)
+            .expect("language resources should load from discovered namespaces");
+
+        assert_eq!(
+            resources.translations().get("menu.play"),
+            Some(&"Play".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("example.status"),
+            Some(&"Ready".to_owned())
+        );
+        assert_eq!(
+            resources.report().loaded_files(),
+            [
+                "assets/example/lang/en_us.json@test".to_owned(),
+                "assets/minecraft/lang/en_us.json@test".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn language_reload_discovers_zip_pack_namespaces() {
+        let temp = TempPack::new();
+        let zip_path = temp.path().join("pack.zip");
+        fs::write(
+            &zip_path,
+            server_pack_zip_bytes_with_entries(
+                "{}",
+                [(
+                    "assets/example/lang/en_us.json",
+                    r#"{"zip.status":"Ready"}"#,
+                )],
+            ),
+        )
+        .expect("zip pack should be written");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("zip", zip_path)]);
+        let resources = load_client_language_resources(&stack, DEFAULT_LANGUAGE_CODE)
+            .expect("language resources should load from zip pack namespaces");
+
+        assert_eq!(
+            resources.translations().get("zip.status"),
+            Some(&"Ready".to_owned())
+        );
+        assert_eq!(
+            resources.report().loaded_files(),
+            ["assets/example/lang/en_us.json@zip".to_owned()]
+        );
+    }
+
+    #[test]
+    fn language_reload_merges_discovered_namespace_stacks_in_pack_priority_order() {
+        let low = TempPack::new();
+        low.write(
+            "assets/example/lang/en_us.json",
+            r#"{"example.status":"low","only.low":"Low"}"#,
+        );
+
+        let high = TempPack::new();
+        high.write(
+            "assets/example/lang/en_us.json",
+            r#"{"example.status":"high","only.high":"High"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("low", low.path()),
+            ClientResourcePack::new("high", high.path()),
+        ]);
+        let resources = load_client_language_resources(&stack, DEFAULT_LANGUAGE_CODE)
+            .expect("language resources should merge stack entries");
+
+        assert_eq!(
+            resources.translations().get("example.status"),
+            Some(&"high".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("only.low"),
+            Some(&"Low".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("only.high"),
+            Some(&"High".to_owned())
+        );
+        assert_eq!(
+            resources.report().loaded_files(),
+            [
+                "assets/example/lang/en_us.json@low".to_owned(),
+                "assets/example/lang/en_us.json@high".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn language_reload_ignores_missing_selected_language_resources() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play"}"#,
+        );
+        temp.write("assets/example/sounds.json", "{}");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let resources = load_client_language_resources(&stack, "pirate")
+            .expect("missing selected language resources should be skipped");
+
+        assert_eq!(
+            resources.translations().get("menu.play"),
+            Some(&"Play".to_owned())
+        );
+        assert_eq!(
+            resources.report().loaded_files(),
+            ["assets/minecraft/lang/en_us.json@test".to_owned()]
+        );
+    }
+
+    #[test]
+    fn language_reload_rejects_invalid_value_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play","menu.quit":false}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = load_client_language_resources(&stack, DEFAULT_LANGUAGE_CODE)
+            .expect_err("language values must be strings");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/lang/en_us.json")
+        );
     }
 
     #[test]
