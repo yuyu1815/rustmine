@@ -3,6 +3,7 @@ use std::io;
 
 mod custom_report_details;
 mod dialog;
+mod keep_alive_ping;
 mod resource_pack;
 mod update_tags;
 
@@ -10,6 +11,9 @@ pub use custom_report_details::{
     ConfigurationCustomReportDetail, ConfigurationCustomReportDetailsClientbound,
 };
 pub use dialog::{ConfigurationClearDialogClientbound, ConfigurationShowDialogClientbound};
+pub use keep_alive_ping::{
+    ConfigurationKeepAliveClientbound_i64, ConfigurationPingClientbound_i32,
+};
 pub use resource_pack::{
     ConfigurationResourcePackPopClientbound, ConfigurationResourcePackPushClientbound,
 };
@@ -316,50 +320,6 @@ impl PacketType for ConfigurationFinishConfigurationClientbound {
 
     fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
         self.empty.write_to(buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationKeepAliveClientbound_i64 {
-    pub id: i64,
-}
-
-impl PacketType for ConfigurationKeepAliveClientbound_i64 {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationKeepAliveClientbound_i64,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        self.id.write_to(buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationPingClientbound_i32 {
-    pub id: i32,
-}
-
-impl PacketType for ConfigurationPingClientbound_i32 {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationPingClientbound_i32,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        self.id.write_to(buf)?;
         Ok(())
     }
 }
