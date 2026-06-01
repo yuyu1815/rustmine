@@ -35,6 +35,7 @@ pub const WAYPOINT_STYLE_MANIFEST_DIR: &str = "assets/minecraft/waypoint_style";
 pub const FONT_DEFINITION_DIR: &str = "assets/minecraft/font";
 pub const SHADER_SOURCE_DIR: &str = "assets/minecraft/shaders";
 pub const BLOCKSTATE_DEFINITION_DIR: &str = "assets/minecraft/blockstates";
+pub const SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES: usize = 262_144_000;
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
@@ -475,9 +476,8 @@ impl ServerResourcePackApplyState {
     ) -> PathBuf {
         cache_dir
             .as_ref()
-            .join("server-resource-packs")
-            .join(self.request.id.simple().to_string())
-            .join(format!("{actual_sha1}.zip"))
+            .join(self.request.id.to_string())
+            .join(actual_sha1)
     }
 
     pub fn cache_downloaded_bytes(
@@ -485,23 +485,51 @@ impl ServerResourcePackApplyState {
         cache_dir: impl AsRef<Path>,
         bytes: &[u8],
     ) -> Result<ServerResourcePackAck, ServerResourcePackCacheError> {
+        self.cache_downloaded_bytes_with_report(cache_dir, bytes)
+            .map(|report| report.ack)
+    }
+
+    pub fn cache_downloaded_bytes_with_report(
+        &mut self,
+        cache_dir: impl AsRef<Path>,
+        bytes: &[u8],
+    ) -> Result<ServerResourcePackCacheReport, ServerResourcePackCacheError> {
+        self.validate_download_size(bytes.len())?;
+
         let actual_sha1 = server_resource_pack_sha1_hex(bytes);
         if !self.hash_matches(&actual_sha1) {
             return Err(ServerResourcePackCacheError::Rejected(self.hash_mismatch()));
         }
 
         let path = self.deterministic_cache_path(cache_dir, &actual_sha1);
-        if let Err(source) = write_server_resource_pack_cache_file(&path, bytes) {
-            let ack = self.download_failed();
-            return Err(ServerResourcePackCacheError::Io { ack, source });
+        let reused_existing_file = match cached_server_resource_pack_matches(&path, &actual_sha1) {
+            Ok(reused_existing_file) => reused_existing_file,
+            Err(source) => {
+                let ack = self.download_failed();
+                return Err(ServerResourcePackCacheError::Io { ack, source });
+            }
+        };
+
+        if !reused_existing_file {
+            if let Err(source) = write_server_resource_pack_cache_file(&path, bytes) {
+                let ack = self.download_failed();
+                return Err(ServerResourcePackCacheError::Io { ack, source });
+            }
         }
 
         self.downloaded = Some(ServerResourcePackDownload::Path {
+            path: path.clone(),
+            len: bytes.len(),
+            sha1: actual_sha1.clone(),
+        });
+        let ack = self.download_succeeded();
+        Ok(ServerResourcePackCacheReport {
+            ack,
             path,
             len: bytes.len(),
             sha1: actual_sha1,
-        });
-        Ok(self.download_succeeded())
+            reused_existing_file,
+        })
     }
 
     pub fn download_path_succeeded(
@@ -619,6 +647,19 @@ impl ServerResourcePackApplyState {
             .map(|expected| expected == actual_sha1)
             .unwrap_or(true)
     }
+
+    fn validate_download_size(&mut self, len: usize) -> Result<(), ServerResourcePackCacheError> {
+        if server_resource_pack_download_size_is_allowed(len) {
+            return Ok(());
+        }
+
+        let ack = self.download_failed();
+        Err(ServerResourcePackCacheError::TooLarge {
+            ack,
+            len,
+            max: SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -629,6 +670,11 @@ pub enum ServerResourcePackApplyError {
 #[derive(Debug)]
 pub enum ServerResourcePackCacheError {
     Rejected(ServerResourcePackAck),
+    TooLarge {
+        ack: ServerResourcePackAck,
+        len: usize,
+        max: usize,
+    },
     Io {
         ack: ServerResourcePackAck,
         source: io::Error,
@@ -638,9 +684,18 @@ pub enum ServerResourcePackCacheError {
 impl ServerResourcePackCacheError {
     pub fn ack(&self) -> ServerResourcePackAck {
         match self {
-            Self::Rejected(ack) | Self::Io { ack, .. } => *ack,
+            Self::Rejected(ack) | Self::TooLarge { ack, .. } | Self::Io { ack, .. } => *ack,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackCacheReport {
+    pub ack: ServerResourcePackAck,
+    pub path: PathBuf,
+    pub len: usize,
+    pub sha1: String,
+    pub reused_existing_file: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -693,6 +748,20 @@ fn server_resource_pack_sha1_hex(bytes: &[u8]) -> String {
         .collect::<String>()
 }
 
+fn server_resource_pack_download_size_is_allowed(len: usize) -> bool {
+    len <= SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES
+}
+
+fn cached_server_resource_pack_matches(path: &Path, expected_sha1: &str) -> io::Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    let bytes = fs::read(path)?;
+    Ok(server_resource_pack_download_size_is_allowed(bytes.len())
+        && server_resource_pack_sha1_hex(&bytes) == expected_sha1)
+}
+
 fn write_server_resource_pack_cache_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -720,6 +789,11 @@ impl fmt::Display for ServerResourcePackCacheError {
                 "server resource pack `{}` rejected cache write with {:?}",
                 ack.id, ack.action
             ),
+            Self::TooLarge { ack, len, max } => write!(
+                f,
+                "server resource pack `{}` cache write failed with {:?}: {len} bytes exceeds {max} bytes",
+                ack.id, ack.action
+            ),
             Self::Io { ack, source } => write!(
                 f,
                 "server resource pack `{}` cache write failed with {:?}: {source}",
@@ -732,7 +806,7 @@ impl fmt::Display for ServerResourcePackCacheError {
 impl std::error::Error for ServerResourcePackCacheError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Rejected(_) => None,
+            Self::Rejected(_) | Self::TooLarge { .. } => None,
             Self::Io { source, .. } => Some(source),
         }
     }
@@ -4967,11 +5041,7 @@ mod tests {
             .cache_downloaded_bytes(cache.path(), bytes)
             .expect("matching pack bytes should write to cache");
 
-        let expected_path = cache
-            .path()
-            .join("server-resource-packs")
-            .join(id.simple().to_string())
-            .join(format!("{expected_sha1}.zip"));
+        let expected_path = cache.path().join(id.to_string()).join(&expected_sha1);
         assert_eq!(
             ack,
             ServerResourcePackAck {
@@ -4982,6 +5052,133 @@ mod tests {
         assert_eq!(pack.status(), ServerResourcePackStatus::Downloaded);
         assert_eq!(
             fs::read(&expected_path).expect("cached pack bytes should be readable"),
+            bytes
+        );
+        assert_eq!(
+            pack.downloaded(),
+            Some(&ServerResourcePackDownload::Path {
+                path: expected_path,
+                len: bytes.len(),
+                sha1: expected_sha1,
+            })
+        );
+    }
+
+    #[test]
+    fn server_pack_cache_rejects_oversized_download_len_without_allocating_bytes() {
+        let id = resource_pack_id(2601);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.validate_download_size(SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES)
+            .expect("vanilla max-sized resource pack should be allowed");
+        let err = pack
+            .validate_download_size(SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES + 1)
+            .expect_err("oversized resource pack should fail before buffering bytes");
+
+        assert_eq!(
+            err.ack(),
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedDownload,
+            }
+        );
+        assert!(
+            matches!(err, ServerResourcePackCacheError::TooLarge { len, max, .. }
+                if len == SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES + 1
+                    && max == SERVER_RESOURCE_PACK_MAX_DOWNLOAD_BYTES)
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download)
+        );
+        assert_eq!(pack.downloaded(), None);
+    }
+
+    #[test]
+    fn server_pack_cache_reuses_matching_cached_file() {
+        let id = resource_pack_id(2602);
+        let bytes = b"cached server pack";
+        let expected_sha1 = server_resource_pack_sha1_hex(bytes);
+        let cache = TempPack::new();
+        let mut first_pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            &expected_sha1,
+            true,
+            None,
+        ));
+        let mut second_pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            &expected_sha1,
+            true,
+            None,
+        ));
+
+        first_pack.accept();
+        first_pack.start_download();
+        first_pack
+            .cache_downloaded_bytes(cache.path(), bytes)
+            .expect("first matching pack bytes should write to cache");
+
+        second_pack.accept();
+        second_pack.start_download();
+        let report = second_pack
+            .cache_downloaded_bytes_with_report(cache.path(), bytes)
+            .expect("matching cached pack should be reused");
+
+        assert!(report.reused_existing_file);
+        assert_eq!(
+            report.ack,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::Downloaded,
+            }
+        );
+        assert_eq!(
+            second_pack.downloaded(),
+            Some(&ServerResourcePackDownload::Path {
+                path: report.path.clone(),
+                len: bytes.len(),
+                sha1: expected_sha1,
+            })
+        );
+    }
+
+    #[test]
+    fn server_pack_cache_overwrites_stale_file_at_expected_path() {
+        let id = resource_pack_id(2603);
+        let bytes = b"cached server pack";
+        let stale_bytes = b"stale server pack";
+        let expected_sha1 = server_resource_pack_sha1_hex(bytes);
+        let cache = TempPack::new();
+        let expected_path = cache.path().join(id.to_string()).join(&expected_sha1);
+        fs::create_dir_all(
+            expected_path
+                .parent()
+                .expect("cache path should have a parent"),
+        )
+        .expect("cache parent should be created");
+        fs::write(&expected_path, stale_bytes).expect("stale cache file should be written");
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            &expected_sha1,
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        let report = pack
+            .cache_downloaded_bytes_with_report(cache.path(), bytes)
+            .expect("stale cache file should be replaced by matching bytes");
+
+        assert!(!report.reused_existing_file);
+        assert_eq!(
+            fs::read(&expected_path).expect("cache file should be readable"),
             bytes
         );
         assert_eq!(
@@ -5025,7 +5222,7 @@ mod tests {
             ServerResourcePackStatus::Failed(ServerResourcePackFailure::HashMismatch)
         );
         assert_eq!(pack.downloaded(), None);
-        assert!(!cache.path().join("server-resource-packs").exists());
+        assert!(!cache.path().join(id.to_string()).exists());
     }
 
     #[test]
@@ -5075,14 +5272,7 @@ mod tests {
         let second = pack.deterministic_cache_path(cache.path(), actual_hash);
 
         assert_eq!(first, second);
-        assert_eq!(
-            first,
-            cache
-                .path()
-                .join("server-resource-packs")
-                .join(id.simple().to_string())
-                .join(format!("{actual_hash}.zip"))
-        );
+        assert_eq!(first, cache.path().join(id.to_string()).join(actual_hash));
     }
 
     #[test]
@@ -5104,11 +5294,7 @@ mod tests {
         pack.cache_downloaded_bytes(cache.path(), bytes)
             .expect("pack bytes without declared hash should write to cache");
 
-        let expected_path = cache
-            .path()
-            .join("server-resource-packs")
-            .join(id.simple().to_string())
-            .join(format!("{expected_sha1}.zip"));
+        let expected_path = cache.path().join(id.to_string()).join(&expected_sha1);
         assert_eq!(
             pack.downloaded().and_then(ServerResourcePackDownload::path),
             Some(expected_path.as_path())
