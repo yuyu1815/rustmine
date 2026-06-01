@@ -1949,7 +1949,8 @@ impl ResourceReloadManager {
             .with_listener(TextureMetadataReloadListener::default())
             .with_listener(InitialTextureReloadListener::default())
             .with_listener(TextureManagerReloadListener::default())
-            .with_listener(HeadlessShaderSourceReloadListener::default());
+            .with_listener(HeadlessShaderSourceReloadListener::default())
+            .with_listener(HeadlessShaderManagerReloadListener::default());
 
         if has_sound_events {
             manager = manager.with_listener(SoundEventsReloadListener::default());
@@ -6996,7 +6997,7 @@ impl HeadlessShaderManagerPrepareReport {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum HeadlessShaderSourceKind {
     Vertex,
     Fragment,
@@ -7017,6 +7018,275 @@ impl HeadlessShaderSourceKind {
             Self::Fragment => "fragment",
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct HeadlessShaderManagerReloadListener {
+    requested_post_chain_ids: Vec<String>,
+}
+
+impl HeadlessShaderManagerReloadListener {
+    pub fn new(post_chain_ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            requested_post_chain_ids: post_chain_ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<HeadlessShaderManagerReloadReport> {
+        load_headless_shader_manager_reload(stack, &self.requested_post_chain_ids)
+    }
+}
+
+impl ResourceReloadListener for HeadlessShaderManagerReloadListener {
+    fn name(&self) -> &str {
+        "headless_shader_manager"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = discover_headless_shader_manager_resources(stack)?;
+        Ok(ResourceReloadTaskReport::new([
+            format!("shader_sources:{}", resources.shader_sources.len()),
+            format!("includes:{}", resources.includes.len()),
+            format!("post_chains:{}", resources.post_chains.len()),
+        ]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderManagerReloadReport {
+    program_candidates: Vec<HeadlessShaderProgramCompileCandidateReport>,
+    blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+    post_chain_count: usize,
+}
+
+impl HeadlessShaderManagerReloadReport {
+    fn new(
+        program_candidates: Vec<HeadlessShaderProgramCompileCandidateReport>,
+        blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+        post_chain_count: usize,
+    ) -> Self {
+        Self {
+            program_candidates,
+            blockers,
+            post_chain_count,
+        }
+    }
+
+    pub fn program_candidates(&self) -> &[HeadlessShaderProgramCompileCandidateReport] {
+        &self.program_candidates
+    }
+
+    pub fn blockers(&self) -> &[HeadlessShaderManagerReloadBlocker] {
+        &self.blockers
+    }
+
+    pub fn post_chain_count(&self) -> usize {
+        self.post_chain_count
+    }
+
+    pub fn ready_candidate_count(&self) -> usize {
+        self.program_candidates
+            .iter()
+            .filter(|candidate| candidate.is_ready())
+            .count()
+    }
+
+    pub fn blocked_candidate_count(&self) -> usize {
+        self.program_candidates.len() - self.ready_candidate_count()
+    }
+
+    pub fn import_count(&self) -> usize {
+        self.program_candidates
+            .iter()
+            .map(|candidate| candidate.imports().len())
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "shader_manager:program_candidates:{} ready:{} blocked:{} blockers:{} imports:{} post_chains:{}",
+            self.program_candidates.len(),
+            self.ready_candidate_count(),
+            self.blocked_candidate_count(),
+            self.blockers.len(),
+            self.import_count(),
+            self.post_chain_count
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.program_candidates
+                .iter()
+                .map(HeadlessShaderProgramCompileCandidateReport::item_string),
+        );
+        items.extend(
+            self.blockers
+                .iter()
+                .map(HeadlessShaderManagerReloadBlocker::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderProgramCompileCandidateReport {
+    id: String,
+    vertex_shader_id: String,
+    fragment_shader_id: String,
+    vertex_resource: Option<String>,
+    fragment_resource: Option<String>,
+    imports: Vec<String>,
+    blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+}
+
+impl HeadlessShaderProgramCompileCandidateReport {
+    fn new(
+        id: impl Into<String>,
+        vertex_shader_id: impl Into<String>,
+        fragment_shader_id: impl Into<String>,
+        vertex_resource: Option<String>,
+        fragment_resource: Option<String>,
+        imports: Vec<String>,
+        blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            vertex_shader_id: vertex_shader_id.into(),
+            fragment_shader_id: fragment_shader_id.into(),
+            vertex_resource,
+            fragment_resource,
+            imports,
+            blockers,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn vertex_shader_id(&self) -> &str {
+        &self.vertex_shader_id
+    }
+
+    pub fn fragment_shader_id(&self) -> &str {
+        &self.fragment_shader_id
+    }
+
+    pub fn vertex_resource(&self) -> Option<&str> {
+        self.vertex_resource.as_deref()
+    }
+
+    pub fn fragment_resource(&self) -> Option<&str> {
+        self.fragment_resource.as_deref()
+    }
+
+    pub fn imports(&self) -> &[String] {
+        &self.imports
+    }
+
+    pub fn blockers(&self) -> &[HeadlessShaderManagerReloadBlocker] {
+        &self.blockers
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.blockers.is_empty()
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "shader_program_candidate:{} vertex:{} fragment:{} status:{} resources:{},{} imports:{} blockers:{}",
+            self.id,
+            self.vertex_shader_id,
+            self.fragment_shader_id,
+            if self.is_ready() { "ready" } else { "blocked" },
+            self.vertex_resource.as_deref().unwrap_or("<missing>"),
+            self.fragment_resource.as_deref().unwrap_or("<missing>"),
+            self.imports.join(","),
+            self.blockers
+                .iter()
+                .map(HeadlessShaderManagerReloadBlocker::short_string)
+                .collect::<Vec<_>>()
+                .join("|")
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderManagerReloadBlocker {
+    resource: String,
+    reason: String,
+}
+
+impl HeadlessShaderManagerReloadBlocker {
+    fn new(resource: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+            reason: reason.into(),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    fn short_string(&self) -> String {
+        format!("{}:{}", self.resource, self.reason)
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "shader_manager_blocker:{} reason:{}",
+            self.resource, self.reason
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HeadlessShaderSourceInventory {
+    id: String,
+    kind: HeadlessShaderSourceKind,
+    resource: String,
+    pack_id: String,
+    imports: Vec<String>,
+    blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+}
+
+impl HeadlessShaderSourceInventory {
+    fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HeadlessPostChainCompileInputs {
+    id: String,
+    passes: Vec<HeadlessPostChainPassCompileInputs>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HeadlessPostChainPassCompileInputs {
+    pass_index: usize,
+    vertex_shader_id: String,
+    fragment_shader_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -7759,6 +8029,420 @@ fn invalid_post_chain(
         path: location.path.clone(),
         reason: reason.into(),
     }
+}
+
+pub fn load_headless_shader_manager_reload(
+    stack: &ClientResourceStack,
+    requested_post_chain_ids: &[String],
+) -> ResourceReloadResult<HeadlessShaderManagerReloadReport> {
+    let discovered = discover_headless_shader_manager_resources(stack)?;
+    let post_chain_resources = selected_headless_post_chain_resources(
+        stack,
+        discovered.post_chains,
+        requested_post_chain_ids,
+    );
+    let mut blockers = post_chain_resources.blockers;
+    let mut shader_sources = BTreeMap::new();
+    let mut shader_ids = BTreeSet::new();
+
+    for resource in discovered.shader_sources {
+        match load_headless_shader_source_inventory(stack, &resource) {
+            Ok(source) => {
+                shader_ids.insert(source.id.clone());
+                blockers.extend(source.blockers.iter().cloned());
+                shader_sources.insert((source.id.clone(), source.kind), source);
+            }
+            Err(blocker) => blockers.push(blocker),
+        }
+    }
+
+    let mut program_candidates = Vec::new();
+    for shader_id in shader_ids {
+        let vertex = shader_sources.get(&(shader_id.clone(), HeadlessShaderSourceKind::Vertex));
+        let fragment = shader_sources.get(&(shader_id.clone(), HeadlessShaderSourceKind::Fragment));
+        if let (Some(vertex), Some(fragment)) = (vertex, fragment) {
+            program_candidates.push(headless_shader_compile_candidate(
+                format!("shader_pair:{shader_id}"),
+                &shader_id,
+                &shader_id,
+                vertex,
+                fragment,
+            ));
+        }
+    }
+
+    let mut post_chain_count = 0;
+    for resource in post_chain_resources.resources {
+        match load_headless_post_chain_compile_inputs(stack, &resource) {
+            Ok(post_chain) => {
+                post_chain_count += 1;
+                for pass in post_chain.passes {
+                    program_candidates.push(headless_post_chain_compile_candidate(
+                        &post_chain.id,
+                        &pass,
+                        &shader_sources,
+                    ));
+                }
+            }
+            Err(blocker) => blockers.push(blocker),
+        }
+    }
+
+    blockers.sort_by(|left, right| {
+        left.resource
+            .cmp(&right.resource)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+    blockers.dedup();
+
+    Ok(HeadlessShaderManagerReloadReport::new(
+        program_candidates,
+        blockers,
+        post_chain_count,
+    ))
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SelectedHeadlessPostChainResources {
+    resources: Vec<String>,
+    blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+}
+
+fn selected_headless_post_chain_resources(
+    stack: &ClientResourceStack,
+    discovered_post_chains: Vec<String>,
+    requested_post_chain_ids: &[String],
+) -> SelectedHeadlessPostChainResources {
+    let mut resources = BTreeSet::from_iter(discovered_post_chains);
+    let mut blockers = Vec::new();
+
+    for id in requested_post_chain_ids {
+        match post_chain_resource_from_id(id) {
+            Ok(resource) => {
+                if stack.find_resource(&resource).is_some() {
+                    resources.insert(resource);
+                } else {
+                    blockers.push(HeadlessShaderManagerReloadBlocker::new(
+                        resource,
+                        format!("missing post-chain config `{id}`"),
+                    ));
+                }
+            }
+            Err(reason) => {
+                blockers.push(HeadlessShaderManagerReloadBlocker::new(id.clone(), reason))
+            }
+        }
+    }
+
+    SelectedHeadlessPostChainResources {
+        resources: resources.into_iter().collect(),
+        blockers,
+    }
+}
+
+fn post_chain_resource_from_id(id: &str) -> Result<String, String> {
+    let Some((namespace, path)) = id.split_once(':') else {
+        return Err(format!("malformed post-chain id `{id}`"));
+    };
+    if namespace.is_empty()
+        || path.is_empty()
+        || path.starts_with('/')
+        || path.contains('\\')
+        || path
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err(format!("malformed post-chain id `{id}`"));
+    }
+    Ok(format!("assets/{namespace}/post_effect/{path}.json"))
+}
+
+fn load_headless_shader_source_inventory(
+    stack: &ClientResourceStack,
+    resource: &str,
+) -> Result<HeadlessShaderSourceInventory, HeadlessShaderManagerReloadBlocker> {
+    let location = stack.find_resource(resource).ok_or_else(|| {
+        HeadlessShaderManagerReloadBlocker::new(resource, "missing shader source")
+    })?;
+    let bytes = read_headless_shader_bytes(Path::new(resource), &location)
+        .map_err(|error| shader_reload_blocker_from_error(resource, error))?;
+    let source = validate_headless_shader_utf8(resource, &location, &bytes)
+        .map_err(|error| shader_reload_blocker_from_error(resource, error))?;
+    let id = shader_source_id(resource)
+        .map_err(|error| shader_reload_blocker_from_error(resource, error))?;
+    let extension = Path::new(resource)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    let kind = HeadlessShaderSourceKind::from_extension(extension).ok_or_else(|| {
+        HeadlessShaderManagerReloadBlocker::new(resource, "shader source must end .vsh or .fsh")
+    })?;
+    let (imports, blockers) = resolve_shader_imports_for_reload(stack, resource, source);
+
+    Ok(HeadlessShaderSourceInventory {
+        id,
+        kind,
+        resource: resource.to_owned(),
+        pack_id: location.pack_id,
+        imports,
+        blockers,
+    })
+}
+
+fn shader_reload_blocker_from_error(
+    resource: &str,
+    error: ResourceReloadError,
+) -> HeadlessShaderManagerReloadBlocker {
+    match error {
+        ResourceReloadError::MissingResource(missing) => {
+            HeadlessShaderManagerReloadBlocker::new(missing, "missing resource")
+        }
+        ResourceReloadError::ReadResource { source, .. } => {
+            HeadlessShaderManagerReloadBlocker::new(resource, format!("read failed: {source}"))
+        }
+        ResourceReloadError::ParseResourceJson { source, .. } => {
+            HeadlessShaderManagerReloadBlocker::new(resource, format!("invalid json: {source}"))
+        }
+        ResourceReloadError::InvalidShaderSource { reason, .. } => {
+            HeadlessShaderManagerReloadBlocker::new(resource, reason)
+        }
+        other => HeadlessShaderManagerReloadBlocker::new(resource, other.to_string()),
+    }
+}
+
+fn resolve_shader_imports_for_reload(
+    stack: &ClientResourceStack,
+    top_level_resource: &str,
+    source: &str,
+) -> (Vec<String>, Vec<HeadlessShaderManagerReloadBlocker>) {
+    let mut imports = BTreeSet::new();
+    let mut imported_locations = BTreeSet::new();
+    let mut blockers = Vec::new();
+    collect_shader_imports_for_reload(
+        stack,
+        top_level_resource,
+        top_level_resource,
+        source,
+        &mut imports,
+        &mut imported_locations,
+        &mut blockers,
+    );
+    (imports.into_iter().collect(), blockers)
+}
+
+fn collect_shader_imports_for_reload(
+    stack: &ClientResourceStack,
+    importing_resource: &str,
+    top_level_resource: &str,
+    source: &str,
+    imports: &mut BTreeSet<String>,
+    imported_locations: &mut BTreeSet<String>,
+    blockers: &mut Vec<HeadlessShaderManagerReloadBlocker>,
+) {
+    for line in source.lines() {
+        let import = match parse_moj_import(line) {
+            Ok(Some(import)) => import,
+            Ok(None) => continue,
+            Err(reason) => {
+                blockers.push(HeadlessShaderManagerReloadBlocker::new(
+                    top_level_resource,
+                    reason,
+                ));
+                continue;
+            }
+        };
+        let include = match resolve_shader_import_resource(importing_resource, &import) {
+            Ok(include) => include,
+            Err(reason) => {
+                blockers.push(HeadlessShaderManagerReloadBlocker::new(
+                    top_level_resource,
+                    reason,
+                ));
+                continue;
+            }
+        };
+        if !imported_locations.insert(include.clone()) {
+            continue;
+        }
+        imports.insert(include.clone());
+        let Some(location) = stack.find_resource(&include) else {
+            blockers.push(HeadlessShaderManagerReloadBlocker::new(
+                include,
+                "missing shader include",
+            ));
+            continue;
+        };
+        let bytes = match read_headless_shader_bytes(Path::new(&include), &location) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                blockers.push(shader_reload_blocker_from_error(&include, error));
+                continue;
+            }
+        };
+        let include_source = match validate_headless_shader_utf8(&include, &location, &bytes) {
+            Ok(source) => source,
+            Err(error) => {
+                blockers.push(shader_reload_blocker_from_error(&include, error));
+                continue;
+            }
+        };
+        collect_shader_imports_for_reload(
+            stack,
+            &include,
+            top_level_resource,
+            include_source,
+            imports,
+            imported_locations,
+            blockers,
+        );
+    }
+}
+
+fn headless_shader_compile_candidate(
+    id: impl Into<String>,
+    vertex_shader_id: &str,
+    fragment_shader_id: &str,
+    vertex: &HeadlessShaderSourceInventory,
+    fragment: &HeadlessShaderSourceInventory,
+) -> HeadlessShaderProgramCompileCandidateReport {
+    let mut imports = BTreeSet::new();
+    imports.extend(vertex.imports.iter().cloned());
+    imports.extend(fragment.imports.iter().cloned());
+    let mut blockers = Vec::new();
+    blockers.extend(vertex.blockers.iter().cloned());
+    blockers.extend(fragment.blockers.iter().cloned());
+    blockers.sort_by(|left, right| {
+        left.resource
+            .cmp(&right.resource)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+    blockers.dedup();
+
+    HeadlessShaderProgramCompileCandidateReport::new(
+        id,
+        vertex_shader_id,
+        fragment_shader_id,
+        Some(vertex.loaded_resource_pack()),
+        Some(fragment.loaded_resource_pack()),
+        imports.into_iter().collect(),
+        blockers,
+    )
+}
+
+fn headless_post_chain_compile_candidate(
+    post_chain_id: &str,
+    pass: &HeadlessPostChainPassCompileInputs,
+    shader_sources: &BTreeMap<(String, HeadlessShaderSourceKind), HeadlessShaderSourceInventory>,
+) -> HeadlessShaderProgramCompileCandidateReport {
+    let vertex_key = (
+        pass.vertex_shader_id.clone(),
+        HeadlessShaderSourceKind::Vertex,
+    );
+    let fragment_key = (
+        pass.fragment_shader_id.clone(),
+        HeadlessShaderSourceKind::Fragment,
+    );
+    let vertex = shader_sources.get(&vertex_key);
+    let fragment = shader_sources.get(&fragment_key);
+    match (vertex, fragment) {
+        (Some(vertex), Some(fragment)) => headless_shader_compile_candidate(
+            format!("post_chain:{post_chain_id}:pass:{}", pass.pass_index),
+            &pass.vertex_shader_id,
+            &pass.fragment_shader_id,
+            vertex,
+            fragment,
+        ),
+        _ => {
+            let mut blockers = Vec::new();
+            if vertex.is_none() {
+                blockers.push(HeadlessShaderManagerReloadBlocker::new(
+                    format!("shader:{}/vertex", pass.vertex_shader_id),
+                    "missing shader source",
+                ));
+            }
+            if fragment.is_none() {
+                blockers.push(HeadlessShaderManagerReloadBlocker::new(
+                    format!("shader:{}/fragment", pass.fragment_shader_id),
+                    "missing shader source",
+                ));
+            }
+            HeadlessShaderProgramCompileCandidateReport::new(
+                format!("post_chain:{post_chain_id}:pass:{}", pass.pass_index),
+                &pass.vertex_shader_id,
+                &pass.fragment_shader_id,
+                vertex.map(HeadlessShaderSourceInventory::loaded_resource_pack),
+                fragment.map(HeadlessShaderSourceInventory::loaded_resource_pack),
+                Vec::new(),
+                blockers,
+            )
+        }
+    }
+}
+
+fn load_headless_post_chain_compile_inputs(
+    stack: &ClientResourceStack,
+    resource: &str,
+) -> Result<HeadlessPostChainCompileInputs, HeadlessShaderManagerReloadBlocker> {
+    let location = stack.find_resource(resource).ok_or_else(|| {
+        HeadlessShaderManagerReloadBlocker::new(resource, "missing post-chain config")
+    })?;
+    let json = read_client_json_resource(Path::new(resource), &location)
+        .map_err(|error| shader_reload_blocker_from_error(resource, error))?;
+    let value = json.value();
+    let object = value.as_object().ok_or_else(|| {
+        HeadlessShaderManagerReloadBlocker::new(resource, "post effect root must be an object")
+    })?;
+    let passes = match object.get("passes") {
+        Some(passes) => passes.as_array().ok_or_else(|| {
+            HeadlessShaderManagerReloadBlocker::new(resource, "passes must be an array")
+        })?,
+        None => {
+            return Ok(HeadlessPostChainCompileInputs {
+                id: post_chain_id(resource)
+                    .map_err(|error| shader_reload_blocker_from_error(resource, error))?,
+                passes: Vec::new(),
+            });
+        }
+    };
+
+    let mut pass_inputs = Vec::new();
+    for (pass_index, pass) in passes.iter().enumerate() {
+        let pass_object = pass.as_object().ok_or_else(|| {
+            HeadlessShaderManagerReloadBlocker::new(
+                resource,
+                format!("pass {pass_index} must be an object"),
+            )
+        })?;
+        let vertex_shader_id = pass_object
+            .get("vertex_shader")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                HeadlessShaderManagerReloadBlocker::new(
+                    resource,
+                    format!("pass {pass_index} missing vertex_shader string"),
+                )
+            })?;
+        let fragment_shader_id = pass_object
+            .get("fragment_shader")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                HeadlessShaderManagerReloadBlocker::new(
+                    resource,
+                    format!("pass {pass_index} missing fragment_shader string"),
+                )
+            })?;
+        pass_inputs.push(HeadlessPostChainPassCompileInputs {
+            pass_index,
+            vertex_shader_id: vertex_shader_id.to_owned(),
+            fragment_shader_id: fragment_shader_id.to_owned(),
+        });
+    }
+
+    Ok(HeadlessPostChainCompileInputs {
+        id: post_chain_id(resource)
+            .map_err(|error| shader_reload_blocker_from_error(resource, error))?,
+        passes: pass_inputs,
+    })
 }
 
 pub fn load_client_json_manifest_set(
@@ -16478,6 +17162,141 @@ mod tests {
         assert!(
             matches!(error, ResourceReloadError::InvalidShaderSource { resource, reason, .. } if resource == "assets/minecraft/post_effect/duplicate.json" && reason == "pass 0 has duplicate sampler `In`")
         );
+    }
+
+    #[test]
+    fn shader_manager_reload_reports_program_candidate_with_recursive_imports() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:dynamictransforms.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\n#moj_import \"../include/colors.glsl\"\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/dynamictransforms.glsl",
+            "#moj_import <minecraft:nested/common.glsl>\n#define DYNAMIC 1\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/nested/common.glsl",
+            "#define COMMON 1\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/colors.glsl",
+            "#define COLOR 1\n",
+        );
+        temp.write(
+            "assets/minecraft/post_effect/example.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:core/example","fragment_shader":"minecraft:core/example","output":"minecraft:main"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = HeadlessShaderManagerReloadListener::default()
+            .load(&stack)
+            .expect("shader manager reload inventory should report candidates");
+
+        assert_eq!(report.blockers(), []);
+        assert_eq!(report.post_chain_count(), 1);
+        assert_eq!(report.ready_candidate_count(), 2);
+        assert!(report.summary_fragment().contains("program_candidates:2"));
+        let post_chain_candidate = report
+            .program_candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "post_chain:minecraft:example:pass:0")
+            .expect("post-chain pass candidate should be reported");
+        assert_eq!(
+            post_chain_candidate.imports(),
+            [
+                "assets/minecraft/shaders/include/colors.glsl".to_owned(),
+                "assets/minecraft/shaders/include/dynamictransforms.glsl".to_owned(),
+                "assets/minecraft/shaders/include/nested/common.glsl".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn shader_manager_reload_reports_missing_include_and_shader_source_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:missing.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/post_effect/missing_shader.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:core/not_present","fragment_shader":"minecraft:core/example","output":"minecraft:main"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = HeadlessShaderManagerReloadListener::default()
+            .load(&stack)
+            .expect(
+                "missing shader dependencies should be reported, not returned as reload errors",
+            );
+
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.resource() == "assets/minecraft/shaders/include/missing.glsl"
+                && blocker.reason() == "missing shader include"
+        }));
+        let missing_candidate = report
+            .program_candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "post_chain:minecraft:missing_shader:pass:0")
+            .expect("post-chain pass with missing shader should still be inventoried");
+        assert!(!missing_candidate.is_ready());
+        assert!(missing_candidate.blockers().iter().any(|blocker| {
+            blocker.resource() == "shader:minecraft:core/not_present/vertex"
+                && blocker.reason() == "missing shader source"
+        }));
+    }
+
+    #[test]
+    fn shader_manager_reload_reports_missing_requested_post_chain_config() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report = HeadlessShaderManagerReloadListener::new(["minecraft:missing"])
+            .load(&stack)
+            .expect("missing requested post-chain config should be a report blocker");
+
+        assert_eq!(report.program_candidates(), []);
+        assert_eq!(
+            report.blockers(),
+            [HeadlessShaderManagerReloadBlocker::new(
+                "assets/minecraft/post_effect/missing.json",
+                "missing post-chain config `minecraft:missing`"
+            )]
+        );
+        assert!(report.summary_fragment().contains("blockers:1"));
+    }
+
+    #[test]
+    fn committed_vanilla_shader_manager_reload_reports_compile_candidates() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(HeadlessShaderManagerReloadListener::default())
+            .run()
+            .expect("committed vanilla shader manager reload inventory should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "headless_shader_manager");
+        assert_eq!(
+            &listener.preparation.items()[..3],
+            ["shader_sources:79", "includes:9", "post_chains:6"]
+        );
+        assert!(
+            listener.reload.items()[0].starts_with("shader_manager:program_candidates:"),
+            "reload summary should be first for smoke output"
+        );
+        assert!(
+            listener.reload.items()[0].contains("blockers:0"),
+            "committed vanilla shader manager inventory should not have blockers"
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.starts_with("shader_program_candidate:shader_pair:minecraft:core/position_tex ")
+        }));
     }
 
     #[test]
