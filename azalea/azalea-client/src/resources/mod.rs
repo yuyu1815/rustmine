@@ -1397,6 +1397,35 @@ impl ResourceReloadManager {
             .with_listener(RequiredVanillaAssetsListener::default())
     }
 
+    pub fn with_default_client_resources(stack: ClientResourceStack) -> Self {
+        let has_sound_events = stack.find_resource(SOUND_EVENTS_RESOURCE).is_some();
+        let mut manager = Self::new(stack)
+            .with_listener(ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE))
+            .with_listener(TextureMetadataReloadListener::default())
+            .with_listener(HeadlessShaderSourceReloadListener::default());
+
+        if has_sound_events {
+            manager = manager.with_listener(SoundEventsReloadListener::default());
+        }
+
+        manager
+            .with_listener(SplashesReloadListener::default())
+            .with_listener(AtlasSourceReloadListener::default())
+            .with_listener(FontDefinitionsReloadListener::default())
+            .with_listener(ColormapReloadListener::default())
+            .with_listener(ModelDependencyReloadListener::default())
+            .with_listener(EquipmentAssetsReloadListener::default())
+            .with_listener(ParticleManifestReloadListener::default())
+            .with_listener(WaypointStyleManifestReloadListener::default())
+            .with_listener(CloudTextureReloadListener::default())
+            .with_listener(GpuWarnlistReloadListener::default())
+            .with_listener(RegionalComplianciesReloadListener::default())
+    }
+
+    pub fn with_default_vanilla_client_resources() -> Self {
+        Self::with_default_client_resources(ClientResourceStack::vanilla())
+    }
+
     pub fn with_listener(mut self, listener: impl ResourceReloadListener + 'static) -> Self {
         self.listeners.push(Box::new(listener));
         self
@@ -5121,6 +5150,102 @@ mod tests {
                 "reload report should include {resource}"
             );
         }
+    }
+
+    #[test]
+    fn default_client_resources_plan_uses_deterministic_startup_order() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+
+        assert_eq!(
+            manager.plan().listeners(),
+            [
+                "client_languages",
+                "texture_metadata",
+                "headless_shader_sources",
+                "splashes",
+                "atlas_sources",
+                "font_definitions",
+                "colormaps",
+                "model_dependencies",
+                "equipment_assets",
+                "particle_manifests",
+                "waypoint_style_manifests",
+                "cloud_texture",
+                "gpu_warnlist",
+                "regional_compliancies",
+            ]
+        );
+    }
+
+    #[test]
+    fn default_client_resources_plan_excludes_smoke_and_duplicate_listeners() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+
+        for excluded in [
+            "vanilla_required_assets",
+            "listing",
+            "model_entry_smoke",
+            "blockstate_model_references",
+            "atlas_manifests",
+        ] {
+            assert!(
+                !manager
+                    .plan()
+                    .listeners()
+                    .iter()
+                    .any(|name| name == excluded),
+                "default CLIENT_RESOURCES reload should not include {excluded}"
+            );
+        }
+    }
+
+    #[test]
+    fn committed_vanilla_default_client_resources_run_succeeds() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+
+        let report = manager
+            .run()
+            .expect("committed vanilla default client resources should load");
+
+        assert_eq!(report.state().progress(), 1.0);
+        assert_eq!(
+            report.listener_reports().len(),
+            manager.plan().listeners().len()
+        );
+        assert_eq!(
+            report
+                .listener_reports()
+                .iter()
+                .map(|listener| listener.name.as_str())
+                .collect::<Vec<_>>(),
+            manager
+                .plan()
+                .listeners()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn default_client_resources_progress_events_reach_complete() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+        let mut progress_events = Vec::new();
+
+        let report = manager
+            .run_with_events(|event| {
+                progress_events.push(event.progress_snapshot.actual_progress());
+            })
+            .expect("committed vanilla default client resources should load");
+
+        assert_eq!(progress_events.len(), report.events().len());
+        assert!(
+            progress_events
+                .first()
+                .is_some_and(|progress| *progress < 1.0)
+        );
+        assert_eq!(progress_events.last().copied(), Some(1.0));
+        assert_eq!(report.state().progress_snapshot().actual_progress(), 1.0);
     }
 
     #[test]
