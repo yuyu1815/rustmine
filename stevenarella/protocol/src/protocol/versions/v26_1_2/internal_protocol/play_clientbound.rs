@@ -9,6 +9,7 @@ use super::super::translate_internal_packet_id;
 
 mod custom_report_details;
 mod dialog;
+mod disconnect;
 mod entity;
 mod scoreboard;
 mod server_links;
@@ -86,15 +87,13 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        disconnect::read_disconnect_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
-        packet::play::clientbound::internal_ids::Disconnect => {
-            return Ok(Some(Packet::Disconnect(
-                packet::play::clientbound::Disconnect {
-                    reason: read_nbt_string_component(buf)?,
-                },
-            )));
-        }
         packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
             let slot = VarInt::read_from(buf)?;
             read_empty_play_item_stack_marker(buf, "set_player_inventory")?;
