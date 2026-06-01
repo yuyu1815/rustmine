@@ -104,13 +104,21 @@ pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 pub struct ClientResourcePack {
     id: String,
     root: PathBuf,
+    source: ClientResourcePackSource,
 }
 
 impl ClientResourcePack {
     pub fn new(id: impl Into<String>, root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        let source = if root.is_file() {
+            ClientResourcePackSource::RootZip(root.clone())
+        } else {
+            ClientResourcePackSource::Directory(root.clone())
+        };
         Self {
             id: id.into(),
-            root: root.into(),
+            root,
+            source,
         }
     }
 
@@ -119,10 +127,16 @@ impl ClientResourcePack {
     }
 
     pub fn server_placeholder(id: Uuid) -> Self {
-        Self::new(
-            format!("server:{id}"),
-            PathBuf::from(format!("<server-resource-pack:{id}>")),
-        )
+        let root = PathBuf::from(format!("<server-resource-pack:{id}>"));
+        Self {
+            id: format!("server:{id}"),
+            root: root.clone(),
+            source: ClientResourcePackSource::Unavailable(root),
+        }
+    }
+
+    pub fn server(id: Uuid, root: impl Into<PathBuf>) -> Self {
+        Self::new(format!("server:{id}"), root)
     }
 
     pub fn id(&self) -> &str {
@@ -138,7 +152,44 @@ impl ClientResourcePack {
     }
 
     pub fn contains(&self, resource: impl AsRef<Path>) -> bool {
-        self.resource_path(resource).is_file()
+        self.resource_location(resource.as_ref()).is_some()
+    }
+
+    fn resource_location(&self, resource: &Path) -> Option<ResourceLocation> {
+        self.source.location(&self.id, resource)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ClientResourcePackSource {
+    Directory(PathBuf),
+    RootZip(PathBuf),
+    Unavailable(PathBuf),
+}
+
+impl ClientResourcePackSource {
+    fn location(&self, pack_id: &str, resource: &Path) -> Option<ResourceLocation> {
+        match self {
+            Self::Directory(root) => {
+                let path = root.join(resource);
+                path.is_file().then(|| ResourceLocation {
+                    pack_id: pack_id.to_owned(),
+                    path: path.clone(),
+                    source: ResourceLocationSource::Directory(path),
+                })
+            }
+            Self::RootZip(root) => {
+                root_zip_contains_resource(root, resource).then(|| ResourceLocation {
+                    pack_id: pack_id.to_owned(),
+                    path: root.join(resource),
+                    source: ResourceLocationSource::RootZip {
+                        root: root.clone(),
+                        resource: zip_resource_name(resource),
+                    },
+                })
+            }
+            Self::Unavailable(_) => None,
+        }
     }
 }
 
@@ -162,26 +213,17 @@ impl ClientResourceStack {
 
     pub fn find_resource(&self, resource: impl AsRef<Path>) -> Option<ResourceLocation> {
         let resource = resource.as_ref();
-        self.packs.iter().rev().find_map(|pack| {
-            let path = pack.resource_path(resource);
-            path.is_file().then(|| ResourceLocation {
-                pack_id: pack.id.clone(),
-                path,
-            })
-        })
+        self.packs
+            .iter()
+            .rev()
+            .find_map(|pack| pack.resource_location(resource))
     }
 
     pub fn resource_stack(&self, resource: impl AsRef<Path>) -> Vec<ResourceLocation> {
         let resource = resource.as_ref();
         self.packs
             .iter()
-            .filter_map(|pack| {
-                let path = pack.resource_path(resource);
-                path.is_file().then(|| ResourceLocation {
-                    pack_id: pack.id.clone(),
-                    path,
-                })
-            })
+            .filter_map(|pack| pack.resource_location(resource))
             .collect()
     }
 
@@ -639,6 +681,14 @@ impl ServerResourcePackApplyState {
         ClientResourcePack::server_placeholder(self.request.id)
     }
 
+    pub fn resource_pack(&self) -> ClientResourcePack {
+        self.downloaded
+            .as_ref()
+            .and_then(ServerResourcePackDownload::path)
+            .map(|path| ClientResourcePack::server(self.request.id, path))
+            .unwrap_or_else(|| self.placeholder_pack())
+    }
+
     fn ack(&self, action: ServerResourcePackAckAction) -> ServerResourcePackAck {
         ServerResourcePackAck {
             id: self.request.id,
@@ -1019,7 +1069,7 @@ impl ServerResourcePackApplyModel {
             self.packs
                 .iter()
                 .filter(|pack| pack.status() == ServerResourcePackStatus::Applied)
-                .map(ServerResourcePackApplyState::placeholder_pack),
+                .map(ServerResourcePackApplyState::resource_pack),
         );
         ClientResourceStack::new(packs)
     }
@@ -1283,6 +1333,69 @@ impl ClientResourcePackSelectionReport {
 pub struct ResourceLocation {
     pub pack_id: String,
     pub path: PathBuf,
+    source: ResourceLocationSource,
+}
+
+impl ResourceLocation {
+    pub fn read_bytes(&self) -> io::Result<Vec<u8>> {
+        self.source.read_bytes()
+    }
+
+    pub fn read_to_string(&self) -> io::Result<String> {
+        self.source.read_to_string()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ResourceLocationSource {
+    Directory(PathBuf),
+    RootZip { root: PathBuf, resource: String },
+}
+
+impl ResourceLocationSource {
+    fn read_bytes(&self) -> io::Result<Vec<u8>> {
+        match self {
+            Self::Directory(path) => fs::read(path),
+            Self::RootZip { root, resource } => read_root_zip_resource(root, resource),
+        }
+    }
+
+    fn read_to_string(&self) -> io::Result<String> {
+        let bytes = self.read_bytes()?;
+        String::from_utf8(bytes).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("resource is not valid utf-8: {error}"),
+            )
+        })
+    }
+}
+
+fn root_zip_contains_resource(root: &Path, resource: &Path) -> bool {
+    let Ok(file) = fs::File::open(root) else {
+        return false;
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+        return false;
+    };
+    archive.by_name(&zip_resource_name(resource)).is_ok()
+}
+
+fn read_root_zip_resource(root: &Path, resource: &str) -> io::Result<Vec<u8>> {
+    let file = fs::File::open(root)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(zip_error_to_io)?;
+    let mut entry = archive.by_name(resource).map_err(zip_error_to_io)?;
+    let mut bytes = Vec::new();
+    entry.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn zip_resource_name(resource: &Path) -> String {
+    resource.to_string_lossy().replace('\\', "/")
+}
+
+fn zip_error_to_io(error: zip::result::ZipError) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, error)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2071,11 +2184,13 @@ fn read_client_json_resource(
     location: &ResourceLocation,
 ) -> ResourceReloadResult<ClientJsonResource> {
     let contents =
-        fs::read_to_string(&location.path).map_err(|source| ResourceReloadError::ReadResource {
-            resource: resource.to_string_lossy().into_owned(),
-            path: location.path.clone(),
-            source,
-        })?;
+        location
+            .read_to_string()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: resource.to_string_lossy().into_owned(),
+                path: location.path.clone(),
+                source,
+            })?;
 
     let value: serde_json::Value = serde_json::from_str(&contents).map_err(|source| {
         ResourceReloadError::ParseResourceJson {
@@ -3339,11 +3454,13 @@ pub fn load_headless_shader_source(
 ) -> ResourceReloadResult<HeadlessShaderSourceReloadReport> {
     let resource = resource.as_ref();
     let location = stack.require_resource(resource)?;
-    let bytes = fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
-        resource: resource.to_string_lossy().into_owned(),
-        path: location.path.clone(),
-        source,
-    })?;
+    let bytes = location
+        .read_bytes()
+        .map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource.to_string_lossy().into_owned(),
+            path: location.path.clone(),
+            source,
+        })?;
 
     let resource_name = resource.to_string_lossy().into_owned();
     validate_headless_shader_source(&resource_name, &location, &bytes)?;
@@ -3815,11 +3932,13 @@ fn read_language_resource(
     location: &ResourceLocation,
 ) -> ResourceReloadResult<BTreeMap<String, String>> {
     let contents =
-        fs::read_to_string(&location.path).map_err(|source| ResourceReloadError::ReadResource {
-            resource: resource.to_string_lossy().into_owned(),
-            path: location.path.clone(),
-            source,
-        })?;
+        location
+            .read_to_string()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: resource.to_string_lossy().into_owned(),
+                path: location.path.clone(),
+                source,
+            })?;
 
     serde_json::from_str(&contents).map_err(|source| ResourceReloadError::ParseResourceJson {
         resource: resource.to_string_lossy().into_owned(),
@@ -3877,11 +3996,13 @@ impl ResourceReloadListener for RequiredVanillaAssetsListener {
         for resource in &self.required_assets {
             let location = stack.require_resource(resource)?;
             let bytes =
-                fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
-                    resource: resource.clone(),
-                    path: location.path,
-                    source,
-                })?;
+                location
+                    .read_bytes()
+                    .map_err(|source| ResourceReloadError::ReadResource {
+                        resource: resource.clone(),
+                        path: location.path.clone(),
+                        source,
+                    })?;
             loaded.push(format!("{}:{} bytes", resource, bytes.len()));
         }
 
@@ -3977,13 +4098,14 @@ impl ResourceReloadListener for SplashesReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let location = stack.require_resource(&self.resource)?;
-        let contents = fs::read_to_string(&location.path).map_err(|source| {
-            ResourceReloadError::ReadResource {
-                resource: self.resource.clone(),
-                path: location.path.clone(),
-                source,
-            }
-        })?;
+        let contents =
+            location
+                .read_to_string()
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: self.resource.clone(),
+                    path: location.path.clone(),
+                    source,
+                })?;
         let splash_count = contents
             .lines()
             .filter(|line| !line.trim().is_empty())
@@ -4044,13 +4166,14 @@ impl ResourceReloadListener for AtlasManifestReloadListener {
         let mut loaded = Vec::with_capacity(self.manifests.len());
         for manifest in &self.manifests {
             let location = stack.require_resource(manifest)?;
-            let contents = fs::read_to_string(&location.path).map_err(|source| {
-                ResourceReloadError::ReadResource {
-                    resource: manifest.clone(),
-                    path: location.path.clone(),
-                    source,
-                }
-            })?;
+            let contents =
+                location
+                    .read_to_string()
+                    .map_err(|source| ResourceReloadError::ReadResource {
+                        resource: manifest.clone(),
+                        path: location.path.clone(),
+                        source,
+                    })?;
             serde_json::from_str::<serde_json::Value>(&contents).map_err(|source| {
                 ResourceReloadError::ParseResourceJson {
                     resource: manifest.clone(),
@@ -4217,11 +4340,13 @@ fn load_client_json_resource_at_location(
     location: ResourceLocation,
 ) -> ResourceReloadResult<ClientJsonResource> {
     let contents =
-        fs::read_to_string(&location.path).map_err(|source| ResourceReloadError::ReadResource {
-            resource: resource.to_owned(),
-            path: location.path.clone(),
-            source,
-        })?;
+        location
+            .read_to_string()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: resource.to_owned(),
+                path: location.path.clone(),
+                source,
+            })?;
     let value = serde_json::from_str::<serde_json::Value>(&contents).map_err(|source| {
         ResourceReloadError::ParseResourceJson {
             resource: resource.to_owned(),
@@ -4337,11 +4462,13 @@ impl ResourceReloadListener for ColormapReloadListener {
         for colormap in &self.colormaps {
             let location = stack.require_resource(colormap)?;
             let bytes =
-                fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
-                    resource: colormap.clone(),
-                    path: location.path.clone(),
-                    source,
-                })?;
+                location
+                    .read_bytes()
+                    .map_err(|source| ResourceReloadError::ReadResource {
+                        resource: colormap.clone(),
+                        path: location.path.clone(),
+                        source,
+                    })?;
 
             validate_png_signature(colormap, &location, &bytes)?;
 
@@ -4398,8 +4525,9 @@ impl ResourceReloadListener for CloudTextureReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let location = stack.require_resource(&self.resource)?;
-        let bytes =
-            fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+        let bytes = location
+            .read_bytes()
+            .map_err(|source| ResourceReloadError::ReadResource {
                 resource: self.resource.clone(),
                 path: location.path.clone(),
                 source,
@@ -4540,8 +4668,9 @@ pub fn load_client_texture_metadata_resources(
 
     for texture in textures {
         let location = stack.require_resource(texture)?;
-        let bytes =
-            fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+        let bytes = location
+            .read_bytes()
+            .map_err(|source| ResourceReloadError::ReadResource {
                 resource: texture.clone(),
                 path: location.path.clone(),
                 source,
@@ -4800,8 +4929,9 @@ mod tests {
         let location = stack
             .find_resource("assets/minecraft/lang/en_us.json")
             .expect("selected language resource should resolve");
-        let contents =
-            fs::read_to_string(location.path).expect("selected language resource should read");
+        let contents = location
+            .read_to_string()
+            .expect("selected language resource should read");
 
         assert_eq!(location.pack_id, "high");
         assert_eq!(contents, r#"{"menu.play":"High"}"#);
@@ -5716,6 +5846,163 @@ mod tests {
         pack.open_downloaded()
             .expect("cached zip resource pack with pack.mcmeta should open");
         assert_eq!(pack.status(), ServerResourcePackStatus::Opened);
+    }
+
+    #[test]
+    fn applied_server_directory_pack_overrides_vanilla_and_selected_packs() {
+        let id = resource_pack_id(2601);
+        let high = TempPack::new();
+        let server = TempPack::new();
+        high.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"High"}"#,
+        );
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        server.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Server"}"#,
+        );
+        let mut model = ServerResourcePackApplyModel::new(ClientResourceStack::new(vec![
+            ClientResourcePack::vanilla(),
+            ClientResourcePack::new("high", high.path()),
+        ]));
+
+        let pack = model.receive(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack",
+            "",
+            true,
+            None,
+        ));
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+        pack.apply_opened();
+
+        let stack = model.resource_stack();
+        let location = stack
+            .find_resource("assets/minecraft/lang/en_us.json")
+            .expect("server resource should resolve");
+
+        assert_eq!(location.pack_id, format!("server:{id}"));
+        assert_eq!(
+            location
+                .read_to_string()
+                .expect("server language resource should read"),
+            r#"{"menu.play":"Server"}"#
+        );
+    }
+
+    #[test]
+    fn applied_server_zip_pack_can_override_json_resource() {
+        let id = resource_pack_id(2602);
+        let cache = TempPack::new();
+        let zip_path = cache.path().join("server.zip");
+        let zip_bytes = server_pack_zip_bytes_with_entries(
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+            [("assets/minecraft/lang/en_us.json", r#"{"menu.play":"Zip"}"#)],
+        );
+        fs::write(&zip_path, zip_bytes).expect("server zip pack should be written");
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        let pack = model.receive(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "",
+            true,
+            None,
+        ));
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(&zip_path)
+            .expect("server zip pack should download");
+        pack.open_downloaded().expect("server zip pack should open");
+        pack.apply_opened();
+
+        let resource =
+            load_client_json_resource(&model.resource_stack(), "assets/minecraft/lang/en_us.json")
+                .expect("json resource should load from server zip");
+
+        assert_eq!(
+            resource.report().loaded_resource_pack(),
+            format!("assets/minecraft/lang/en_us.json@server:{id}")
+        );
+        assert_eq!(resource.value()["menu.play"], "Zip");
+    }
+
+    #[test]
+    fn applied_server_pack_missing_resource_falls_back_to_vanilla() {
+        let id = resource_pack_id(2603);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        let pack = model.receive(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack",
+            "",
+            true,
+            None,
+        ));
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+        pack.apply_opened();
+
+        let location = model
+            .resource_stack()
+            .find_resource(SPLASHES_RESOURCE)
+            .expect("vanilla fallback resource should resolve");
+
+        assert_eq!(location.pack_id, VANILLA_PACK_ID);
+    }
+
+    #[test]
+    fn opened_only_server_pack_is_not_in_resource_stack() {
+        let id = resource_pack_id(2604);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        server.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Server"}"#,
+        );
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        let pack = model.receive(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack",
+            "",
+            true,
+            None,
+        ));
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+
+        let location = model
+            .resource_stack()
+            .find_resource("assets/minecraft/lang/en_us.json")
+            .expect("vanilla language resource should still resolve");
+
+        assert_eq!(location.pack_id, VANILLA_PACK_ID);
     }
 
     #[test]
@@ -7887,6 +8174,13 @@ mod tests {
     }
 
     fn server_pack_zip_bytes(pack_metadata: &str) -> Vec<u8> {
+        server_pack_zip_bytes_with_entries(pack_metadata, std::iter::empty::<(&str, &str)>())
+    }
+
+    fn server_pack_zip_bytes_with_entries<'a>(
+        pack_metadata: &str,
+        entries: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         writer
             .start_file(
@@ -7898,6 +8192,18 @@ mod tests {
         writer
             .write_all(pack_metadata.as_bytes())
             .expect("pack.mcmeta zip entry should be written");
+        for (name, contents) in entries {
+            writer
+                .start_file(
+                    name,
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored),
+                )
+                .expect("server pack zip entry should start");
+            writer
+                .write_all(contents.as_bytes())
+                .expect("server pack zip entry should be written");
+        }
         writer
             .finish()
             .expect("server pack zip should finish")
