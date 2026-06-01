@@ -12003,6 +12003,13 @@ impl CloudTextureReloadListener {
     pub fn resource(&self) -> &str {
         &self.resource
     }
+
+    pub fn load_render_input_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<CloudRenderInputReport> {
+        load_cloud_render_input_report(stack, &self.resource)
+    }
 }
 
 impl Default for CloudTextureReloadListener {
@@ -12029,24 +12036,110 @@ impl ResourceReloadListener for CloudTextureReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let location = stack.require_resource(&self.resource)?;
-        let bytes = location
-            .read_bytes()
-            .map_err(|source| ResourceReloadError::ReadResource {
-                resource: self.resource.clone(),
-                path: location.path.clone(),
-                source,
-            })?;
+        let report = self.load_render_input_report(stack)?;
 
-        validate_png_signature(&self.resource, &location, &bytes)?;
-
-        Ok(ResourceReloadTaskReport::new([format!(
-            "{}@{}:{} bytes:png-signature-ok",
-            self.resource,
-            location.pack_id,
-            bytes.len()
-        )]))
+        Ok(ResourceReloadTaskReport::new([
+            cloud_render_input_report_item(&report),
+        ]))
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CloudRenderInputReport {
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+    valid: bool,
+    rebuild_needed: bool,
+    rebuild_reason: String,
+}
+
+impl CloudRenderInputReport {
+    fn from_png_dimensions(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        byte_count: usize,
+        image: DecodedPngDimensions,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            byte_count,
+            width: image.width,
+            height: image.height,
+            valid: true,
+            rebuild_needed: true,
+            rebuild_reason: "resource-reload".to_owned(),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn valid(&self) -> bool {
+        self.valid
+    }
+
+    pub fn rebuild_needed(&self) -> bool {
+        self.rebuild_needed
+    }
+
+    pub fn rebuild_reason(&self) -> &str {
+        &self.rebuild_reason
+    }
+}
+
+fn load_cloud_render_input_report(
+    stack: &ClientResourceStack,
+    resource: &str,
+) -> ResourceReloadResult<CloudRenderInputReport> {
+    let location = stack.require_resource(resource)?;
+    let bytes = read_resource_bytes(resource, &location)?;
+    let image = decode_png_dimensions(resource, &location, &bytes)?;
+
+    Ok(CloudRenderInputReport::from_png_dimensions(
+        resource,
+        location.pack_id,
+        bytes.len(),
+        image,
+    ))
+}
+
+fn cloud_render_input_report_item(report: &CloudRenderInputReport) -> String {
+    format!(
+        "{}@{}:{} bytes:png:{}x{}:valid:{}:rebuild:{}:{}",
+        report.resource(),
+        report.pack_id(),
+        report.byte_count(),
+        report.width(),
+        report.height(),
+        report.valid(),
+        if report.rebuild_needed() {
+            "needed"
+        } else {
+            "clean"
+        },
+        report.rebuild_reason()
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18981,11 +19074,59 @@ mod tests {
     }
 
     #[test]
-    fn cloud_texture_listener_reports_highest_priority_pack_bytes_and_png_signature() {
+    fn cloud_texture_listener_reports_dimensions_bytes_and_rebuild_input() {
+        let temp = TempPack::new();
+        let cloud_png = encode_test_rgba_png(
+            3,
+            2,
+            &[
+                255, 255, 255, 255, 0, 0, 0, 0, 20, 30, 40, 255, 0, 0, 0, 0, 50, 60, 70, 255, 80,
+                90, 100, 255,
+            ],
+        );
+        temp.write_bytes(CLOUDS_TEXTURE_RESOURCE, &cloud_png);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = CloudTextureReloadListener::default();
+        let input = listener
+            .load_render_input_report(&stack)
+            .expect("cloud render input should load");
+
+        assert_eq!(input.resource(), CLOUDS_TEXTURE_RESOURCE);
+        assert_eq!(input.pack_id(), "test");
+        assert_eq!(input.byte_count(), cloud_png.len());
+        assert_eq!(input.width(), 3);
+        assert_eq!(input.height(), 2);
+        assert!(input.valid());
+        assert!(input.rebuild_needed());
+        assert_eq!(input.rebuild_reason(), "resource-reload");
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(listener)
+            .run()
+            .expect("cloud texture reload should succeed");
+
+        assert_eq!(
+            report.listener_reports()[0].reload.items(),
+            [format!(
+                "{CLOUDS_TEXTURE_RESOURCE}@test:{} bytes:png:3x2:valid:true:rebuild:needed:resource-reload",
+                cloud_png.len()
+            )]
+        );
+    }
+
+    #[test]
+    fn cloud_texture_listener_reports_highest_priority_pack_render_input() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
-        base.write_bytes(CLOUDS_TEXTURE_RESOURCE, MINIMAL_PNG);
-        override_pack.write_bytes(CLOUDS_TEXTURE_RESOURCE, OVERRIDE_MINIMAL_PNG);
+        let base_png = encode_test_rgba_png(1, 1, &[255, 255, 255, 255]);
+        let override_png = encode_test_rgba_png(
+            2,
+            2,
+            &[0, 0, 0, 0, 255, 255, 255, 255, 10, 20, 30, 255, 0, 0, 0, 0],
+        );
+        base.write_bytes(CLOUDS_TEXTURE_RESOURCE, &base_png);
+        override_pack.write_bytes(CLOUDS_TEXTURE_RESOURCE, &override_png);
 
         let stack = ClientResourceStack::new(vec![
             ClientResourcePack::new("base", base.path()),
@@ -19005,20 +19146,20 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [format!(
-                "{CLOUDS_TEXTURE_RESOURCE}@override:{} bytes:png-signature-ok",
-                OVERRIDE_MINIMAL_PNG.len()
+                "{CLOUDS_TEXTURE_RESOURCE}@override:{} bytes:png:2x2:valid:true:rebuild:needed:resource-reload",
+                override_png.len()
             )]
         );
     }
 
     #[test]
-    fn committed_vanilla_cloud_texture_listener_loads_cloud_png() {
+    fn committed_vanilla_cloud_texture_listener_loads_cloud_render_input_report() {
         let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(CloudTextureReloadListener::default());
 
         let report = manager
             .run()
-            .expect("committed vanilla cloud texture should load");
+            .expect("committed vanilla cloud render input should load");
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "cloud_texture");
@@ -19029,13 +19170,25 @@ mod tests {
 
         let prefix = format!("{CLOUDS_TEXTURE_RESOURCE}@{VANILLA_PACK_ID}:");
         let item = &listener.reload.items()[0];
-        let byte_count = item
+        let (byte_count, rest) = item
             .strip_prefix(&prefix)
-            .and_then(|value| value.strip_suffix(" bytes:png-signature-ok"))
-            .expect("report should include byte count and signature status")
+            .and_then(|value| value.split_once(" bytes:png:"))
+            .expect("report should include byte count and png dimensions");
+        let byte_count = byte_count
             .parse::<usize>()
             .expect("byte count should be numeric");
+        let (dimensions, flags) = rest
+            .split_once(":valid:true:rebuild:needed:resource-reload")
+            .expect("report should include valid rebuild input flags");
+        let (width, height) = dimensions
+            .split_once('x')
+            .expect("dimensions should use width x height");
+        let width = width.parse::<u32>().expect("width should be numeric");
+        let height = height.parse::<u32>().expect("height should be numeric");
         assert!(byte_count > PNG_SIGNATURE.len());
+        assert!(width > 0);
+        assert!(height > 0);
+        assert!(flags.is_empty());
     }
 
     #[test]
@@ -19051,6 +19204,24 @@ mod tests {
 
         assert!(
             matches!(error, ResourceReloadError::InvalidPngSignature { resource, byte_count, .. } if resource == CLOUDS_TEXTURE_RESOURCE && byte_count == 9)
+        );
+    }
+
+    #[test]
+    fn cloud_texture_reload_rejects_corrupt_png_after_signature() {
+        let temp = TempPack::new();
+        let mut corrupt = PNG_SIGNATURE.to_vec();
+        corrupt.extend_from_slice(b"not valid png chunks");
+        temp.write_bytes(CLOUDS_TEXTURE_RESOURCE, &corrupt);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(CloudTextureReloadListener::default())
+            .run()
+            .expect_err("corrupt cloud png should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidPngMetadata { resource, .. } if resource == CLOUDS_TEXTURE_RESOURCE)
         );
     }
 
