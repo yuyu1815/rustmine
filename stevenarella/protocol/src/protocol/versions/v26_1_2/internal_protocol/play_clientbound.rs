@@ -15,6 +15,7 @@ mod set_default_spawn_position;
 mod set_player_inventory;
 mod set_time;
 mod sound;
+mod sound_entity;
 mod tag_query;
 mod test_instance_block_status;
 mod text;
