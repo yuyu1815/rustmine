@@ -840,12 +840,21 @@ impl ResourceReloadPlan {
     pub fn initial_task_weight(&self) -> u32 {
         ResourceReloadStep::InitialPreparation.weight()
     }
+
+    pub fn progress_snapshot(&self, completed_weight: u32) -> ResourceReloadProgressSnapshot {
+        ResourceReloadProgressSnapshot::new(self, completed_weight)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResourceReloadState {
     plan: ResourceReloadPlan,
     completed_weight: u32,
+    started_prepare_tasks: u32,
+    finished_prepare_tasks: u32,
+    started_reload_tasks: u32,
+    finished_reload_tasks: u32,
+    completed_listeners: u32,
     current_listener: Option<String>,
     current_step: Option<ResourceReloadStep>,
 }
@@ -855,6 +864,11 @@ impl ResourceReloadState {
         Self {
             plan,
             completed_weight: 0,
+            started_prepare_tasks: 0,
+            finished_prepare_tasks: 0,
+            started_reload_tasks: 0,
+            finished_reload_tasks: 0,
+            completed_listeners: 0,
             current_listener: None,
             current_step: None,
         }
@@ -884,10 +898,30 @@ impl ResourceReloadState {
         }
     }
 
+    pub fn progress_snapshot(&self) -> ResourceReloadProgressSnapshot {
+        ResourceReloadProgressSnapshot::from_state(self)
+    }
+
     fn finish_step(&mut self, listener: &str, step: ResourceReloadStep) {
         self.current_listener = Some(listener.to_owned());
         self.current_step = Some(step);
         self.completed_weight += step.weight();
+
+        match step {
+            ResourceReloadStep::InitialPreparation => {
+                self.started_prepare_tasks = self.plan.listeners().len() as u32;
+            }
+            ResourceReloadStep::Preparation => {
+                self.finished_prepare_tasks += 1;
+            }
+            ResourceReloadStep::Reload => {
+                self.started_reload_tasks += 1;
+                self.finished_reload_tasks += 1;
+            }
+            ResourceReloadStep::ListenerComplete => {
+                self.completed_listeners += 1;
+            }
+        }
     }
 
     fn finish_initial_task(&mut self) {
@@ -896,6 +930,238 @@ impl ResourceReloadState {
             ResourceReloadStep::InitialPreparation,
         );
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResourceReloadProgressSnapshot {
+    entries: Vec<ResourceReloadProgressEntry>,
+    completed_weight: u32,
+    total_weight: u32,
+    started_prepare_tasks: u32,
+    finished_prepare_tasks: u32,
+    started_reload_tasks: u32,
+    finished_reload_tasks: u32,
+    completed_listeners: u32,
+    listener_count: u32,
+}
+
+impl ResourceReloadProgressSnapshot {
+    pub fn new(plan: &ResourceReloadPlan, completed_weight: u32) -> Self {
+        Self::from_completed_weight(plan, completed_weight)
+    }
+
+    fn from_completed_weight(plan: &ResourceReloadPlan, completed_weight: u32) -> Self {
+        let completed_weight = completed_weight.min(plan.total_weight());
+        let listener_count = plan.listeners().len() as u32;
+        let started_prepare_tasks =
+            if completed_weight >= ResourceReloadStep::InitialPreparation.weight() {
+                listener_count
+            } else {
+                0
+            };
+        let listener_progress_weight =
+            completed_weight.saturating_sub(ResourceReloadStep::InitialPreparation.weight());
+        let finished_prepare_tasks = (listener_progress_weight
+            / ResourceReloadStep::per_listener_weight())
+        .min(listener_count);
+        let started_reload_tasks = finished_prepare_tasks;
+        let finished_reload_tasks = finished_prepare_tasks;
+        let completed_listeners = (listener_progress_weight
+            / ResourceReloadStep::per_listener_weight())
+        .min(listener_count);
+
+        Self::from_parts(
+            plan,
+            completed_weight,
+            started_prepare_tasks,
+            finished_prepare_tasks,
+            started_reload_tasks,
+            finished_reload_tasks,
+            completed_listeners,
+        )
+    }
+
+    fn from_state(state: &ResourceReloadState) -> Self {
+        Self::from_parts(
+            state.plan(),
+            state.completed_weight(),
+            state.started_prepare_tasks,
+            state.finished_prepare_tasks,
+            state.started_reload_tasks,
+            state.finished_reload_tasks,
+            state.completed_listeners,
+        )
+    }
+
+    fn from_parts(
+        plan: &ResourceReloadPlan,
+        completed_weight: u32,
+        started_prepare_tasks: u32,
+        finished_prepare_tasks: u32,
+        started_reload_tasks: u32,
+        finished_reload_tasks: u32,
+        completed_listeners: u32,
+    ) -> Self {
+        let completed_weight = completed_weight.min(plan.total_weight());
+        let mut offset = 0;
+        let mut entries = Vec::with_capacity(1 + plan.listeners().len() * 3);
+
+        push_reload_progress_entry(
+            &mut entries,
+            INITIAL_RELOAD_TASK_NAME,
+            ResourceReloadStep::InitialPreparation,
+            completed_weight,
+            &mut offset,
+        );
+
+        for listener in plan.listeners() {
+            push_reload_progress_entry(
+                &mut entries,
+                listener,
+                ResourceReloadStep::Preparation,
+                completed_weight,
+                &mut offset,
+            );
+            push_reload_progress_entry(
+                &mut entries,
+                listener,
+                ResourceReloadStep::Reload,
+                completed_weight,
+                &mut offset,
+            );
+            push_reload_progress_entry(
+                &mut entries,
+                listener,
+                ResourceReloadStep::ListenerComplete,
+                completed_weight,
+                &mut offset,
+            );
+        }
+
+        Self {
+            entries,
+            completed_weight,
+            total_weight: plan.total_weight(),
+            started_prepare_tasks,
+            finished_prepare_tasks,
+            started_reload_tasks,
+            finished_reload_tasks,
+            completed_listeners,
+            listener_count: plan.listeners().len() as u32,
+        }
+    }
+
+    pub fn entries(&self) -> &[ResourceReloadProgressEntry] {
+        &self.entries
+    }
+
+    pub fn completed_weight(&self) -> u32 {
+        self.completed_weight
+    }
+
+    pub fn total_weight(&self) -> u32 {
+        self.total_weight
+    }
+
+    pub fn started_prepare_tasks(&self) -> u32 {
+        self.started_prepare_tasks
+    }
+
+    pub fn finished_prepare_tasks(&self) -> u32 {
+        self.finished_prepare_tasks
+    }
+
+    pub fn started_reload_tasks(&self) -> u32 {
+        self.started_reload_tasks
+    }
+
+    pub fn finished_reload_tasks(&self) -> u32 {
+        self.finished_reload_tasks
+    }
+
+    pub fn completed_listeners(&self) -> u32 {
+        self.completed_listeners
+    }
+
+    pub fn listener_count(&self) -> u32 {
+        self.listener_count
+    }
+
+    pub fn actual_progress(&self) -> f32 {
+        let completed = self.finished_prepare_tasks * ResourceReloadStep::Preparation.weight()
+            + self.finished_reload_tasks * ResourceReloadStep::Reload.weight()
+            + self.completed_listeners * ResourceReloadStep::ListenerComplete.weight();
+        let started = self.started_prepare_tasks * ResourceReloadStep::Preparation.weight()
+            + self.started_reload_tasks * ResourceReloadStep::Reload.weight()
+            + self.listener_count * ResourceReloadStep::ListenerComplete.weight();
+
+        if started == 0 {
+            1.0
+        } else {
+            completed as f32 / started as f32
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResourceReloadProgressEntry {
+    listener: String,
+    step: ResourceReloadStep,
+    progress: f32,
+    weight: u32,
+}
+
+impl ResourceReloadProgressEntry {
+    fn new(
+        listener: impl Into<String>,
+        step: ResourceReloadStep,
+        progress: f32,
+        weight: u32,
+    ) -> Self {
+        Self {
+            listener: listener.into(),
+            step,
+            progress,
+            weight,
+        }
+    }
+
+    pub fn listener(&self) -> &str {
+        &self.listener
+    }
+
+    pub fn step(&self) -> ResourceReloadStep {
+        self.step
+    }
+
+    pub fn progress(&self) -> f32 {
+        self.progress
+    }
+
+    pub fn weight(&self) -> u32 {
+        self.weight
+    }
+}
+
+fn push_reload_progress_entry(
+    entries: &mut Vec<ResourceReloadProgressEntry>,
+    listener: &str,
+    step: ResourceReloadStep,
+    completed_weight: u32,
+    offset: &mut u32,
+) {
+    let weight = step.weight();
+    let completed_in_step = completed_weight.saturating_sub(*offset).min(weight);
+    let progress = if weight == 0 {
+        1.0
+    } else {
+        completed_in_step as f32 / weight as f32
+    };
+
+    entries.push(ResourceReloadProgressEntry::new(
+        listener, step, progress, weight,
+    ));
+    *offset += weight;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1031,17 +1297,20 @@ pub struct ResourceReloadEvent {
     pub step: ResourceReloadStep,
     pub completed_weight: u32,
     pub progress: f32,
+    pub progress_snapshot: ResourceReloadProgressSnapshot,
 }
 
 impl ResourceReloadEvent {
     fn from_state(state: &ResourceReloadState) -> Self {
+        let progress_snapshot = state.progress_snapshot();
         Self {
             listener: state.current_listener.clone().unwrap_or_default(),
             step: state
                 .current_step
                 .unwrap_or(ResourceReloadStep::ListenerComplete),
             completed_weight: state.completed_weight,
-            progress: state.progress(),
+            progress: progress_snapshot.actual_progress(),
+            progress_snapshot,
         }
     }
 }
@@ -4067,6 +4336,104 @@ mod tests {
         assert_eq!(ResourceReloadStep::Preparation.weight(), 2);
         assert_eq!(ResourceReloadStep::Reload.weight(), 2);
         assert_eq!(ResourceReloadStep::ListenerComplete.weight(), 1);
+    }
+
+    #[test]
+    fn reload_progress_snapshot_starts_with_ordered_prepare_apply_entries() {
+        let plan = ResourceReloadPlan::new(["lang", "splashes"]);
+        let snapshot = plan.progress_snapshot(0);
+
+        assert_eq!(snapshot.completed_weight(), 0);
+        assert_eq!(snapshot.total_weight(), 12);
+        assert_eq!(snapshot.listener_count(), 2);
+        assert_eq!(snapshot.started_prepare_tasks(), 0);
+        assert_eq!(snapshot.actual_progress(), 0.0);
+        assert_eq!(
+            snapshot
+                .entries()
+                .iter()
+                .map(|entry| (
+                    entry.listener(),
+                    entry.step(),
+                    entry.progress(),
+                    entry.weight()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    INITIAL_RELOAD_TASK_NAME,
+                    ResourceReloadStep::InitialPreparation,
+                    0.0,
+                    2
+                ),
+                ("lang", ResourceReloadStep::Preparation, 0.0, 2),
+                ("lang", ResourceReloadStep::Reload, 0.0, 2),
+                ("lang", ResourceReloadStep::ListenerComplete, 0.0, 1),
+                ("splashes", ResourceReloadStep::Preparation, 0.0, 2),
+                ("splashes", ResourceReloadStep::Reload, 0.0, 2),
+                ("splashes", ResourceReloadStep::ListenerComplete, 0.0, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn reload_progress_snapshot_tracks_partial_weighted_progress() {
+        let plan = ResourceReloadPlan::new(["lang"]);
+        let mut state = ResourceReloadState::new(plan);
+        state.finish_initial_task();
+        state.finish_step("lang", ResourceReloadStep::Preparation);
+        let snapshot = state.progress_snapshot();
+
+        assert_eq!(snapshot.completed_weight(), 4);
+        assert_eq!(snapshot.total_weight(), 7);
+        assert_eq!(snapshot.listener_count(), 1);
+        assert_eq!(snapshot.started_prepare_tasks(), 1);
+        assert_eq!(snapshot.finished_prepare_tasks(), 1);
+        assert_eq!(snapshot.started_reload_tasks(), 0);
+        assert_eq!(snapshot.finished_reload_tasks(), 0);
+        assert_eq!(snapshot.completed_listeners(), 0);
+        assert!((snapshot.actual_progress() - (2.0 / 3.0)).abs() < f32::EPSILON);
+        assert_eq!(
+            snapshot
+                .entries()
+                .iter()
+                .map(|entry| (entry.listener(), entry.step(), entry.progress()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    INITIAL_RELOAD_TASK_NAME,
+                    ResourceReloadStep::InitialPreparation,
+                    1.0
+                ),
+                ("lang", ResourceReloadStep::Preparation, 1.0),
+                ("lang", ResourceReloadStep::Reload, 0.0),
+                ("lang", ResourceReloadStep::ListenerComplete, 0.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn reload_progress_snapshot_finishes_at_one_for_completed_run() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report = ResourceReloadManager::new(stack)
+            .run()
+            .expect("initial-only reload should complete");
+        let snapshot = report.state().progress_snapshot();
+
+        assert_eq!(snapshot.completed_weight(), snapshot.total_weight());
+        assert_eq!(snapshot.actual_progress(), 1.0);
+        assert_eq!(
+            snapshot
+                .entries()
+                .iter()
+                .map(|entry| (entry.listener(), entry.step(), entry.progress()))
+                .collect::<Vec<_>>(),
+            [(
+                INITIAL_RELOAD_TASK_NAME,
+                ResourceReloadStep::InitialPreparation,
+                1.0
+            )]
+        );
     }
 
     #[test]
