@@ -19,6 +19,7 @@ mod tag_query;
 mod test_instance_block_status;
 mod text;
 mod update;
+mod update_recipes;
 mod update_tags;
 mod waypoint;
 

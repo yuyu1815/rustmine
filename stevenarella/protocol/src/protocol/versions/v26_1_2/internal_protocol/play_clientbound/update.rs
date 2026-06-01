@@ -14,6 +14,14 @@ pub(crate) fn read_update_clientbound_packet_by_internal_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        super::update_recipes::read_update_recipes_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::PlayUpdateAttributesClientbound => {
@@ -87,33 +95,6 @@ pub(crate) fn read_update_clientbound_packet_by_internal_id<R: io::Read>(
                     amplifier: VarInt::read_from(buf)?,
                     duration: VarInt::read_from(buf)?,
                     flags: u8::read_from(buf)?,
-                },
-            )))
-        }
-        packet::play::clientbound::internal_ids::PlayUpdateRecipesClientbound => {
-            let item_set_count = VarInt::read_from(buf)?;
-            let stonecutter_recipe_count = VarInt::read_from(buf)?;
-            for (name, count) in [
-                ("item set", item_set_count.0),
-                ("stonecutter recipe", stonecutter_recipe_count.0),
-            ] {
-                if count < 0 {
-                    return Err(Error::Err(format!(
-                        "negative Play update_recipes {} count {}",
-                        name, count
-                    )));
-                }
-                if count != 0 {
-                    return Err(Error::Err(format!(
-                        "unsupported non-empty Play update_recipes {} count {}",
-                        name, count
-                    )));
-                }
-            }
-            Ok(Some(Packet::PlayUpdateRecipesClientbound(
-                packet::play::clientbound::PlayUpdateRecipesClientbound {
-                    item_set_count,
-                    stonecutter_recipe_count,
                 },
             )))
         }
