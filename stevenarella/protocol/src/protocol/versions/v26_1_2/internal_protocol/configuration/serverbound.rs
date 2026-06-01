@@ -1,12 +1,13 @@
 use std::io;
 
 use crate::protocol::{
-    nbt,
     packet::{self, Packet},
     Direction, Error, Serializable, State, VarInt, UUID,
 };
 
 use super::super::super::translate_internal_packet_id;
+
+mod custom_click_action;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     id: i32,
@@ -14,6 +15,15 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
 ) -> Result<Option<Packet>, Error> {
     let internal_id =
         translate_internal_packet_id(State::Configuration, Direction::Serverbound, id, true);
+    if let Some(packet) =
+        custom_click_action::read_custom_click_action_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+
     match internal_id {
         packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
             let _language: String = Serializable::read_from(buf)?;
@@ -97,32 +107,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageServerbound(
                 packet::play::serverbound::PluginMessageServerbound {
                     channel: "SelectKnownPacks".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationCustomClickActionServerbound => {
-            let id: String = Serializable::read_from(buf)?;
-            let payload_len: VarInt = Serializable::read_from(buf)?;
-            let payload = if payload_len.0 > 0 {
-                let mut payload_bytes = vec![0; payload_len.0 as usize];
-                io::Read::read_exact(buf, &mut payload_bytes)?;
-                let mut payload_slice = payload_bytes.as_slice();
-                let payload_type: u8 = Serializable::read_from(&mut payload_slice)?;
-                if payload_type != 10 {
-                    return Err(Error::Err("custom_click_action payload is not a compound tag".to_owned()));
-                }
-                Some(nbt::NamedTag(String::new(), nbt::Tag::read_from(&mut payload_slice)?))
-            } else {
-                None
-            };
-            let _packet = packet::configuration::serverbound::ConfigurationCustomClickActionServerbound {
-                id,
-                payload,
-            };
-            return Ok(Some(Packet::PluginMessageServerbound(
-                packet::play::serverbound::PluginMessageServerbound {
-                    channel: "CustomClickAction".to_owned(),
                     data: Vec::new(),
                 },
             )));
