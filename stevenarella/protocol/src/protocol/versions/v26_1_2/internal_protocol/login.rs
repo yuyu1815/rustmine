@@ -6,30 +6,21 @@ use crate::protocol::{
 
 use super::super::translate_internal_packet_id;
 
+mod serverbound;
+
 pub(crate) fn read_login_packet_by_id<R: io::Read>(
     dir: Direction,
     id: i32,
     buf: &mut R,
 ) -> Result<Option<packet::Packet>, Error> {
     match dir {
-        Direction::Serverbound => read_login_serverbound_packet(id, buf),
+        Direction::Serverbound => {
+            let internal_id =
+                translate_internal_packet_id(State::Login, Direction::Serverbound, id, true);
+            serverbound::read_login_serverbound_packet_by_internal_id(internal_id, buf)
+        }
         Direction::Clientbound => read_login_clientbound_packet(id, buf),
     }
-}
-
-fn read_login_serverbound_packet<R: io::Read>(
-    id: i32,
-    buf: &mut R,
-) -> Result<Option<packet::Packet>, Error> {
-    let internal_id = translate_internal_packet_id(State::Login, Direction::Serverbound, id, true);
-    if internal_id == packet::login::serverbound::internal_ids::LoginStart {
-        let username: String = Serializable::read_from(buf)?;
-        let _profile_id: UUID = Serializable::read_from(buf)?;
-        return Ok(Some(packet::Packet::LoginStart(
-            packet::login::serverbound::LoginStart { username },
-        )));
-    }
-    Ok(None)
 }
 
 fn read_login_clientbound_packet<R: io::Read>(
