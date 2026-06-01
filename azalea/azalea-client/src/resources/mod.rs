@@ -1961,6 +1961,7 @@ impl ResourceReloadManager {
             .with_listener(FontDefinitionsReloadListener::default())
             .with_listener(ColormapReloadListener::default())
             .with_listener(ModelDependencyReloadListener::default())
+            .with_listener(ModelBakeCandidateReloadListener::default())
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(ParticleManifestReloadListener::default())
             .with_listener(WaypointStyleManifestReloadListener::default())
@@ -5125,6 +5126,8 @@ fn collect_model_dependency_resource_path(
 struct ModelJsonDependencies {
     parent: Option<String>,
     textures: BTreeSet<String>,
+    texture_slots: BTreeMap<String, String>,
+    element_count: usize,
 }
 
 fn parse_model_json_dependencies(
@@ -5158,16 +5161,32 @@ fn parse_model_json_dependencies(
         for (texture_key, texture) in texture_values {
             if let Some(texture) = texture.as_str() {
                 dependencies.textures.insert(texture.to_owned());
+                dependencies
+                    .texture_slots
+                    .insert(texture_key.clone(), texture.to_owned());
             } else if let Some(sprite) = texture
                 .as_object()
                 .and_then(|texture| texture.get("sprite"))
                 .and_then(serde_json::Value::as_str)
             {
                 dependencies.textures.insert(sprite.to_owned());
+                dependencies
+                    .texture_slots
+                    .insert(texture_key.clone(), sprite.to_owned());
             } else {
                 let _ = texture_key;
             }
         }
+    }
+
+    if let Some(elements) = object.get("elements") {
+        let Some(elements) = elements.as_array() else {
+            return Err(invalid_model_dependency(
+                resource,
+                "model elements must be an array",
+            ));
+        };
+        dependencies.element_count = elements.len();
     }
 
     Ok(dependencies)
@@ -5568,6 +5587,707 @@ fn model_dependency_report_items(report: &ModelDependencyReport) -> Vec<String> 
     ));
 
     items
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ModelBakeCandidateReloadListener;
+
+impl ModelBakeCandidateReloadListener {
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ModelBakeCandidateReport> {
+        load_model_bake_candidates(stack)
+    }
+}
+
+impl ResourceReloadListener for ModelBakeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "model_bake_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = discover_model_dependency_resources(stack)?;
+        Ok(ResourceReloadTaskReport::new(resources.all_resources()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let report = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            model_bake_candidate_report_items(&report),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelBakeCandidateReport {
+    dependency_report: ModelDependencyReport,
+    blockstates: Vec<ModelBakeBlockstateCandidate>,
+    item_roots: Vec<ModelBakeItemRootCandidate>,
+    model_shapes: Vec<ModelBakeModelCandidate>,
+    shape_counts: ModelBakeShapeCounts,
+    root_item_model_type_counts: BTreeMap<String, usize>,
+    item_model_type_counts: BTreeMap<String, usize>,
+    texture_slots: BTreeMap<String, BTreeSet<String>>,
+    valid_unbaked_models: BTreeSet<String>,
+    missing_model_blockers: BTreeSet<String>,
+    cyclic_model_blockers: BTreeSet<String>,
+}
+
+impl ModelBakeCandidateReport {
+    pub fn dependency_report(&self) -> &ModelDependencyReport {
+        &self.dependency_report
+    }
+
+    pub fn blockstates(&self) -> &[ModelBakeBlockstateCandidate] {
+        &self.blockstates
+    }
+
+    pub fn item_roots(&self) -> &[ModelBakeItemRootCandidate] {
+        &self.item_roots
+    }
+
+    pub fn model_shapes(&self) -> &[ModelBakeModelCandidate] {
+        &self.model_shapes
+    }
+
+    pub fn shape_counts(&self) -> ModelBakeShapeCounts {
+        self.shape_counts
+    }
+
+    pub fn root_item_model_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.root_item_model_type_counts
+    }
+
+    pub fn item_model_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.item_model_type_counts
+    }
+
+    pub fn texture_slots(&self) -> &BTreeMap<String, BTreeSet<String>> {
+        &self.texture_slots
+    }
+
+    pub fn valid_unbaked_models(&self) -> &BTreeSet<String> {
+        &self.valid_unbaked_models
+    }
+
+    pub fn missing_model_blockers(&self) -> &BTreeSet<String> {
+        &self.missing_model_blockers
+    }
+
+    pub fn cyclic_model_blockers(&self) -> &BTreeSet<String> {
+        &self.cyclic_model_blockers
+    }
+
+    pub fn blockstate_model_candidate_count(&self) -> usize {
+        self.blockstates
+            .iter()
+            .map(ModelBakeBlockstateCandidate::model_candidate_count)
+            .sum()
+    }
+
+    pub fn item_root_count(&self) -> usize {
+        self.item_roots.len()
+    }
+
+    pub fn model_definition_count(&self) -> usize {
+        self.model_shapes.len()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelBakeBlockstateCandidate {
+    resource: String,
+    pack_id: String,
+    variant_definition_count: usize,
+    multipart_definition_count: usize,
+    variant_model_candidate_count: usize,
+    multipart_model_candidate_count: usize,
+    model_references: BTreeSet<String>,
+}
+
+impl ModelBakeBlockstateCandidate {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn variant_definition_count(&self) -> usize {
+        self.variant_definition_count
+    }
+
+    pub fn multipart_definition_count(&self) -> usize {
+        self.multipart_definition_count
+    }
+
+    pub fn variant_model_candidate_count(&self) -> usize {
+        self.variant_model_candidate_count
+    }
+
+    pub fn multipart_model_candidate_count(&self) -> usize {
+        self.multipart_model_candidate_count
+    }
+
+    pub fn model_candidate_count(&self) -> usize {
+        self.variant_model_candidate_count + self.multipart_model_candidate_count
+    }
+
+    pub fn model_references(&self) -> &BTreeSet<String> {
+        &self.model_references
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelBakeItemRootCandidate {
+    resource: String,
+    pack_id: String,
+    root_type: String,
+    model_type_counts: BTreeMap<String, usize>,
+    model_references: BTreeSet<String>,
+}
+
+impl ModelBakeItemRootCandidate {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn root_type(&self) -> &str {
+        &self.root_type
+    }
+
+    pub fn model_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.model_type_counts
+    }
+
+    pub fn model_references(&self) -> &BTreeSet<String> {
+        &self.model_references
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelBakeModelCandidate {
+    id: String,
+    resource: String,
+    pack_id: String,
+    parent: Option<String>,
+    texture_count: usize,
+    element_count: usize,
+    shape: ModelBakeModelShape,
+}
+
+impl ModelBakeModelCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.texture_count
+    }
+
+    pub fn element_count(&self) -> usize {
+        self.element_count
+    }
+
+    pub fn shape(&self) -> ModelBakeModelShape {
+        self.shape
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ModelBakeShapeCounts {
+    pub parented: usize,
+    pub generated: usize,
+    pub cube_like: usize,
+    pub element_containing: usize,
+    pub root: usize,
+    pub empty: usize,
+}
+
+impl ModelBakeShapeCounts {
+    fn increment(&mut self, shape: ModelBakeModelShape) {
+        match shape {
+            ModelBakeModelShape::Generated => self.generated += 1,
+            ModelBakeModelShape::CubeLike => self.cube_like += 1,
+            ModelBakeModelShape::ElementContaining => self.element_containing += 1,
+            ModelBakeModelShape::Parented => self.parented += 1,
+            ModelBakeModelShape::Root => self.root += 1,
+            ModelBakeModelShape::Empty => self.empty += 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModelBakeModelShape {
+    Generated,
+    CubeLike,
+    ElementContaining,
+    Parented,
+    Root,
+    Empty,
+}
+
+fn load_model_bake_candidates(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<ModelBakeCandidateReport> {
+    let discovered = discover_model_dependency_resources(stack)?;
+    load_model_bake_candidates_from_resources(stack, &discovered)
+}
+
+fn load_model_bake_candidates_from_resources(
+    stack: &ClientResourceStack,
+    discovered: &DiscoveredModelDependencyResources,
+) -> ResourceReloadResult<ModelBakeCandidateReport> {
+    let dependency_report = load_model_dependencies_from_resources(stack, discovered)?;
+    let mut blockstates = Vec::new();
+    let mut item_roots = Vec::new();
+    let mut model_shapes = Vec::new();
+    let mut shape_counts = ModelBakeShapeCounts::default();
+    let mut root_item_model_type_counts = BTreeMap::new();
+    let mut item_model_type_counts = BTreeMap::new();
+    let mut texture_slots: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for blockstate in &discovered.blockstates {
+        let resource = load_client_json_resource(stack, blockstate)?;
+        blockstates.push(parse_blockstate_bake_candidate(&resource)?);
+    }
+
+    for model in discovered
+        .models
+        .iter()
+        .chain(discovered.block_models.iter())
+        .chain(discovered.item_models.iter())
+    {
+        let resource = load_client_json_resource(stack, model)?;
+        let model_id = model_resource_id(model).ok_or_else(|| {
+            invalid_model_dependency(&resource, format!("invalid model resource path `{model}`"))
+        })?;
+        let definition = parse_model_json_dependencies(&resource)?;
+        for (slot, texture) in &definition.texture_slots {
+            texture_slots
+                .entry(slot.clone())
+                .or_default()
+                .insert(texture.clone());
+        }
+
+        let shape = classify_model_bake_shape(&definition);
+        shape_counts.increment(shape);
+        model_shapes.push(ModelBakeModelCandidate {
+            id: model_id,
+            resource: resource.report().resource().to_owned(),
+            pack_id: resource.report().pack_id().to_owned(),
+            parent: definition.parent,
+            texture_count: definition.textures.len(),
+            element_count: definition.element_count,
+            shape,
+        });
+    }
+
+    for item_root in &discovered.item_roots {
+        let resource = load_client_json_resource(stack, item_root)?;
+        let candidate = parse_item_root_bake_candidate(&resource)?;
+        *root_item_model_type_counts
+            .entry(candidate.root_type.clone())
+            .or_insert(0) += 1;
+        for (model_type, count) in &candidate.model_type_counts {
+            *item_model_type_counts
+                .entry(model_type.clone())
+                .or_insert(0) += count;
+        }
+        item_roots.push(candidate);
+    }
+
+    if dependency_report
+        .root_models()
+        .contains("minecraft:builtin/generated")
+    {
+        shape_counts.generated += 1;
+    }
+
+    let cyclic_model_blockers = dependency_report.cyclic_models().clone();
+    let missing_model_blockers = dependency_report
+        .missing_models()
+        .iter()
+        .filter(|model| model.as_str() != "minecraft:builtin/generated")
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let valid_unbaked_models = dependency_report
+        .reachable_models()
+        .iter()
+        .filter(|model| {
+            !missing_model_blockers.contains(*model) && !cyclic_model_blockers.contains(*model)
+        })
+        .cloned()
+        .collect();
+
+    Ok(ModelBakeCandidateReport {
+        dependency_report,
+        blockstates,
+        item_roots,
+        model_shapes,
+        shape_counts,
+        root_item_model_type_counts,
+        item_model_type_counts,
+        texture_slots,
+        valid_unbaked_models,
+        missing_model_blockers,
+        cyclic_model_blockers,
+    })
+}
+
+fn parse_blockstate_bake_candidate(
+    resource: &ClientJsonResource,
+) -> ResourceReloadResult<ModelBakeBlockstateCandidate> {
+    let object = resource
+        .value()
+        .as_object()
+        .ok_or_else(|| invalid_model_dependency(resource, "blockstate root must be an object"))?;
+    let mut variant_definition_count = 0;
+    let mut multipart_definition_count = 0;
+    let mut variant_model_candidate_count = 0;
+    let mut multipart_model_candidate_count = 0;
+
+    if let Some(variants) = object.get("variants") {
+        let variants = variants.as_object().ok_or_else(|| {
+            invalid_model_dependency(resource, "blockstate variants must be an object")
+        })?;
+        variant_definition_count = variants.len();
+        for variant in variants.values() {
+            variant_model_candidate_count += blockstate_model_candidate_count(variant)
+                .map_err(|reason| invalid_model_dependency(resource, reason))?;
+        }
+    }
+
+    if let Some(multipart) = object.get("multipart") {
+        let multipart = multipart.as_array().ok_or_else(|| {
+            invalid_model_dependency(resource, "blockstate multipart must be an array")
+        })?;
+        multipart_definition_count = multipart.len();
+        for entry in multipart {
+            let entry = entry.as_object().ok_or_else(|| {
+                invalid_model_dependency(resource, "blockstate multipart entries must be objects")
+            })?;
+            if let Some(apply) = entry.get("apply") {
+                multipart_model_candidate_count += blockstate_model_candidate_count(apply)
+                    .map_err(|reason| invalid_model_dependency(resource, reason))?;
+            }
+        }
+    }
+
+    if !object.contains_key("variants") && !object.contains_key("multipart") {
+        return Err(invalid_model_dependency(
+            resource,
+            "blockstate must contain variants or multipart",
+        ));
+    }
+
+    let model_references = extract_blockstate_model_references(resource.value())
+        .map_err(|reason| invalid_model_dependency(resource, reason))?;
+    Ok(ModelBakeBlockstateCandidate {
+        resource: resource.report().resource().to_owned(),
+        pack_id: resource.report().pack_id().to_owned(),
+        variant_definition_count,
+        multipart_definition_count,
+        variant_model_candidate_count,
+        multipart_model_candidate_count,
+        model_references,
+    })
+}
+
+fn blockstate_model_candidate_count(blockstate_entry: &serde_json::Value) -> Result<usize, String> {
+    match blockstate_entry {
+        serde_json::Value::String(_) => Ok(1),
+        serde_json::Value::Object(object) => Ok(object.contains_key("model") as usize),
+        serde_json::Value::Array(array) => {
+            let mut count = 0;
+            for entry in array {
+                let object = entry
+                    .as_object()
+                    .ok_or_else(|| "blockstate model arrays must contain objects".to_owned())?;
+                count += object.contains_key("model") as usize;
+            }
+            Ok(count)
+        }
+        _ => Err("blockstate model entry must be an object, array, or string".to_owned()),
+    }
+}
+
+fn parse_item_root_bake_candidate(
+    resource: &ClientJsonResource,
+) -> ResourceReloadResult<ModelBakeItemRootCandidate> {
+    let object = resource.value().as_object().ok_or_else(|| {
+        invalid_model_dependency(resource, "item root top-level value must be an object")
+    })?;
+    let model = object
+        .get("model")
+        .ok_or_else(|| invalid_model_dependency(resource, "item root must contain model"))?;
+
+    let mut model_type_counts = BTreeMap::new();
+    let root_type = collect_item_model_type_counts(model, &mut model_type_counts)
+        .map_err(|reason| invalid_model_dependency(resource, reason))?;
+    let model_references = extract_item_root_model_dependencies(resource.value())
+        .map_err(|reason| invalid_model_dependency(resource, reason))?;
+
+    Ok(ModelBakeItemRootCandidate {
+        resource: resource.report().resource().to_owned(),
+        pack_id: resource.report().pack_id().to_owned(),
+        root_type,
+        model_type_counts,
+        model_references,
+    })
+}
+
+fn collect_item_model_type_counts(
+    item_model: &serde_json::Value,
+    counts: &mut BTreeMap<String, usize>,
+) -> Result<String, String> {
+    let Some(object) = item_model.as_object() else {
+        return Err("item model must be an object".to_owned());
+    };
+    let Some(model_type) = object.get("type") else {
+        return Err("item model must contain type".to_owned());
+    };
+    let Some(model_type) = model_type.as_str() else {
+        return Err("item model type must be a string".to_owned());
+    };
+    let normalized_type = strip_minecraft_namespace(model_type).to_owned();
+    *counts.entry(normalized_type.clone()).or_insert(0) += 1;
+
+    match normalized_type.as_str() {
+        "model" | "special" | "empty" | "bundle/selected_item" => {}
+        "range_dispatch" => {
+            if let Some(entries) = object.get("entries") {
+                let Some(entries) = entries.as_array() else {
+                    return Err("minecraft:range_dispatch entries must be an array".to_owned());
+                };
+                for entry in entries {
+                    let Some(entry) = entry.as_object() else {
+                        return Err("minecraft:range_dispatch entry must be an object".to_owned());
+                    };
+                    collect_required_child_item_model_type(
+                        entry,
+                        "model",
+                        "minecraft:range_dispatch entry model",
+                        counts,
+                    )?;
+                }
+            }
+            collect_optional_child_item_model_type(
+                object,
+                "fallback",
+                "minecraft:range_dispatch fallback",
+                counts,
+            )?;
+        }
+        "select" => {
+            if let Some(cases) = object.get("cases") {
+                let Some(cases) = cases.as_array() else {
+                    return Err("minecraft:select cases must be an array".to_owned());
+                };
+                for case in cases {
+                    let Some(case) = case.as_object() else {
+                        return Err("minecraft:select case must be an object".to_owned());
+                    };
+                    collect_required_child_item_model_type(
+                        case,
+                        "model",
+                        "minecraft:select case model",
+                        counts,
+                    )?;
+                }
+            }
+            collect_optional_child_item_model_type(
+                object,
+                "fallback",
+                "minecraft:select fallback",
+                counts,
+            )?;
+        }
+        "condition" => {
+            collect_required_child_item_model_type(
+                object,
+                "on_true",
+                "minecraft:condition on_true",
+                counts,
+            )?;
+            collect_required_child_item_model_type(
+                object,
+                "on_false",
+                "minecraft:condition on_false",
+                counts,
+            )?;
+        }
+        "composite" => {
+            let Some(models) = object.get("models") else {
+                return Err("minecraft:composite item model must contain models".to_owned());
+            };
+            let Some(models) = models.as_array() else {
+                return Err("minecraft:composite models must be an array".to_owned());
+            };
+            for model in models {
+                collect_item_model_type_counts(model, counts)?;
+            }
+        }
+        _ => {
+            return Err(format!("unsupported item model type `{model_type}`"));
+        }
+    }
+
+    Ok(normalized_type)
+}
+
+fn collect_required_child_item_model_type(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    description: &str,
+    counts: &mut BTreeMap<String, usize>,
+) -> Result<(), String> {
+    let Some(model) = object.get(field) else {
+        return Err(format!("{description} must be present"));
+    };
+    collect_item_model_type_counts(model, counts)?;
+    Ok(())
+}
+
+fn collect_optional_child_item_model_type(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    description: &str,
+    counts: &mut BTreeMap<String, usize>,
+) -> Result<(), String> {
+    if let Some(model) = object.get(field) {
+        if !model.is_object() {
+            return Err(format!("{description} must be an object"));
+        }
+        collect_item_model_type_counts(model, counts)?;
+    }
+    Ok(())
+}
+
+fn classify_model_bake_shape(definition: &ModelJsonDependencies) -> ModelBakeModelShape {
+    if definition.element_count > 0 {
+        return ModelBakeModelShape::ElementContaining;
+    }
+    let Some(parent) = &definition.parent else {
+        return if definition.textures.is_empty() {
+            ModelBakeModelShape::Empty
+        } else {
+            ModelBakeModelShape::Root
+        };
+    };
+    if is_generated_model_parent(parent) {
+        ModelBakeModelShape::Generated
+    } else if is_cube_like_model_parent(parent) {
+        ModelBakeModelShape::CubeLike
+    } else {
+        ModelBakeModelShape::Parented
+    }
+}
+
+fn is_generated_model_parent(parent: &str) -> bool {
+    matches!(
+        parent,
+        "minecraft:item/generated" | "minecraft:builtin/generated"
+    )
+}
+
+fn is_cube_like_model_parent(parent: &str) -> bool {
+    parent == "minecraft:block/block"
+        || parent == "minecraft:block/cube"
+        || parent.starts_with("minecraft:block/cube_")
+        || parent.starts_with("minecraft:block/template_")
+}
+
+fn model_bake_candidate_report_items(report: &ModelBakeCandidateReport) -> Vec<String> {
+    let mut items = Vec::new();
+    items.push(format!(
+        "bake:definitions:blockstates:{} item_roots:{} models:{}",
+        report.blockstates().len(),
+        report.item_root_count(),
+        report.model_definition_count()
+    ));
+    items.push(format!(
+        "bake:blockstates:variant_defs:{} multipart_defs:{} model_candidates:{}",
+        report
+            .blockstates()
+            .iter()
+            .map(ModelBakeBlockstateCandidate::variant_definition_count)
+            .sum::<usize>(),
+        report
+            .blockstates()
+            .iter()
+            .map(ModelBakeBlockstateCandidate::multipart_definition_count)
+            .sum::<usize>(),
+        report.blockstate_model_candidate_count()
+    ));
+    items.push(format!(
+        "bake:item_root_types:{}",
+        format_count_map(report.root_item_model_type_counts())
+    ));
+    items.push(format!(
+        "bake:item_model_types:{}",
+        format_count_map(report.item_model_type_counts())
+    ));
+    let shape_counts = report.shape_counts();
+    items.push(format!(
+        "bake:model_shapes:parented:{} generated:{} cube_like:{} elements:{} root:{} empty:{}",
+        shape_counts.parented,
+        shape_counts.generated,
+        shape_counts.cube_like,
+        shape_counts.element_containing,
+        shape_counts.root,
+        shape_counts.empty
+    ));
+    items.push(format!(
+        "bake:graph:unbaked:{} valid:{} missing_blockers:{} cyclic_blockers:{}",
+        report.dependency_report().reachable_models().len(),
+        report.valid_unbaked_models().len(),
+        report.missing_model_blockers().len(),
+        report.cyclic_model_blockers().len()
+    ));
+    items.push(format!(
+        "bake:textures:slots:{} references:{}",
+        report.texture_slots().len(),
+        report
+            .texture_slots()
+            .values()
+            .map(BTreeSet::len)
+            .sum::<usize>()
+    ));
+
+    items
+}
+
+fn format_count_map(counts: &BTreeMap<String, usize>) -> String {
+    counts
+        .iter()
+        .map(|(key, count)| format!("{key}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -15108,6 +15828,263 @@ mod tests {
 
         assert!(
             matches!(error, ResourceReloadError::InvalidModelDependency { resource, pack_id, reason } if resource == "assets/minecraft/models/block/stone.json" && pack_id == "test" && reason == "model parent must be a string")
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_model_bake_candidate_listener_reports_nonzero_candidate_surface() {
+        let report = ModelBakeCandidateReloadListener
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla model bake candidates should load");
+
+        assert!(report.blockstates().len() > 1_000);
+        assert!(report.item_root_count() > 1_000);
+        assert!(report.model_definition_count() > 3_000);
+        assert!(report.blockstate_model_candidate_count() > 1_000);
+        assert!(report.valid_unbaked_models().len() > 1_000);
+        assert!(report.shape_counts().generated > 0);
+        assert!(report.shape_counts().cube_like > 0);
+        assert!(report.shape_counts().element_containing > 0);
+        assert!(report.texture_slots().contains_key("particle"));
+        assert!(report.item_model_type_counts().contains_key("model"));
+    }
+
+    #[test]
+    fn model_bake_candidate_report_separates_missing_and_cyclic_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"missing_parent":{"model":"minecraft:block/stone"},"cycle":{"model":"minecraft:block/cycle_a"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/stone.json",
+            r#"{"parent":"minecraft:block/missing_parent","textures":{"all":"minecraft:block/stone"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cycle_a.json",
+            r#"{"parent":"minecraft:block/cycle_b","textures":{"all":"minecraft:block/a"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cycle_b.json",
+            r#"{"parent":"minecraft:block/cycle_a","textures":{"all":"minecraft:block/b"}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ModelBakeCandidateReloadListener
+            .load(&stack)
+            .expect("model bake candidate blockers should report");
+
+        assert_eq!(
+            report.missing_model_blockers(),
+            &BTreeSet::from(["minecraft:block/missing_parent".to_owned()])
+        );
+        assert_eq!(
+            report.cyclic_model_blockers(),
+            &BTreeSet::from([
+                "minecraft:block/cycle_a".to_owned(),
+                "minecraft:block/cycle_b".to_owned(),
+            ])
+        );
+        assert!(
+            !report
+                .valid_unbaked_models()
+                .contains("minecraft:block/cycle_a")
+        );
+        assert!(
+            !report
+                .missing_model_blockers()
+                .contains("minecraft:builtin/generated")
+        );
+    }
+
+    #[test]
+    fn model_bake_candidate_report_classifies_model_json_shapes() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/models/item/generated_child.json",
+            r#"{"parent":"minecraft:item/generated","textures":{"layer0":"minecraft:item/stick"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cube_child.json",
+            r#"{"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/stone"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/elemented.json",
+            r#"{"textures":{"all":"minecraft:block/stone"},"elements":[{"from":[0,0,0],"to":[16,16,16],"faces":{}}]}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/item/handheld_child.json",
+            r#"{"parent":"minecraft:item/handheld","textures":{"layer0":"minecraft:item/stick"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/custom/root_texture.json",
+            r#"{"textures":{"particle":"minecraft:block/stone"}}"#,
+        );
+        temp.write("assets/minecraft/models/custom/empty.json", r#"{}"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ModelBakeCandidateReloadListener
+            .load(&stack)
+            .expect("model bake candidate shapes should report");
+        let shapes = report
+            .model_shapes()
+            .iter()
+            .map(|model| (model.id().to_owned(), model.shape()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            shapes.get("minecraft:item/generated_child"),
+            Some(&ModelBakeModelShape::Generated)
+        );
+        assert_eq!(
+            shapes.get("minecraft:block/cube_child"),
+            Some(&ModelBakeModelShape::CubeLike)
+        );
+        assert_eq!(
+            shapes.get("minecraft:block/elemented"),
+            Some(&ModelBakeModelShape::ElementContaining)
+        );
+        assert_eq!(
+            shapes.get("minecraft:item/handheld_child"),
+            Some(&ModelBakeModelShape::Parented)
+        );
+        assert_eq!(
+            shapes.get("minecraft:custom/root_texture"),
+            Some(&ModelBakeModelShape::Root)
+        );
+        assert_eq!(
+            shapes.get("minecraft:custom/empty"),
+            Some(&ModelBakeModelShape::Empty)
+        );
+        assert_eq!(
+            report.texture_slots().get("layer0"),
+            Some(&BTreeSet::from(["minecraft:item/stick".to_owned()]))
+        );
+    }
+
+    #[test]
+    fn model_bake_candidate_report_counts_blockstate_variants_and_multipart_models() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{
+                "variants": {
+                    "": {"model":"minecraft:block/stone"},
+                    "axis=y": [
+                        {"model":"minecraft:block/oak_log"},
+                        {"model":"minecraft:block/oak_log_top"}
+                    ],
+                    "powered=true": "minecraft:block/redstone_torch"
+                },
+                "multipart": [
+                    {"apply":{"model":"minecraft:block/oak_fence_post"}},
+                    {"apply":[
+                        {"model":"minecraft:block/oak_fence_side"},
+                        {"model":"minecraft:block/oak_fence_inventory"}
+                    ]}
+                ]
+            }"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ModelBakeCandidateReloadListener
+            .load(&stack)
+            .expect("model bake candidate blockstate counts should report");
+        let blockstate = &report.blockstates()[0];
+
+        assert_eq!(blockstate.variant_definition_count(), 3);
+        assert_eq!(blockstate.multipart_definition_count(), 2);
+        assert_eq!(blockstate.variant_model_candidate_count(), 4);
+        assert_eq!(blockstate.multipart_model_candidate_count(), 3);
+        assert_eq!(blockstate.model_candidate_count(), 7);
+        assert_eq!(blockstate.model_references().len(), 7);
+    }
+
+    #[test]
+    fn model_bake_candidate_report_counts_item_root_types() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/items/bow.json",
+            r#"{
+                "model": {
+                    "type": "minecraft:condition",
+                    "on_true": {
+                        "type": "minecraft:select",
+                        "cases": [
+                            {
+                                "when": "minecraft:bow",
+                                "model": {
+                                    "type": "minecraft:model",
+                                    "model": "minecraft:item/bow"
+                                }
+                            }
+                        ],
+                        "fallback": {
+                            "type": "minecraft:range_dispatch",
+                            "entries": [
+                                {
+                                    "threshold": 0.5,
+                                    "model": {
+                                        "type": "minecraft:model",
+                                        "model": "minecraft:item/bow_pulling_0"
+                                    }
+                                }
+                            ],
+                            "fallback": {
+                                "type": "minecraft:model",
+                                "model": "minecraft:item/bow_standby"
+                            }
+                        }
+                    },
+                    "on_false": {
+                        "type": "minecraft:composite",
+                        "models": [
+                            {
+                                "type": "minecraft:model",
+                                "model": "minecraft:item/bow_overlay"
+                            },
+                            {
+                                "type": "minecraft:empty"
+                            }
+                        ]
+                    }
+                }
+            }"#,
+        );
+        temp.write(
+            "assets/minecraft/items/shield.json",
+            r#"{"model":{"type":"minecraft:special","base":"minecraft:item/shield","model":{"type":"minecraft:shield"}}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ModelBakeCandidateReloadListener
+            .load(&stack)
+            .expect("model bake candidate item root type counts should report");
+
+        assert_eq!(
+            report.root_item_model_type_counts(),
+            &BTreeMap::from([("condition".to_owned(), 1), ("special".to_owned(), 1),])
+        );
+        assert_eq!(
+            report.item_model_type_counts(),
+            &BTreeMap::from([
+                ("composite".to_owned(), 1),
+                ("condition".to_owned(), 1),
+                ("empty".to_owned(), 1),
+                ("model".to_owned(), 4),
+                ("range_dispatch".to_owned(), 1),
+                ("select".to_owned(), 1),
+                ("special".to_owned(), 1),
+            ])
+        );
+        assert_eq!(
+            report.item_roots()[0].model_references(),
+            &BTreeSet::from([
+                "minecraft:item/bow".to_owned(),
+                "minecraft:item/bow_overlay".to_owned(),
+                "minecraft:item/bow_pulling_0".to_owned(),
+                "minecraft:item/bow_standby".to_owned(),
+            ])
         );
     }
 
