@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::protocol::{packet::Packet, Direction, Error, Serializable, State, VarInt};
+use crate::protocol::{packet::Packet, Direction, Error, State};
 
 use super::super::translate_internal_packet_id;
 
@@ -8,6 +8,7 @@ mod custom_report_details;
 mod dialog;
 mod disconnect;
 mod entity;
+mod item_stack_marker;
 mod projectile_power;
 mod scoreboard;
 mod server_links;
@@ -122,18 +123,4 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     }
 
     Ok(None)
-}
-
-fn read_empty_play_item_stack_marker<R: io::Read>(
-    buf: &mut R,
-    packet_name: &str,
-) -> Result<(), Error> {
-    let count = VarInt::read_from(buf)?;
-    if count.0 != 0 {
-        return Err(Error::Err(format!(
-            "unsupported non-empty Play {} ItemStack count {}",
-            packet_name, count.0
-        )));
-    }
-    Ok(())
 }

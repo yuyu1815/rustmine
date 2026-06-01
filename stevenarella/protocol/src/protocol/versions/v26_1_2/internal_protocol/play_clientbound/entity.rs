@@ -5,8 +5,6 @@ use crate::protocol::{
     Error, Serializable, VarInt,
 };
 
-use super::read_empty_play_item_stack_marker;
-
 mod set_entity_data;
 mod set_entity_link;
 mod set_passengers;
@@ -55,7 +53,7 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
                     equipment_slot
                 )));
             }
-            read_empty_play_item_stack_marker(buf, "set_equipment")?;
+            super::item_stack_marker::read_empty_play_item_stack_marker(buf, "set_equipment")?;
             Ok(Some(Packet::PlaySetEquipmentClientbound(
                 packet::play::clientbound::PlaySetEquipmentClientbound {
                     entity_id,
