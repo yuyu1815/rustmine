@@ -303,12 +303,12 @@ macro_rules! protocol_packet_ids {
                                             _ => panic!("bad packet id 0x{:x} in {:?} {:?}", id, dir, state),
                                         }
                                     } else {
-                                        match id {
                                         $(
-                                            $crate::protocol::packet::$state::$dir::internal_ids::$name => $id,
+                                            if id == $crate::protocol::packet::$state::$dir::internal_ids::$name {
+                                                return $id;
+                                            }
                                         )*
-                                            _ => panic!("bad packet internal id 0x{:x} in {:?} {:?}", id, dir, state),
-                                        }
+                                        panic!("bad packet internal id 0x{:x} in {:?} {:?}", id, dir, state)
                                     }
                                 }
                             )*
