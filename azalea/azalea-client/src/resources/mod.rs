@@ -1960,6 +1960,7 @@ impl ResourceReloadManager {
             .with_listener(AtlasSourceReloadListener::default())
             .with_listener(AtlasStitchCandidateReloadListener::default())
             .with_listener(FontDefinitionsReloadListener::default())
+            .with_listener(FontProviderAssetReloadListener::default())
             .with_listener(ColormapReloadListener::default())
             .with_listener(ModelDependencyReloadListener::default())
             .with_listener(ModelBakeCandidateReloadListener::default())
@@ -7804,6 +7805,8 @@ impl ClientFontDefinition {
 pub struct ClientFontProviderDefinition {
     provider_type: String,
     referenced_assets: Vec<String>,
+    asset_candidates: Vec<ClientFontProviderAssetCandidate>,
+    referenced_provider_ids: Vec<String>,
 }
 
 impl ClientFontProviderDefinition {
@@ -7813,6 +7816,47 @@ impl ClientFontProviderDefinition {
 
     pub fn referenced_assets(&self) -> &[String] {
         &self.referenced_assets
+    }
+
+    pub fn asset_candidates(&self) -> &[ClientFontProviderAssetCandidate] {
+        &self.asset_candidates
+    }
+
+    pub fn referenced_provider_ids(&self) -> &[String] {
+        &self.referenced_provider_ids
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ClientFontProviderAssetCandidate {
+    kind: ClientFontProviderAssetKind,
+    resource: String,
+}
+
+impl ClientFontProviderAssetCandidate {
+    pub fn kind(&self) -> ClientFontProviderAssetKind {
+        self.kind
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ClientFontProviderAssetKind {
+    BitmapTexture,
+    TrueTypeFont,
+    UnihexFile,
+}
+
+impl ClientFontProviderAssetKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BitmapTexture => "bitmap",
+            Self::TrueTypeFont => "ttf",
+            Self::UnihexFile => "unihex",
+        }
     }
 }
 
@@ -8131,9 +8175,14 @@ fn parse_font_definition_providers(
         .map(|(index, provider)| {
             validate_font_provider_definition(resource, index, &provider)?;
             let referenced_assets = font_provider_referenced_assets(resource, index, &provider)?;
+            let asset_candidates = font_provider_asset_candidates(resource, index, &provider)?;
+            let referenced_provider_ids =
+                font_provider_referenced_provider_ids(resource, index, &provider)?;
             Ok(ClientFontProviderDefinition {
                 provider_type: provider.provider_type,
                 referenced_assets,
+                asset_candidates,
+                referenced_provider_ids,
             })
         })
         .collect()
@@ -8525,19 +8574,68 @@ fn font_provider_referenced_assets(
     }
 }
 
+fn font_provider_asset_candidates(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<Vec<ClientFontProviderAssetCandidate>> {
+    let candidate = match provider.provider_type.as_str() {
+        "bitmap" => {
+            let file = require_font_provider_identifier_field(resource, index, provider, "file")?;
+            Some(ClientFontProviderAssetCandidate {
+                kind: ClientFontProviderAssetKind::BitmapTexture,
+                resource: font_bitmap_resource_path_for_identifier(file),
+            })
+        }
+        "ttf" => {
+            let file = require_font_provider_identifier_field(resource, index, provider, "file")?;
+            Some(ClientFontProviderAssetCandidate {
+                kind: ClientFontProviderAssetKind::TrueTypeFont,
+                resource: font_file_resource_path_for_identifier(file),
+            })
+        }
+        "unihex" => {
+            let hex_file =
+                require_font_provider_identifier_field(resource, index, provider, "hex_file")?;
+            Some(ClientFontProviderAssetCandidate {
+                kind: ClientFontProviderAssetKind::UnihexFile,
+                resource: font_file_resource_path_for_identifier(hex_file),
+            })
+        }
+        _ => None,
+    };
+    Ok(candidate.into_iter().collect())
+}
+
+fn font_provider_referenced_provider_ids(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<Vec<String>> {
+    if provider.provider_type != "reference" {
+        return Ok(Vec::new());
+    }
+    let id = require_font_provider_identifier_field(resource, index, provider, "id")?;
+    Ok(vec![id.to_owned()])
+}
+
 fn font_definition_resource_path_for_identifier(identifier: &str) -> String {
     let (namespace, path) = resource_identifier_parts(identifier);
     format!("assets/{namespace}/font/{path}.json")
 }
 
 fn font_bitmap_resource_path_for_identifier(identifier: &str) -> String {
-    let (namespace, path) = resource_identifier_parts(identifier);
-    format!("assets/{namespace}/textures/{path}")
+    resource_path_for_identifier_with_prefix(identifier, "textures")
 }
 
 fn font_file_resource_path_for_identifier(identifier: &str) -> String {
+    resource_path_for_identifier_with_prefix(identifier, "font")
+}
+
+fn resource_path_for_identifier_with_prefix(identifier: &str, prefix: &str) -> String {
     let (namespace, path) = resource_identifier_parts(identifier);
-    format!("assets/{namespace}/font/{path}")
+    let path = path.strip_prefix(&format!("{prefix}/")).unwrap_or(path);
+    format!("assets/{namespace}/{prefix}/{path}")
 }
 
 fn resource_path_for_identifier(identifier: &str) -> String {
@@ -8559,6 +8657,442 @@ fn font_definition_report_item(report: ClientFontDefinitionReloadReport<'_>) -> 
         item.push_str(&referenced_assets.join(","));
     }
     item
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontProviderAssetCollection {
+    definitions: Vec<ClientFontProviderAssetDefinition>,
+}
+
+impl ClientFontProviderAssetCollection {
+    pub fn definitions(&self) -> &[ClientFontProviderAssetDefinition] {
+        &self.definitions
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientFontProviderAssetReport> + '_ {
+        self.definitions
+            .iter()
+            .map(ClientFontProviderAssetDefinition::report)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontProviderAssetDefinition {
+    resource: String,
+    pack_id: String,
+    provider_count: usize,
+    provider_type_counts: BTreeMap<String, usize>,
+    asset_candidates: BTreeSet<ClientFontProviderAssetCandidate>,
+    referenced_provider_ids: BTreeSet<String>,
+    space_provider_count: usize,
+    available_assets: Vec<ClientFontProviderAssetAvailability>,
+    blockers: Vec<ClientFontProviderAssetBlocker>,
+}
+
+impl ClientFontProviderAssetDefinition {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_count
+    }
+
+    pub fn provider_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.provider_type_counts
+    }
+
+    pub fn asset_candidates(&self) -> &BTreeSet<ClientFontProviderAssetCandidate> {
+        &self.asset_candidates
+    }
+
+    pub fn referenced_provider_ids(&self) -> &BTreeSet<String> {
+        &self.referenced_provider_ids
+    }
+
+    pub fn space_provider_count(&self) -> usize {
+        self.space_provider_count
+    }
+
+    pub fn available_assets(&self) -> &[ClientFontProviderAssetAvailability] {
+        &self.available_assets
+    }
+
+    pub fn blockers(&self) -> &[ClientFontProviderAssetBlocker] {
+        &self.blockers
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.asset_candidates.len()
+    }
+
+    pub fn available_asset_count(&self) -> usize {
+        self.available_assets.len()
+    }
+
+    pub fn missing_asset_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn report(&self) -> ClientFontProviderAssetReport {
+        ClientFontProviderAssetReport {
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            provider_count: self.provider_count,
+            provider_type_counts: self.provider_type_counts.clone(),
+            asset_candidate_counts: font_provider_asset_candidate_counts(&self.asset_candidates),
+            asset_candidate_count: self.asset_candidate_count(),
+            referenced_provider_ids: self.referenced_provider_ids.clone(),
+            space_provider_count: self.space_provider_count,
+            available_asset_count: self.available_asset_count(),
+            missing_asset_count: self.missing_asset_count(),
+            available_assets: self.available_assets.clone(),
+            blockers: self.blockers.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontProviderAssetAvailability {
+    kind: ClientFontProviderAssetKind,
+    resource: String,
+    pack_id: String,
+}
+
+impl ClientFontProviderAssetAvailability {
+    pub fn kind(&self) -> ClientFontProviderAssetKind {
+        self.kind
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontProviderAssetBlocker {
+    kind: ClientFontProviderAssetKind,
+    resource: String,
+    reason: ClientFontProviderAssetBlockerReason,
+}
+
+impl ClientFontProviderAssetBlocker {
+    pub fn kind(&self) -> ClientFontProviderAssetKind {
+        self.kind
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn reason(&self) -> ClientFontProviderAssetBlockerReason {
+        self.reason
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientFontProviderAssetBlockerReason {
+    MissingProviderAsset,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontProviderAssetReport {
+    resource: String,
+    pack_id: String,
+    provider_count: usize,
+    provider_type_counts: BTreeMap<String, usize>,
+    asset_candidate_counts: BTreeMap<String, usize>,
+    asset_candidate_count: usize,
+    referenced_provider_ids: BTreeSet<String>,
+    space_provider_count: usize,
+    available_asset_count: usize,
+    missing_asset_count: usize,
+    available_assets: Vec<ClientFontProviderAssetAvailability>,
+    blockers: Vec<ClientFontProviderAssetBlocker>,
+}
+
+impl ClientFontProviderAssetReport {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_count
+    }
+
+    pub fn provider_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.provider_type_counts
+    }
+
+    pub fn asset_candidate_counts(&self) -> &BTreeMap<String, usize> {
+        &self.asset_candidate_counts
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.asset_candidate_count
+    }
+
+    pub fn referenced_provider_ids(&self) -> &BTreeSet<String> {
+        &self.referenced_provider_ids
+    }
+
+    pub fn space_provider_count(&self) -> usize {
+        self.space_provider_count
+    }
+
+    pub fn available_asset_count(&self) -> usize {
+        self.available_asset_count
+    }
+
+    pub fn missing_asset_count(&self) -> usize {
+        self.missing_asset_count
+    }
+
+    pub fn available_assets(&self) -> &[ClientFontProviderAssetAvailability] {
+        &self.available_assets
+    }
+
+    pub fn blockers(&self) -> &[ClientFontProviderAssetBlocker] {
+        &self.blockers
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontProviderAssetReloadListener {
+    definitions: Vec<String>,
+}
+
+impl FontProviderAssetReloadListener {
+    pub fn new(definitions: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            definitions: definitions.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn definitions(&self) -> &[String] {
+        &self.definitions
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientFontProviderAssetCollection> {
+        load_client_font_provider_assets(stack, &self.definitions)
+    }
+}
+
+impl Default for FontProviderAssetReloadListener {
+    fn default() -> Self {
+        Self {
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl ResourceReloadListener for FontProviderAssetReloadListener {
+    fn name(&self) -> &str {
+        "font_provider_assets"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            font_provider_asset_definition_resources(stack, &self.definitions)?,
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let assets = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            assets
+                .reports()
+                .map(|report| font_provider_asset_report_item(&report)),
+        ))
+    }
+}
+
+pub fn load_client_font_provider_assets(
+    stack: &ClientResourceStack,
+    definitions: &[String],
+) -> ResourceReloadResult<ClientFontProviderAssetCollection> {
+    let definitions = load_client_font_definitions(stack, definitions)?;
+    Ok(build_client_font_provider_assets(stack, &definitions))
+}
+
+fn font_provider_asset_definition_resources(
+    stack: &ClientResourceStack,
+    definitions: &[String],
+) -> ResourceReloadResult<Vec<String>> {
+    if definitions.is_empty() {
+        discover_font_definition_resources(stack)
+    } else {
+        for definition in definitions {
+            stack.require_resource(definition)?;
+        }
+        Ok(definitions.to_vec())
+    }
+}
+
+fn build_client_font_provider_assets(
+    stack: &ClientResourceStack,
+    definitions: &ClientFontDefinitionSet,
+) -> ClientFontProviderAssetCollection {
+    ClientFontProviderAssetCollection {
+        definitions: definitions
+            .definitions()
+            .iter()
+            .map(|definition| build_client_font_provider_asset_definition(stack, definition))
+            .collect(),
+    }
+}
+
+fn build_client_font_provider_asset_definition(
+    stack: &ClientResourceStack,
+    definition: &ClientFontDefinition,
+) -> ClientFontProviderAssetDefinition {
+    let mut provider_type_counts = BTreeMap::new();
+    let mut asset_candidates = BTreeSet::new();
+    let mut referenced_provider_ids = BTreeSet::new();
+    let mut space_provider_count = 0;
+
+    for provider in definition.providers() {
+        *provider_type_counts
+            .entry(provider.provider_type().to_owned())
+            .or_insert(0) += 1;
+        if provider.provider_type() == "space" {
+            space_provider_count += 1;
+        }
+        asset_candidates.extend(provider.asset_candidates().iter().cloned());
+        referenced_provider_ids.extend(provider.referenced_provider_ids().iter().cloned());
+    }
+
+    let mut available_assets = Vec::new();
+    let mut blockers = Vec::new();
+    for candidate in &asset_candidates {
+        if let Some(location) = stack.find_resource(candidate.resource()) {
+            available_assets.push(ClientFontProviderAssetAvailability {
+                kind: candidate.kind(),
+                resource: candidate.resource().to_owned(),
+                pack_id: location.pack_id,
+            });
+        } else {
+            blockers.push(ClientFontProviderAssetBlocker {
+                kind: candidate.kind(),
+                resource: candidate.resource().to_owned(),
+                reason: ClientFontProviderAssetBlockerReason::MissingProviderAsset,
+            });
+        }
+    }
+
+    ClientFontProviderAssetDefinition {
+        resource: definition.resource().report().resource().to_owned(),
+        pack_id: definition.resource().report().pack_id().to_owned(),
+        provider_count: definition.provider_count(),
+        provider_type_counts,
+        asset_candidates,
+        referenced_provider_ids,
+        space_provider_count,
+        available_assets,
+        blockers,
+    }
+}
+
+fn font_provider_asset_candidate_counts(
+    candidates: &BTreeSet<ClientFontProviderAssetCandidate>,
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for candidate in candidates {
+        *counts
+            .entry(candidate.kind().as_str().to_owned())
+            .or_insert(0) += 1;
+    }
+    counts
+}
+
+fn font_provider_asset_report_item(report: &ClientFontProviderAssetReport) -> String {
+    format!(
+        "{}:providers:{}:types:{}:assets:{} candidates:{} refs:{} spaces:{} available:{} missing:{} blockers:{}",
+        report.loaded_resource_pack(),
+        report.provider_count(),
+        font_provider_counts_fragment(report.provider_type_counts()),
+        font_provider_counts_fragment(report.asset_candidate_counts()),
+        report.asset_candidate_count(),
+        font_provider_references_fragment(report.referenced_provider_ids()),
+        report.space_provider_count(),
+        font_provider_asset_availability_fragment(report.available_assets()),
+        report.missing_asset_count(),
+        font_provider_asset_blockers_fragment(report.blockers())
+    )
+}
+
+fn font_provider_counts_fragment(counts: &BTreeMap<String, usize>) -> String {
+    if counts.is_empty() {
+        return "none".to_owned();
+    }
+    counts
+        .iter()
+        .map(|(provider_type, count)| format!("{provider_type}={count}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn font_provider_references_fragment(references: &BTreeSet<String>) -> String {
+    if references.is_empty() {
+        return "none".to_owned();
+    }
+    references.iter().cloned().collect::<Vec<_>>().join(",")
+}
+
+fn font_provider_asset_availability_fragment(
+    available_assets: &[ClientFontProviderAssetAvailability],
+) -> String {
+    if available_assets.is_empty() {
+        return "none".to_owned();
+    }
+    available_assets
+        .iter()
+        .map(|asset| {
+            format!(
+                "{}:{}@{}",
+                asset.kind().as_str(),
+                asset.resource(),
+                asset.pack_id()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn font_provider_asset_blockers_fragment(blockers: &[ClientFontProviderAssetBlocker]) -> String {
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+    blockers
+        .iter()
+        .map(|blocker| format!("missing:{}:{}", blocker.kind().as_str(), blocker.resource()))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13668,6 +14202,7 @@ mod tests {
                 "atlas_sources",
                 "atlas_stitch_candidates",
                 "font_definitions",
+                "font_provider_assets",
                 "colormaps",
                 "model_dependencies",
                 "model_bake_candidates",
@@ -14512,6 +15047,179 @@ mod tests {
         assert!(
             matches!(error, ResourceReloadError::InvalidFontDefinition { resource, reason, .. } if resource == "assets/minecraft/font/default.json" && reason == "provider 0 unihex size_overrides 0 range must have from below to")
         );
+    }
+
+    #[test]
+    fn font_asset_report_groups_available_bitmap_ttf_unihex_reference_and_space() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/all.json",
+            r#"{"providers":[
+                {"type":"reference","id":"example:include/base"},
+                {"type":"reference","id":"example:include/base"},
+                {"type":"bitmap","file":"example:font/custom.png","height":8,"ascent":7,"chars":["ab","cd"]},
+                {"type":"space","advances":{" ":4}},
+                {"type":"ttf","file":"example:custom.ttf"},
+                {"type":"unihex","hex_file":"example:unifont.zip","size_overrides":[{"from":65,"to":67,"left":0,"right":8}]}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/font/custom.png", MINIMAL_PNG);
+        temp.write_bytes(
+            "assets/example/font/custom.ttf",
+            b"ttf bytes are not decoded",
+        );
+        temp.write_bytes(
+            "assets/example/font/unifont.zip",
+            b"unihex bytes are not decoded",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let collection = FontProviderAssetReloadListener::new(["assets/example/font/all.json"])
+            .load(&stack)
+            .expect("font provider asset candidates should load");
+        let definition = &collection.definitions()[0];
+        let report = definition.report();
+
+        assert_eq!(definition.provider_count(), 6);
+        assert_eq!(
+            report.provider_type_counts(),
+            &BTreeMap::from([
+                ("bitmap".to_owned(), 1),
+                ("reference".to_owned(), 2),
+                ("space".to_owned(), 1),
+                ("ttf".to_owned(), 1),
+                ("unihex".to_owned(), 1),
+            ])
+        );
+        assert_eq!(
+            report.asset_candidate_counts(),
+            &BTreeMap::from([
+                ("bitmap".to_owned(), 1),
+                ("ttf".to_owned(), 1),
+                ("unihex".to_owned(), 1),
+            ])
+        );
+        assert_eq!(
+            report.referenced_provider_ids(),
+            &BTreeSet::from(["example:include/base".to_owned()])
+        );
+        assert_eq!(report.space_provider_count(), 1);
+        assert_eq!(report.asset_candidate_count(), 3);
+        assert_eq!(report.available_asset_count(), 3);
+        assert_eq!(report.missing_asset_count(), 0);
+        assert_eq!(
+            report
+                .available_assets()
+                .iter()
+                .map(|asset| (asset.kind(), asset.resource(), asset.pack_id()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    ClientFontProviderAssetKind::BitmapTexture,
+                    "assets/example/textures/font/custom.png",
+                    "test",
+                ),
+                (
+                    ClientFontProviderAssetKind::TrueTypeFont,
+                    "assets/example/font/custom.ttf",
+                    "test",
+                ),
+                (
+                    ClientFontProviderAssetKind::UnihexFile,
+                    "assets/example/font/unifont.zip",
+                    "test",
+                ),
+            ]
+        );
+        assert!(report.blockers().is_empty());
+    }
+
+    #[test]
+    fn font_asset_report_tracks_missing_provider_assets_as_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/missing.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/missing.png","ascent":7,"chars":["a"]},
+                {"type":"ttf","file":"example:missing.ttf"},
+                {"type":"unihex","hex_file":"example:missing.zip"}
+            ]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(FontProviderAssetReloadListener::new([
+                "assets/example/font/missing.json",
+            ]))
+            .run()
+            .expect("missing font provider assets should be reported, not rejected");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "font_provider_assets");
+        assert_eq!(
+            listener.reload.items(),
+            ["assets/example/font/missing.json@test:providers:3:types:bitmap=1,ttf=1,unihex=1:assets:bitmap=1,ttf=1,unihex=1 candidates:3 refs:none spaces:0 available:none missing:3 blockers:missing:bitmap:assets/example/textures/font/missing.png,missing:ttf:assets/example/font/missing.ttf,missing:unihex:assets/example/font/missing.zip".to_owned()]
+        );
+    }
+
+    #[test]
+    fn font_asset_availability_uses_resource_stack_priority() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[{"type":"bitmap","file":"example:font/custom.png","ascent":7,"chars":["a"]}]}"#,
+        );
+        base.write_bytes("assets/example/textures/font/custom.png", MINIMAL_PNG);
+        override_pack.write_bytes(
+            "assets/example/textures/font/custom.png",
+            OVERRIDE_MINIMAL_PNG,
+        );
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let collection = FontProviderAssetReloadListener::new(["assets/example/font/default.json"])
+            .load(&stack)
+            .expect("font provider asset candidates should load");
+        let definition = &collection.definitions()[0];
+
+        assert_eq!(definition.available_asset_count(), 1);
+        assert_eq!(
+            definition.available_assets()[0].resource(),
+            "assets/example/textures/font/custom.png"
+        );
+        assert_eq!(definition.available_assets()[0].pack_id(), "override");
+        assert!(definition.blockers().is_empty());
+    }
+
+    #[test]
+    fn committed_vanilla_font_asset_report_has_nonzero_surface_without_blockers() {
+        let collection = FontProviderAssetReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla font provider assets should load");
+        let reports = collection.reports().collect::<Vec<_>>();
+
+        assert_eq!(reports.len(), 7);
+        assert!(
+            reports
+                .iter()
+                .map(ClientFontProviderAssetReport::asset_candidate_count)
+                .sum::<usize>()
+                > 0,
+            "vanilla font provider asset candidate surface should not be empty"
+        );
+        assert!(
+            reports
+                .iter()
+                .all(|report| report.missing_asset_count() == 0),
+            "committed vanilla font provider assets should all be available"
+        );
+        assert!(reports.iter().any(|report| {
+            report.resource() == "assets/minecraft/font/include/default.json"
+                && report.available_asset_count() > 0
+        }));
     }
 
     #[test]
