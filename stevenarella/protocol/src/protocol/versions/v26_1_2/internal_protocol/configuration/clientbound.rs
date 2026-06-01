@@ -7,6 +7,7 @@ use crate::protocol::{
 
 use super::super::super::translate_internal_packet_id;
 
+mod dialog;
 mod resource_pack;
 mod update;
 
@@ -26,6 +27,11 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             internal_id,
             buf,
         )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        dialog::read_dialog_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
     }
@@ -190,31 +196,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "ServerLinks".to_owned(),
                     data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationClearDialogClientbound => {
-            let _packet = packet::configuration::clientbound::ConfigurationClearDialogClientbound {
-                empty: Serializable::read_from(buf)?,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ClearDialog".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationShowDialogClientbound => {
-            let mut dialog_data = Vec::new();
-            buf.read_to_end(&mut dialog_data)?;
-            let packet =
-                packet::configuration::clientbound::ConfigurationShowDialogClientbound {
-                    dialog_data,
-                };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ShowDialog".to_owned(),
-                    data: packet.dialog_data,
                 },
             )));
         }
