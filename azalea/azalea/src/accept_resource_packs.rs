@@ -14,8 +14,8 @@ use azalea_client::{
         game::{ResourcePackEvent, SendGamePacketEvent},
     },
     resources::{
-        ServerResourcePackAck, ServerResourcePackAckAction, ServerResourcePackApplyState,
-        ServerResourcePackRequest,
+        ServerResourcePackAck, ServerResourcePackAckAction, ServerResourcePackApplyModel,
+        ServerResourcePackApplyState, ServerResourcePackRequest,
     },
     respawn::perform_respawn,
 };
@@ -52,15 +52,24 @@ impl Plugin for AcceptResourcePacksPlugin {
 
 #[cfg(feature = "online-mode")]
 #[derive(Component)]
-struct AcceptResourcePackTask(Task<Vec<ServerResourcePackAck>>);
+struct AcceptResourcePackTask(Task<AcceptResourcePackTaskOutput>);
+
+#[cfg(feature = "online-mode")]
+struct AcceptResourcePackTaskOutput {
+    pack: ServerResourcePackApplyState,
+    acks: Vec<ServerResourcePackAck>,
+}
 
 fn accept_resource_pack(
     mut events: MessageReader<ResourcePackEvent>,
     mut commands: Commands,
-    query_in_config_state: Query<Option<&InConfigState>>,
+    query: Query<(
+        Option<&InConfigState>,
+        Option<&ServerResourcePackApplyModel>,
+    )>,
 ) {
     for event in events.read() {
-        let Ok(in_config_state_option) = query_in_config_state.get(event.entity) else {
+        let Ok((in_config_state_option, _server_resource_packs)) = query.get(event.entity) else {
             continue;
         };
 
@@ -82,9 +91,15 @@ fn accept_resource_pack(
 
         #[cfg(feature = "online-mode")]
         if ack.action == ServerResourcePackAckAction::Accepted {
-            let task = IoTaskPool::get().spawn(async_compat::Compat::new(
-                apply_accepted_resource_pack(pack, default_server_resource_pack_cache_dir()),
-            ));
+            let base_stack = _server_resource_packs
+                .map(ServerResourcePackApplyModel::resource_stack)
+                .unwrap_or_else(ClientResourceStack::vanilla);
+            let task =
+                IoTaskPool::get().spawn(async_compat::Compat::new(apply_accepted_resource_pack(
+                    pack,
+                    base_stack,
+                    default_server_resource_pack_cache_dir(),
+                )));
             commands
                 .entity(event.entity)
                 .insert(AcceptResourcePackTask(task));
@@ -103,6 +118,7 @@ fn initial_resource_pack_ack(pack: &mut ServerResourcePackApplyState) -> ServerR
 #[cfg(any(feature = "online-mode", test))]
 fn resource_pack_apply_ack_sequence(
     pack: &mut ServerResourcePackApplyState,
+    base_stack: ClientResourceStack,
     download_result: Result<ServerResourcePackAck, ServerResourcePackAck>,
 ) -> Vec<ServerResourcePackAck> {
     let downloaded = match download_result {
@@ -112,7 +128,9 @@ fn resource_pack_apply_ack_sequence(
 
     let mut acks = vec![downloaded];
     match pack.open_downloaded() {
-        Ok(()) if reload_accepted_resource_pack(pack).is_ok() => acks.push(pack.apply_opened()),
+        Ok(()) if reload_accepted_resource_pack(pack, base_stack).is_ok() => {
+            acks.push(pack.apply_opened())
+        }
         Ok(()) => acks.push(pack.reload_failed()),
         Err(ack) => acks.push(ack),
     }
@@ -122,17 +140,29 @@ fn resource_pack_apply_ack_sequence(
 #[cfg(any(feature = "online-mode", test))]
 fn reload_accepted_resource_pack(
     pack: &ServerResourcePackApplyState,
+    base_stack: ClientResourceStack,
 ) -> azalea_client::resources::ResourceReloadResult<azalea_client::resources::ResourceReloadReport>
 {
-    let stack = ClientResourceStack::new(vec![ClientResourcePack::vanilla(), pack.resource_pack()]);
+    let stack = accepted_resource_pack_reload_stack(base_stack, pack.resource_pack());
     ResourceReloadManager::with_default_client_resources(stack).run()
+}
+
+#[cfg(any(feature = "online-mode", test))]
+fn accepted_resource_pack_reload_stack(
+    base_stack: ClientResourceStack,
+    pack: ClientResourcePack,
+) -> ClientResourceStack {
+    let mut packs = base_stack.packs().to_vec();
+    packs.push(pack);
+    ClientResourceStack::new(packs)
 }
 
 #[cfg(feature = "online-mode")]
 async fn apply_accepted_resource_pack(
     mut pack: ServerResourcePackApplyState,
+    base_stack: ClientResourceStack,
     cache_dir: PathBuf,
-) -> Vec<ServerResourcePackAck> {
+) -> AcceptResourcePackTaskOutput {
     let client = reqwest::Client::new();
     let download_result = pack
         .download_and_cache(&client, cache_dir)
@@ -140,21 +170,49 @@ async fn apply_accepted_resource_pack(
         .map(|report| report.ack)
         .map_err(|err| err.ack());
 
-    resource_pack_apply_ack_sequence(&mut pack, download_result)
+    let acks = resource_pack_apply_ack_sequence(&mut pack, base_stack, download_result);
+    AcceptResourcePackTaskOutput { pack, acks }
 }
 
 #[cfg(feature = "online-mode")]
 fn poll_accept_resource_pack_tasks(
     mut commands: Commands,
-    mut query: Query<(Entity, &mut AcceptResourcePackTask, Option<&InConfigState>)>,
+    mut query: Query<(
+        Entity,
+        &mut AcceptResourcePackTask,
+        Option<&InConfigState>,
+        Option<&mut ServerResourcePackApplyModel>,
+    )>,
 ) {
-    for (entity, mut task, in_config_state) in query.iter_mut() {
-        if let Some(acks) = future::block_on(future::poll_once(&mut task.0)) {
+    for (entity, mut task, in_config_state, server_resource_packs) in query.iter_mut() {
+        if let Some(output) = future::block_on(future::poll_once(&mut task.0)) {
             commands.entity(entity).remove::<AcceptResourcePackTask>();
-            for ack in acks {
+            record_finished_resource_pack(
+                &mut commands,
+                entity,
+                server_resource_packs,
+                output.pack,
+            );
+            for ack in output.acks {
                 send_resource_pack_ack(&mut commands, entity, in_config_state.is_some(), ack);
             }
         }
+    }
+}
+
+#[cfg(feature = "online-mode")]
+fn record_finished_resource_pack(
+    commands: &mut Commands,
+    entity: Entity,
+    server_resource_packs: Option<Mut<ServerResourcePackApplyModel>>,
+    pack: ServerResourcePackApplyState,
+) {
+    if let Some(mut server_resource_packs) = server_resource_packs {
+        server_resource_packs.record(pack);
+    } else {
+        let mut server_resource_packs = ServerResourcePackApplyModel::with_vanilla();
+        server_resource_packs.record(pack);
+        commands.entity(entity).insert(server_resource_packs);
     }
 }
 
@@ -274,7 +332,11 @@ mod tests {
         let downloaded = pack
             .download_path_succeeded(temp.path())
             .expect("directory pack with valid metadata should download");
-        let acks = resource_pack_apply_ack_sequence(&mut pack, Ok(downloaded));
+        let acks = resource_pack_apply_ack_sequence(
+            &mut pack,
+            ClientResourceStack::vanilla(),
+            Ok(downloaded),
+        );
 
         assert_eq!(
             ack_actions(&acks),
@@ -298,7 +360,11 @@ mod tests {
         let downloaded = pack
             .download_path_succeeded(temp.path())
             .expect("directory pack without a hash should download");
-        let acks = resource_pack_apply_ack_sequence(&mut pack, Ok(downloaded));
+        let acks = resource_pack_apply_ack_sequence(
+            &mut pack,
+            ClientResourceStack::vanilla(),
+            Ok(downloaded),
+        );
 
         assert_eq!(
             ack_actions(&acks),
@@ -318,7 +384,11 @@ mod tests {
 
         pack.accept();
         let failed_download = pack.download_failed();
-        let acks = resource_pack_apply_ack_sequence(&mut pack, Err(failed_download));
+        let acks = resource_pack_apply_ack_sequence(
+            &mut pack,
+            ClientResourceStack::vanilla(),
+            Err(failed_download),
+        );
 
         assert_eq!(
             ack_actions(&acks),
@@ -326,6 +396,112 @@ mod tests {
         );
         assert_eq!(acks[0].id, id);
         assert!(matches!(pack.status(), ServerResourcePackStatus::Failed(_)));
+    }
+
+    #[test]
+    fn reload_failure_sequence_never_sends_successfully_loaded() {
+        let id = Uuid::from_u128(6);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"test"}}"#,
+        );
+        let mut pack = test_pack(id);
+
+        pack.accept();
+        pack.start_download();
+        let downloaded = pack
+            .download_path_succeeded(temp.path())
+            .expect("directory pack with valid metadata should download");
+        let acks = resource_pack_apply_ack_sequence(
+            &mut pack,
+            ClientResourceStack::new(Vec::new()),
+            Ok(downloaded),
+        );
+
+        assert_eq!(
+            ack_actions(&acks),
+            [
+                ServerResourcePackAckAction::Downloaded,
+                ServerResourcePackAckAction::FailedReload,
+            ]
+        );
+        assert!(!ack_actions(&acks).contains(&ServerResourcePackAckAction::SuccessfullyLoaded));
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(
+                azalea_client::resources::ServerResourcePackFailure::Reload
+            )
+        );
+    }
+
+    #[test]
+    fn task_output_pack_can_be_recorded_above_existing_model_stack() {
+        let id = Uuid::from_u128(7);
+        let base = TempPack::new();
+        let server = TempPack::new();
+        base.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Base"}"#,
+        );
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        server.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Server"}"#,
+        );
+        let mut model = ServerResourcePackApplyModel::new(ClientResourceStack::new(vec![
+            ClientResourcePack::vanilla(),
+            ClientResourcePack::new("base", base.path()),
+        ]));
+        let mut pack = test_pack(id);
+
+        pack.accept();
+        pack.start_download();
+        let downloaded = pack
+            .download_path_succeeded(server.path())
+            .expect("directory pack with valid metadata should download");
+        let acks =
+            resource_pack_apply_ack_sequence(&mut pack, model.resource_stack(), Ok(downloaded));
+        model.record(pack);
+
+        assert_eq!(
+            ack_actions(&acks),
+            [
+                ServerResourcePackAckAction::Downloaded,
+                ServerResourcePackAckAction::SuccessfullyLoaded,
+            ]
+        );
+        assert_eq!(
+            model
+                .resource_stack()
+                .find_resource("assets/minecraft/lang/en_us.json")
+                .expect("server resource should resolve")
+                .pack_id,
+            format!("server:{id}")
+        );
+    }
+
+    #[test]
+    fn ack_action_mapping_supports_config_and_game_packet_paths() {
+        assert_eq!(
+            config_resource_pack_ack_action(ServerResourcePackAckAction::SuccessfullyLoaded),
+            config::s_resource_pack::Action::SuccessfullyLoaded
+        );
+        assert_eq!(
+            game_resource_pack_ack_action(ServerResourcePackAckAction::SuccessfullyLoaded),
+            s_resource_pack::Action::SuccessfullyLoaded
+        );
+        assert_eq!(
+            config_resource_pack_ack_action(ServerResourcePackAckAction::FailedReload),
+            config::s_resource_pack::Action::FailedReload
+        );
+        assert_eq!(
+            game_resource_pack_ack_action(ServerResourcePackAckAction::FailedReload),
+            s_resource_pack::Action::FailedReload
+        );
     }
 
     #[test]

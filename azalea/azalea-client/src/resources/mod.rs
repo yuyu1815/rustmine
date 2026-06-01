@@ -11,6 +11,7 @@ use std::{
 };
 
 use azalea_chat::FormattedText;
+use bevy_ecs::component::Component;
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use thiserror::Error;
@@ -1043,7 +1044,7 @@ impl std::error::Error for ServerResourcePackCacheError {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Component, Debug, PartialEq)]
 pub struct ServerResourcePackApplyModel {
     base_stack: ClientResourceStack,
     packs: Vec<ServerResourcePackApplyState>,
@@ -1073,6 +1074,18 @@ impl ServerResourcePackApplyModel {
 
     pub fn packs(&self) -> &[ServerResourcePackApplyState] {
         &self.packs
+    }
+
+    pub fn record(&mut self, pack: ServerResourcePackApplyState) {
+        if let Some(existing) = self
+            .packs
+            .iter_mut()
+            .find(|existing| existing.request().id() == pack.request().id())
+        {
+            *existing = pack;
+        } else {
+            self.packs.push(pack);
+        }
     }
 
     pub fn resource_stack(&self) -> ClientResourceStack {
@@ -12336,6 +12349,63 @@ mod tests {
                 format!("server:{first_id}"),
                 format!("server:{second_id}"),
             ]
+        );
+    }
+
+    #[test]
+    fn recorded_applied_server_pack_persists_in_resource_stack_priority() {
+        let id = resource_pack_id(601);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        server.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Recorded"}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+        pack.apply_opened();
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model.record(pack);
+
+        let location = model
+            .resource_stack()
+            .find_resource("assets/minecraft/lang/en_us.json")
+            .expect("server language resource should resolve");
+        assert_eq!(location.pack_id, format!("server:{id}"));
+    }
+
+    #[test]
+    fn recording_server_pack_replaces_existing_state_for_same_id() {
+        let id = resource_pack_id(602);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+        let mut failed = ServerResourcePackApplyState::new(server_pack_request(id, true));
+        failed.accept();
+        failed.download_failed();
+        let mut applied = ServerResourcePackApplyState::new(server_pack_request(id, true));
+        applied.apply_test_server_pack();
+
+        model.record(failed);
+        model.record(applied);
+
+        assert_eq!(model.packs().len(), 1);
+        assert_eq!(model.packs()[0].status(), ServerResourcePackStatus::Applied);
+        assert_eq!(
+            model
+                .resource_stack()
+                .packs()
+                .iter()
+                .map(|pack| pack.id().to_owned())
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID.to_owned(), format!("server:{id}")]
         );
     }
 
