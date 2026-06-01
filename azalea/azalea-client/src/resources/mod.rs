@@ -25,6 +25,7 @@ pub const GRASS_COLORMAP_RESOURCE: &str = "assets/minecraft/textures/colormap/gr
 pub const FOLIAGE_COLORMAP_RESOURCE: &str = "assets/minecraft/textures/colormap/foliage.png";
 pub const DRY_FOLIAGE_COLORMAP_RESOURCE: &str =
     "assets/minecraft/textures/colormap/dry_foliage.png";
+pub const CLOUDS_TEXTURE_RESOURCE: &str = "assets/minecraft/textures/environment/clouds.png";
 pub const GPU_WARNLIST_RESOURCE: &str = "assets/minecraft/gpu_warnlist.json";
 pub const REGIONAL_COMPLIANCIES_RESOURCE: &str = "assets/minecraft/regional_compliancies.json";
 pub const SOUND_EVENTS_RESOURCE: &str = "assets/minecraft/sounds.json";
@@ -48,6 +49,11 @@ const DEFAULT_COLORMAPS: &[&str] = &[
     GRASS_COLORMAP_RESOURCE,
     FOLIAGE_COLORMAP_RESOURCE,
     DRY_FOLIAGE_COLORMAP_RESOURCE,
+];
+const DEFAULT_REPRESENTATIVE_TEXTURES: &[&str] = &[
+    "assets/minecraft/textures/misc/unknown_pack.png",
+    "assets/minecraft/textures/misc/pumpkinblur.png",
+    "assets/minecraft/textures/gui/title/mojangstudios.png",
 ];
 const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
     "assets/minecraft/models/block/stone.json",
@@ -2406,6 +2412,242 @@ impl ResourceReloadListener for ColormapReloadListener {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CloudTextureReloadListener {
+    resource: String,
+}
+
+impl CloudTextureReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+}
+
+impl Default for CloudTextureReloadListener {
+    fn default() -> Self {
+        Self::new(CLOUDS_TEXTURE_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for CloudTextureReloadListener {
+    fn name(&self) -> &str {
+        "cloud_texture"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        stack.require_resource(&self.resource)?;
+
+        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let location = stack.require_resource(&self.resource)?;
+        let bytes =
+            fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+                resource: self.resource.clone(),
+                path: location.path.clone(),
+                source,
+            })?;
+
+        validate_png_signature(&self.resource, &location, &bytes)?;
+
+        Ok(ResourceReloadTaskReport::new([format!(
+            "{}@{}:{} bytes:png-signature-ok",
+            self.resource,
+            location.pack_id,
+            bytes.len()
+        )]))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureMetadataReloadListener {
+    name: String,
+    textures: Vec<String>,
+}
+
+impl TextureMetadataReloadListener {
+    pub fn new(textures: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "texture_metadata".to_owned(),
+            textures: textures.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn textures(&self) -> &[String] {
+        &self.textures
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<Vec<ClientTextureMetadataResource>> {
+        load_client_texture_metadata_resources(stack, &self.textures)
+    }
+}
+
+impl Default for TextureMetadataReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_REPRESENTATIVE_TEXTURES.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for TextureMetadataReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for texture in &self.textures {
+            stack.require_resource(texture)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(self.textures.clone()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            self.load(stack)?
+                .iter()
+                .map(texture_metadata_report_item)
+                .collect::<Vec<_>>(),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientTextureMetadataResource {
+    report: ClientTextureMetadataReloadReport,
+}
+
+impl ClientTextureMetadataResource {
+    pub fn report(&self) -> &ClientTextureMetadataReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureMetadataReloadReport {
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    mcmeta: Option<ClientJsonResourceReloadReport>,
+}
+
+impl ClientTextureMetadataReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        byte_count: usize,
+        mcmeta: Option<ClientJsonResourceReloadReport>,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            byte_count,
+            mcmeta,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn mcmeta(&self) -> Option<&ClientJsonResourceReloadReport> {
+        self.mcmeta.as_ref()
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+pub fn load_client_texture_metadata_resources(
+    stack: &ClientResourceStack,
+    textures: &[String],
+) -> ResourceReloadResult<Vec<ClientTextureMetadataResource>> {
+    let mut loaded = Vec::with_capacity(textures.len());
+
+    for texture in textures {
+        let location = stack.require_resource(texture)?;
+        let bytes =
+            fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+                resource: texture.clone(),
+                path: location.path.clone(),
+                source,
+            })?;
+        validate_png_signature(texture, &location, &bytes)?;
+
+        let mcmeta_resource = format!("{texture}.mcmeta");
+        let mcmeta = if stack.find_resource(&mcmeta_resource).is_some() {
+            Some(
+                load_client_json_resource(stack, &mcmeta_resource)?
+                    .report()
+                    .clone(),
+            )
+        } else {
+            None
+        };
+
+        loaded.push(ClientTextureMetadataResource {
+            report: ClientTextureMetadataReloadReport::new(
+                texture.clone(),
+                location.pack_id,
+                bytes.len(),
+                mcmeta,
+            ),
+        });
+    }
+
+    Ok(loaded)
+}
+
+fn texture_metadata_report_item(texture: &ClientTextureMetadataResource) -> String {
+    let report = texture.report();
+    let mcmeta = report
+        .mcmeta()
+        .map(|mcmeta| {
+            format!(
+                "mcmeta@{}:{}",
+                mcmeta.pack_id(),
+                mcmeta.top_level_shape().report_fragment()
+            )
+        })
+        .unwrap_or_else(|| "mcmeta:none".to_owned());
+
+    format!(
+        "{}:{} bytes:png-signature-ok:{mcmeta}",
+        report.loaded_resource_pack(),
+        report.byte_count()
+    )
+}
+
 fn validate_png_signature(
     resource: &str,
     location: &ResourceLocation,
@@ -3839,6 +4081,106 @@ mod tests {
     }
 
     #[test]
+    fn texture_metadata_listener_reports_highest_priority_pack_bytes_and_mcmeta_shape() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let texture = "assets/minecraft/textures/block/test.png";
+        base.write_bytes(texture, MINIMAL_PNG);
+        base.write(
+            &format!("{texture}.mcmeta"),
+            r#"{"animation":{"frametime":2}}"#,
+        );
+        override_pack.write_bytes(texture, OVERRIDE_MINIMAL_PNG);
+        override_pack.write(&format!("{texture}.mcmeta"), r#"{"custom":true}"#);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(TextureMetadataReloadListener::new([texture]))
+            .run()
+            .expect("texture metadata reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "texture_metadata");
+        assert_eq!(listener.preparation.items(), [texture.to_owned()]);
+        assert_eq!(
+            listener.reload.items(),
+            [format!(
+                "{texture}@override:{} bytes:png-signature-ok:mcmeta@override:object keys:custom",
+                OVERRIDE_MINIMAL_PNG.len()
+            )]
+        );
+    }
+
+    #[test]
+    fn texture_metadata_reload_rejects_invalid_mcmeta_json() {
+        let temp = TempPack::new();
+        let texture = "assets/minecraft/textures/block/test.png";
+        temp.write_bytes(texture, MINIMAL_PNG);
+        temp.write(&format!("{texture}.mcmeta"), "{not json");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = TextureMetadataReloadListener::new([texture])
+            .load(&stack)
+            .expect_err("invalid texture mcmeta json should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == format!("{texture}.mcmeta"))
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_texture_metadata_listener_loads_representative_textures() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(TextureMetadataReloadListener::default())
+            .run()
+            .expect("committed vanilla representative textures should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "texture_metadata");
+        assert_eq!(
+            listener.preparation.items(),
+            DEFAULT_REPRESENTATIVE_TEXTURES
+        );
+        assert_eq!(
+            listener.reload.items().len(),
+            DEFAULT_REPRESENTATIVE_TEXTURES.len()
+        );
+
+        for resource in DEFAULT_REPRESENTATIVE_TEXTURES {
+            let prefix = format!("{resource}@{VANILLA_PACK_ID}:");
+            let item = listener
+                .reload
+                .items()
+                .iter()
+                .find(|item| item.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("reload report should include {resource}"));
+            let byte_count = item
+                .strip_prefix(&prefix)
+                .and_then(|value| value.split_once(" bytes:png-signature-ok:"))
+                .map(|(byte_count, _)| byte_count)
+                .expect("report should include byte count and signature status")
+                .parse::<usize>()
+                .expect("byte count should be numeric");
+            assert!(byte_count > PNG_SIGNATURE.len());
+        }
+
+        let pumpkinblur = listener
+            .reload
+            .items()
+            .iter()
+            .find(|item| {
+                item.starts_with("assets/minecraft/textures/misc/pumpkinblur.png@vanilla:")
+            })
+            .expect("pumpkinblur should be included");
+        assert!(
+            pumpkinblur.ends_with(" bytes:png-signature-ok:mcmeta@vanilla:object keys:texture")
+        );
+    }
+
+    #[test]
     fn committed_vanilla_colormap_listener_loads_default_colormap_set() {
         let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(ColormapReloadListener::default());
@@ -3868,6 +4210,80 @@ mod tests {
                 .expect("byte count should be numeric");
             assert!(byte_count > PNG_SIGNATURE.len());
         }
+    }
+
+    #[test]
+    fn cloud_texture_listener_reports_highest_priority_pack_bytes_and_png_signature() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write_bytes(CLOUDS_TEXTURE_RESOURCE, MINIMAL_PNG);
+        override_pack.write_bytes(CLOUDS_TEXTURE_RESOURCE, OVERRIDE_MINIMAL_PNG);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(CloudTextureReloadListener::default());
+
+        let report = manager.run().expect("cloud texture reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "cloud_texture");
+        assert_eq!(
+            listener.preparation.items(),
+            [CLOUDS_TEXTURE_RESOURCE.to_owned()]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [format!(
+                "{CLOUDS_TEXTURE_RESOURCE}@override:{} bytes:png-signature-ok",
+                OVERRIDE_MINIMAL_PNG.len()
+            )]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_cloud_texture_listener_loads_cloud_png() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(CloudTextureReloadListener::default());
+
+        let report = manager
+            .run()
+            .expect("committed vanilla cloud texture should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "cloud_texture");
+        assert_eq!(
+            listener.preparation.items(),
+            [CLOUDS_TEXTURE_RESOURCE.to_owned()]
+        );
+
+        let prefix = format!("{CLOUDS_TEXTURE_RESOURCE}@{VANILLA_PACK_ID}:");
+        let item = &listener.reload.items()[0];
+        let byte_count = item
+            .strip_prefix(&prefix)
+            .and_then(|value| value.strip_suffix(" bytes:png-signature-ok"))
+            .expect("report should include byte count and signature status")
+            .parse::<usize>()
+            .expect("byte count should be numeric");
+        assert!(byte_count > PNG_SIGNATURE.len());
+    }
+
+    #[test]
+    fn cloud_texture_reload_rejects_invalid_png_signature() {
+        let temp = TempPack::new();
+        temp.write_bytes(CLOUDS_TEXTURE_RESOURCE, b"not a png");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(CloudTextureReloadListener::default())
+            .run()
+            .expect_err("cloud texture with invalid png signature should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidPngSignature { resource, byte_count, .. } if resource == CLOUDS_TEXTURE_RESOURCE && byte_count == 9)
+        );
     }
 
     #[test]
