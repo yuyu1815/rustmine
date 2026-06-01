@@ -17,6 +17,8 @@ mod select_known_packs;
 mod server_links;
 mod transfer;
 mod update;
+mod update_enabled_features;
+mod update_tags;
 
 pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     id: i32,
