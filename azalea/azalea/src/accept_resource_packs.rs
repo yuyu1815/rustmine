@@ -58,34 +58,22 @@ fn accept_resource_pack(
             event.prompt.clone(),
         ));
 
-        if pack.validate_url().is_err() {
-            send_resource_pack_ack(
-                &mut commands,
-                event.entity,
-                in_config_state_option.is_some(),
-                pack.invalid_url(),
-            );
-            continue;
-        }
-
-        let acks = [
-            pack.accept(),
-            {
-                pack.start_download();
-                pack.download_succeeded()
-            },
-            { pack.apply_downloaded() },
-        ];
-
-        for ack in acks {
-            send_resource_pack_ack(
-                &mut commands,
-                event.entity,
-                in_config_state_option.is_some(),
-                ack,
-            );
-        }
+        let ack = initial_resource_pack_ack(&mut pack);
+        send_resource_pack_ack(
+            &mut commands,
+            event.entity,
+            in_config_state_option.is_some(),
+            ack,
+        );
     }
+}
+
+fn initial_resource_pack_ack(pack: &mut ServerResourcePackApplyState) -> ServerResourcePackAck {
+    if pack.validate_url().is_err() {
+        return pack.invalid_url();
+    }
+
+    pack.accept()
 }
 
 fn send_resource_pack_ack(
@@ -144,5 +132,49 @@ fn game_resource_pack_ack_action(action: ServerResourcePackAckAction) -> s_resou
         ServerResourcePackAckAction::InvalidUrl => s_resource_pack::Action::InvalidUrl,
         ServerResourcePackAckAction::FailedReload => s_resource_pack::Action::FailedReload,
         ServerResourcePackAckAction::Discarded => s_resource_pack::Action::Discarded,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azalea_client::resources::ServerResourcePackStatus;
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[test]
+    fn valid_server_pack_push_only_sends_initial_accepted_ack() {
+        let id = Uuid::from_u128(1);
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.com/server-pack.zip",
+            "0123456789abcdef0123456789abcdef01234567",
+            true,
+            None,
+        ));
+
+        let ack = initial_resource_pack_ack(&mut pack);
+
+        assert_eq!(ack.id, id);
+        assert_eq!(ack.action, ServerResourcePackAckAction::Accepted);
+        assert_eq!(pack.status(), ServerResourcePackStatus::Accepted);
+    }
+
+    #[test]
+    fn invalid_server_pack_url_still_sends_invalid_url_ack() {
+        let id = Uuid::from_u128(2);
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "ftp://example.com/server-pack.zip",
+            "0123456789abcdef0123456789abcdef01234567",
+            false,
+            None,
+        ));
+
+        let ack = initial_resource_pack_ack(&mut pack);
+
+        assert_eq!(ack.id, id);
+        assert_eq!(ack.action, ServerResourcePackAckAction::InvalidUrl);
+        assert!(matches!(pack.status(), ServerResourcePackStatus::Failed(_)));
     }
 }
