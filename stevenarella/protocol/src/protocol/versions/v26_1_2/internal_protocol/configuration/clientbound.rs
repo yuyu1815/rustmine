@@ -1,9 +1,6 @@
 use std::io;
 
-use crate::protocol::{
-    packet::{self, Packet},
-    read_nbt_string_component, Direction, Error, Serializable, State,
-};
+use crate::protocol::{packet::Packet, Direction, Error, State};
 
 use super::super::super::translate_internal_packet_id;
 
@@ -12,6 +9,7 @@ mod cookie;
 mod custom_payload;
 mod custom_report_details;
 mod dialog;
+mod disconnect_reset_chat;
 mod keep_alive_ping;
 mod registry_data;
 mod resource_pack;
@@ -118,27 +116,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
-
-    match internal_id {
-        packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
-            let packet = packet::configuration::clientbound::ConfigurationDisconnectClientbound {
-                reason: read_nbt_string_component(buf)?,
-            };
-            return Ok(Some(Packet::Disconnect(
-                packet::play::clientbound::Disconnect {
-                    reason: packet.reason,
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationResetChatClientbound => {
-            let _: () = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ResetChat".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        _ => Ok(None),
+    if let Some(packet) =
+        disconnect_reset_chat::read_disconnect_reset_chat_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
     }
+
+    Ok(None)
 }
