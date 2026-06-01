@@ -7,24 +7,32 @@ use super::{
     account_flow::StoredLauncherAccount,
     startup_flow::{
         ResourceLoadingEvent, ResourceLoadingUpdate, StartupFlow, StartupLoadingPhase,
-        StartupScreen, WeightedReloadProgress,
+        StartupScreen, WeightedReloadProgress, WeightedReloadStageProgress,
     },
+};
+use crate::resources::{
+    ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadProgressSnapshot,
 };
 
 #[derive(Clone, Debug)]
 pub struct ResourceLoadingTracker {
     flow: StartupFlow,
+    resource_reload_progress: Option<WeightedReloadProgress>,
 }
 
 impl ResourceLoadingTracker {
     pub fn new(accounts: Vec<StoredLauncherAccount>) -> Self {
         Self {
             flow: StartupFlow::new(accounts),
+            resource_reload_progress: None,
         }
     }
 
     pub fn from_flow(flow: StartupFlow) -> Self {
-        Self { flow }
+        Self {
+            flow,
+            resource_reload_progress: None,
+        }
     }
 
     pub fn flow(&self) -> &StartupFlow {
@@ -42,6 +50,10 @@ impl ResourceLoadingTracker {
     pub fn weighted_progress(&self) -> WeightedReloadProgress {
         if self.flow.loading_phase() == StartupLoadingPhase::Complete {
             return WeightedReloadProgress::complete_simple_reload_instance();
+        }
+
+        if let Some(progress) = &self.resource_reload_progress {
+            return progress.clone();
         }
 
         WeightedReloadProgress::from_loading_tasks(self.flow.loading_overlay().unwrap_or_default())
@@ -65,6 +77,14 @@ impl ResourceLoadingTracker {
         self.flow.apply_resource_loading_event(event);
     }
 
+    pub fn apply_resource_reload_event(&mut self, event: &ClientResourceReloadEvent) {
+        self.apply_resource_reload_snapshot(&event.progress_snapshot);
+    }
+
+    pub fn apply_resource_reload_snapshot(&mut self, snapshot: &ResourceReloadProgressSnapshot) {
+        self.resource_reload_progress = Some(weighted_progress_from_resource_reload(snapshot));
+    }
+
     pub fn advance_presentation(&mut self) {
         self.flow.advance_loading_presentation();
     }
@@ -74,11 +94,63 @@ impl ResourceLoadingTracker {
     }
 }
 
+fn weighted_progress_from_resource_reload(
+    snapshot: &ResourceReloadProgressSnapshot,
+) -> WeightedReloadProgress {
+    let prepare_weight = snapshot.started_prepare_tasks() as f32 * 2.0;
+    let reload_weight = snapshot.started_reload_tasks() as f32 * 2.0;
+    let listener_weight = snapshot.listener_count() as f32;
+
+    if prepare_weight + reload_weight + listener_weight == 0.0 {
+        return WeightedReloadProgress::complete_simple_reload_instance();
+    }
+
+    WeightedReloadProgress::new([
+        WeightedReloadStageProgress::new(
+            "prepare",
+            progress_ratio(
+                snapshot.finished_prepare_tasks(),
+                snapshot.started_prepare_tasks(),
+            ),
+            prepare_weight,
+        ),
+        WeightedReloadStageProgress::new(
+            "reload",
+            progress_ratio(
+                snapshot.finished_reload_tasks(),
+                snapshot.started_reload_tasks(),
+            ),
+            reload_weight,
+        ),
+        WeightedReloadStageProgress::new(
+            "listener",
+            progress_ratio(snapshot.completed_listeners(), snapshot.listener_count()),
+            listener_weight,
+        ),
+    ])
+}
+
+fn progress_ratio(finished: u32, started: u32) -> f32 {
+    if started == 0 {
+        1.0
+    } else {
+        finished as f32 / started as f32
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fmt;
+
     use super::*;
-    use crate::ui::startup_flow::{
-        LoadingTask, LoadingTaskPresentationState, StartupLoadingPhase, loading_task_names,
+    use crate::{
+        resources::{
+            ClientResourceStack, ResourceReloadListener, ResourceReloadManager,
+            ResourceReloadResult, ResourceReloadTaskReport,
+        },
+        ui::startup_flow::{
+            LoadingTask, LoadingTaskPresentationState, StartupLoadingPhase, loading_task_names,
+        },
     };
 
     #[test]
@@ -184,6 +256,39 @@ mod tests {
     }
 
     #[test]
+    fn tracker_uses_resource_reload_snapshot_actual_progress_for_vanilla_overlay() {
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(TestReloadListener("sounds"))
+            .run()
+            .unwrap();
+        let event = &report.events()[1];
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker.apply_resource_reload_event(event);
+
+        assert_eq!(
+            tracker.weighted_progress().actual_progress(),
+            event.progress_snapshot.actual_progress()
+        );
+    }
+
+    #[test]
+    fn tracker_complete_overrides_resource_reload_snapshot_progress() {
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .run()
+            .unwrap();
+        let event = &report.events()[0];
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker.apply_resource_reload_event(event);
+        tracker.apply_update(ResourceLoadingUpdate::Complete);
+
+        assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
+    }
+
+    #[test]
     fn tracker_bridges_lifecycle_events_into_flow_state() {
         let mut tracker = ResourceLoadingTracker::new(Vec::new());
 
@@ -221,5 +326,37 @@ mod tests {
             tracker.flow().loading_phase(),
             StartupLoadingPhase::Complete
         );
+    }
+
+    #[derive(Clone, Copy)]
+    struct TestReloadListener(&'static str);
+
+    impl fmt::Debug for TestReloadListener {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_tuple("TestReloadListener")
+                .field(&self.0)
+                .finish()
+        }
+    }
+
+    impl ResourceReloadListener for TestReloadListener {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        fn prepare(
+            &self,
+            _stack: &ClientResourceStack,
+        ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+            Ok(ResourceReloadTaskReport::empty())
+        }
+
+        fn reload(
+            &self,
+            _stack: &ClientResourceStack,
+        ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+            Ok(ResourceReloadTaskReport::empty())
+        }
     }
 }
