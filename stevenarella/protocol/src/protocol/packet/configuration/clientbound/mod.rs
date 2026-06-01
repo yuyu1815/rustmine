@@ -1,10 +1,14 @@
 use crate::protocol::*;
 use std::io;
 
+mod custom_report_details;
 mod dialog;
 mod resource_pack;
 mod update_tags;
 
+pub use custom_report_details::{
+    ConfigurationCustomReportDetail, ConfigurationCustomReportDetailsClientbound,
+};
 pub use dialog::{ConfigurationClearDialogClientbound, ConfigurationShowDialogClientbound};
 pub use resource_pack::{
     ConfigurationResourcePackPopClientbound, ConfigurationResourcePackPushClientbound,
@@ -244,38 +248,6 @@ impl PacketType for ConfigurationSelectKnownPacksClientbound {
 
     fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
         self.known_packs.write_to(buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationCustomReportDetail {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationCustomReportDetailsClientbound {
-    pub details: Vec<ConfigurationCustomReportDetail>,
-}
-
-impl PacketType for ConfigurationCustomReportDetailsClientbound {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationCustomReportDetailsClientbound,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        VarInt(self.details.len() as i32).write_to(buf)?;
-        for detail in &self.details {
-            detail.key.write_to(buf)?;
-            detail.value.write_to(buf)?;
-        }
         Ok(())
     }
 }
