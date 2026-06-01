@@ -13,6 +13,15 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
     internal_id: i32,
     buf: &mut R,
 ) -> Result<Option<Packet>, Error> {
+    if let Some(packet) =
+        super::projectile_power::read_projectile_power_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+
     match internal_id {
         packet::play::clientbound::internal_ids::PlaySetEntityDataClientbound => {
             let entity_id = VarInt::read_from(buf)?;
@@ -111,14 +120,6 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
                     x_rot,
                     relative_mask,
                     on_ground: bool::read_from(buf)?,
-                },
-            )))
-        }
-        packet::play::clientbound::internal_ids::PlayProjectilePowerClientbound => {
-            Ok(Some(Packet::PlayProjectilePowerClientbound(
-                packet::play::clientbound::PlayProjectilePowerClientbound {
-                    entity_id: VarInt::read_from(buf)?,
-                    acceleration_power: buf.read_f64::<BigEndian>()?,
                 },
             )))
         }

@@ -8,6 +8,7 @@ mod custom_report_details;
 mod dialog;
 mod disconnect;
 mod entity;
+mod projectile_power;
 mod scoreboard;
 mod server_links;
 mod set_cursor_item;
