@@ -3,37 +3,50 @@
 //! A future real resource loader can report task updates here without knowing
 //! how the startup screen lays out loading panels.
 
+use std::time::Duration;
+
 use super::{
     account_flow::StoredLauncherAccount,
     startup_flow::{
         ResourceLoadingEvent, ResourceLoadingUpdate, StartupFlow, StartupLoadingPhase,
-        StartupScreen, WeightedReloadProgress, WeightedReloadStageProgress,
+        StartupScreen, VanillaLoadingBackground, VanillaLoadingOverlay, VanillaLoadingOverlayView,
+        VanillaLoadingTextView, WeightedReloadProgress, WeightedReloadStageProgress,
     },
 };
 use crate::resources::{
     ClientResourceRepository, ClientResourceStack,
     ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
-    ResourceReloadProgressSnapshot, ResourceReloadReport, ResourceReloadResult,
+    ResourceReloadProgressSnapshot, ResourceReloadReport, ResourceReloadResult, ResourceReloadStep,
 };
+
+pub const MOJANG_STUDIOS_LOGO_ID: &str = "minecraft:textures/gui/title/mojangstudios.png";
+pub const MOJANG_STUDIOS_LOGO_RESOURCE: &str =
+    "assets/minecraft/textures/gui/title/mojangstudios.png";
+pub const MOJANG_STUDIOS_RED_BACKGROUND_ARGB: u32 = 0xFFEF_323D;
+pub const MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB: u32 = 0xFF00_0000;
+pub const FALLBACK_RELOAD_LABEL: &str = VanillaLoadingTextView::FALLBACK_LOADING_MINECRAFT;
 
 #[derive(Clone, Debug)]
 pub struct ResourceLoadingTracker {
     flow: StartupFlow,
-    resource_reload_progress: Option<WeightedReloadProgress>,
+    resource_reload_snapshot: Option<ResourceReloadProgressSnapshot>,
+    resource_reload_error: Option<String>,
 }
 
 impl ResourceLoadingTracker {
     pub fn new(accounts: Vec<StoredLauncherAccount>) -> Self {
         Self {
             flow: StartupFlow::new(accounts),
-            resource_reload_progress: None,
+            resource_reload_snapshot: None,
+            resource_reload_error: None,
         }
     }
 
     pub fn from_flow(flow: StartupFlow) -> Self {
         Self {
             flow,
-            resource_reload_progress: None,
+            resource_reload_snapshot: None,
+            resource_reload_error: None,
         }
     }
 
@@ -54,11 +67,47 @@ impl ResourceLoadingTracker {
             return WeightedReloadProgress::complete_simple_reload_instance();
         }
 
-        if let Some(progress) = &self.resource_reload_progress {
-            return progress.clone();
+        if let Some(snapshot) = &self.resource_reload_snapshot {
+            return weighted_progress_from_resource_reload(snapshot);
         }
 
         WeightedReloadProgress::from_loading_tasks(self.flow.loading_overlay().unwrap_or_default())
+    }
+
+    pub fn resource_reload_snapshot(&self) -> Option<&ResourceReloadProgressSnapshot> {
+        self.resource_reload_snapshot.as_ref()
+    }
+
+    pub fn resource_reload_error(&self) -> Option<&str> {
+        self.resource_reload_error.as_deref()
+    }
+
+    pub fn loading_overlay_actual_progress(&self) -> f32 {
+        if self.flow.loading_phase() == StartupLoadingPhase::Complete {
+            return 1.0;
+        }
+
+        self.resource_reload_snapshot
+            .as_ref()
+            .map(ResourceReloadProgressSnapshot::actual_progress)
+            .unwrap_or_else(|| self.weighted_progress().actual_progress())
+            .clamp(0.0, 1.0)
+    }
+
+    pub fn loading_overlay_view(
+        &self,
+        overlay: &VanillaLoadingOverlay,
+        elapsed: Duration,
+    ) -> MojangLoadingOverlayViewModel {
+        let vanilla = overlay.view(self.loading_overlay_actual_progress(), elapsed);
+        MojangLoadingOverlayViewModel {
+            background_argb: background_argb(vanilla.background),
+            logo_texture: Some(MojangLogoTexture::default()),
+            reload: self.reload_view(),
+            smoothing: LoadingOverlaySmoothing::vanilla(),
+            fade: LoadingOverlayFadeTiming::vanilla(),
+            vanilla,
+        }
     }
 
     pub fn apply_update(&mut self, update: ResourceLoadingUpdate) {
@@ -85,7 +134,8 @@ impl ResourceLoadingTracker {
 
     pub fn apply_resource_reload_snapshot(&mut self, snapshot: &ResourceReloadProgressSnapshot) {
         self.flow.begin_loading();
-        self.resource_reload_progress = Some(weighted_progress_from_resource_reload(snapshot));
+        self.resource_reload_snapshot = Some(snapshot.clone());
+        self.resource_reload_error = None;
     }
 
     pub fn run_resource_reload(
@@ -94,8 +144,11 @@ impl ResourceLoadingTracker {
     ) -> ResourceReloadResult<ResourceReloadReport> {
         let report = manager.run_with_events(|event| self.apply_resource_reload_event(event));
 
-        if report.is_ok() {
-            self.mark_complete();
+        match &report {
+            Ok(_) => self.mark_complete(),
+            Err(error) => {
+                self.resource_reload_error = Some(error.to_string());
+            }
         }
 
         report
@@ -134,51 +187,154 @@ impl ResourceLoadingTracker {
     }
 
     pub fn mark_complete(&mut self) {
+        self.resource_reload_error = None;
         self.flow.finish_loading();
+    }
+
+    fn reload_view(&self) -> ResourceLoadingReloadView {
+        if let Some(error) = &self.resource_reload_error {
+            return ResourceLoadingReloadView {
+                label: error.clone(),
+                phase: ResourceLoadingReloadPhase::Error,
+            };
+        }
+
+        if self.flow.loading_phase() == StartupLoadingPhase::Complete {
+            return ResourceLoadingReloadView {
+                label: "Complete".to_owned(),
+                phase: ResourceLoadingReloadPhase::Complete,
+            };
+        }
+
+        let Some(snapshot) = &self.resource_reload_snapshot else {
+            return ResourceLoadingReloadView::fallback();
+        };
+
+        ResourceLoadingReloadView {
+            label: snapshot
+                .current_listener()
+                .filter(|label| !label.is_empty())
+                .unwrap_or(FALLBACK_RELOAD_LABEL)
+                .to_owned(),
+            phase: snapshot
+                .current_step()
+                .map(ResourceLoadingReloadPhase::from)
+                .unwrap_or(ResourceLoadingReloadPhase::Fallback),
+        }
     }
 }
 
 fn weighted_progress_from_resource_reload(
     snapshot: &ResourceReloadProgressSnapshot,
 ) -> WeightedReloadProgress {
-    let prepare_weight = snapshot.started_prepare_tasks() as f32 * 2.0;
-    let reload_weight = snapshot.started_reload_tasks() as f32 * 2.0;
-    let listener_weight = snapshot.listener_count() as f32;
-
-    if prepare_weight + reload_weight + listener_weight == 0.0 {
-        return WeightedReloadProgress::complete_simple_reload_instance();
-    }
-
-    WeightedReloadProgress::new([
-        WeightedReloadStageProgress::new(
-            "prepare",
-            progress_ratio(
-                snapshot.finished_prepare_tasks(),
-                snapshot.started_prepare_tasks(),
-            ),
-            prepare_weight,
-        ),
-        WeightedReloadStageProgress::new(
-            "reload",
-            progress_ratio(
-                snapshot.finished_reload_tasks(),
-                snapshot.started_reload_tasks(),
-            ),
-            reload_weight,
-        ),
-        WeightedReloadStageProgress::new(
-            "listener",
-            progress_ratio(snapshot.prepared_listeners(), snapshot.listener_count()),
-            listener_weight,
-        ),
-    ])
+    let label = snapshot
+        .current_listener()
+        .filter(|label| !label.is_empty())
+        .unwrap_or(FALLBACK_RELOAD_LABEL);
+    WeightedReloadProgress::new([WeightedReloadStageProgress::new(
+        label,
+        snapshot.actual_progress(),
+        1.0,
+    )])
 }
 
-fn progress_ratio(finished: u32, started: u32) -> f32 {
-    if started == 0 {
-        1.0
-    } else {
-        finished as f32 / started as f32
+#[derive(Clone, Debug, PartialEq)]
+pub struct MojangLoadingOverlayViewModel {
+    pub vanilla: VanillaLoadingOverlayView,
+    pub background_argb: u32,
+    pub logo_texture: Option<MojangLogoTexture>,
+    pub reload: ResourceLoadingReloadView,
+    pub smoothing: LoadingOverlaySmoothing,
+    pub fade: LoadingOverlayFadeTiming,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MojangLogoTexture {
+    pub id: &'static str,
+    pub resource: &'static str,
+}
+
+impl Default for MojangLogoTexture {
+    fn default() -> Self {
+        Self {
+            id: MOJANG_STUDIOS_LOGO_ID,
+            resource: MOJANG_STUDIOS_LOGO_RESOURCE,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceLoadingReloadView {
+    pub label: String,
+    pub phase: ResourceLoadingReloadPhase,
+}
+
+impl ResourceLoadingReloadView {
+    pub fn fallback() -> Self {
+        Self {
+            label: FALLBACK_RELOAD_LABEL.to_owned(),
+            phase: ResourceLoadingReloadPhase::Fallback,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceLoadingReloadPhase {
+    Fallback,
+    InitialPreparation,
+    Preparation,
+    Reload,
+    ListenerComplete,
+    Complete,
+    Error,
+}
+
+impl From<ResourceReloadStep> for ResourceLoadingReloadPhase {
+    fn from(step: ResourceReloadStep) -> Self {
+        match step {
+            ResourceReloadStep::InitialPreparation => Self::InitialPreparation,
+            ResourceReloadStep::Preparation => Self::Preparation,
+            ResourceReloadStep::Reload => Self::Reload,
+            ResourceReloadStep::ListenerComplete => Self::ListenerComplete,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LoadingOverlaySmoothing {
+    pub previous_displayed_progress_weight: f32,
+    pub actual_progress_weight: f32,
+}
+
+impl LoadingOverlaySmoothing {
+    pub fn vanilla() -> Self {
+        Self {
+            previous_displayed_progress_weight:
+                VanillaLoadingOverlay::SMOOTHED_DISPLAYED_PROGRESS_WEIGHT,
+            actual_progress_weight: VanillaLoadingOverlay::NEW_ACTUAL_PROGRESS_WEIGHT,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoadingOverlayFadeTiming {
+    pub fade_in: Duration,
+    pub fade_out: Duration,
+}
+
+impl LoadingOverlayFadeTiming {
+    pub fn vanilla() -> Self {
+        Self {
+            fade_in: VanillaLoadingOverlay::FADE_IN,
+            fade_out: VanillaLoadingOverlay::FADE_OUT,
+        }
+    }
+}
+
+fn background_argb(background: VanillaLoadingBackground) -> u32 {
+    match background {
+        VanillaLoadingBackground::Red => MOJANG_STUDIOS_RED_BACKGROUND_ARGB,
+        VanillaLoadingBackground::Black => MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB,
     }
 }
 
@@ -318,6 +474,150 @@ mod tests {
             tracker.weighted_progress().actual_progress(),
             event.progress_snapshot.actual_progress()
         );
+    }
+
+    #[test]
+    fn resource_loading_overlay_view_uses_snapshot_actual_progress_and_reload_phase() {
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(TestReloadListener("sounds"))
+            .run()
+            .unwrap();
+        let preparation_event = &report.events()[1];
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+        tracker.apply_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            9,
+            10,
+        ));
+
+        tracker.apply_resource_reload_event(preparation_event);
+
+        assert_eq!(
+            tracker.loading_overlay_actual_progress(),
+            preparation_event.progress_snapshot.actual_progress()
+        );
+        assert_ne!(tracker.loading_overlay_actual_progress(), 0.9);
+
+        let mut overlay = VanillaLoadingOverlay::new();
+        overlay.tick(tracker.loading_overlay_actual_progress());
+        let view = tracker.loading_overlay_view(&overlay, Duration::from_millis(250));
+
+        assert_eq!(
+            view.vanilla.actual_progress,
+            preparation_event.progress_snapshot.actual_progress()
+        );
+        assert!(
+            (view.vanilla.progress_bar.displayed_progress
+                - preparation_event.progress_snapshot.actual_progress()
+                    * VanillaLoadingOverlay::NEW_ACTUAL_PROGRESS_WEIGHT)
+                .abs()
+                < f32::EPSILON
+        );
+        assert_eq!(view.reload.label, "textures");
+        assert_eq!(view.reload.phase, ResourceLoadingReloadPhase::Preparation);
+    }
+
+    #[test]
+    fn resource_loading_overlay_view_reports_complete_and_error_states() {
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .run()
+            .unwrap();
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+        tracker.apply_resource_reload_event(&report.events()[0]);
+        tracker.apply_update(ResourceLoadingUpdate::Complete);
+
+        let complete_view =
+            tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+
+        assert_eq!(complete_view.vanilla.actual_progress, 1.0);
+        assert_eq!(
+            complete_view.reload,
+            ResourceLoadingReloadView {
+                label: "Complete".to_owned(),
+                phase: ResourceLoadingReloadPhase::Complete,
+            }
+        );
+        assert_eq!(tracker.resource_reload_error(), None);
+
+        let failing_manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(FailingReloadListener("sounds"));
+        let mut failing_tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let error = failing_tracker
+            .run_resource_reload(&failing_manager)
+            .expect_err("reload failure should be surfaced");
+        let error_message = error.to_string();
+        let error_view =
+            failing_tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+
+        assert_eq!(
+            failing_tracker.resource_reload_error(),
+            Some(error_message.as_str())
+        );
+        assert_eq!(error_view.reload.phase, ResourceLoadingReloadPhase::Error);
+        assert!(error_view.reload.label.contains("test:sounds"));
+        assert_ne!(
+            failing_tracker.flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+    }
+
+    #[test]
+    fn resource_loading_overlay_view_keeps_loading_minecraft_fallback_label() {
+        let tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let view = tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+
+        assert_eq!(
+            view.reload,
+            ResourceLoadingReloadView {
+                label: "Loading Minecraft".to_owned(),
+                phase: ResourceLoadingReloadPhase::Fallback,
+            }
+        );
+        assert_eq!(view.vanilla.text.text, "Loading Minecraft");
+        assert_eq!(view.vanilla.actual_progress, 0.0);
+    }
+
+    #[test]
+    fn resource_loading_overlay_view_exposes_stable_vanilla_layout_constants() {
+        let red_view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        let black_view = ResourceLoadingTracker::new(Vec::new()).loading_overlay_view(
+            &VanillaLoadingOverlay::new().with_background(VanillaLoadingBackground::Black),
+            Duration::ZERO,
+        );
+
+        assert_eq!(red_view.background_argb, MOJANG_STUDIOS_RED_BACKGROUND_ARGB);
+        assert_eq!(
+            black_view.background_argb,
+            MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB
+        );
+        assert_eq!(
+            red_view.logo_texture,
+            Some(MojangLogoTexture {
+                id: "minecraft:textures/gui/title/mojangstudios.png",
+                resource: "assets/minecraft/textures/gui/title/mojangstudios.png",
+            })
+        );
+        assert_eq!(red_view.vanilla.progress_bar.center_x_fraction, 0.5);
+        assert_eq!(red_view.vanilla.progress_bar.center_y_fraction, 0.8325);
+        assert_eq!(red_view.vanilla.progress_bar.outer_height, 10.0);
+        assert_eq!(red_view.vanilla.progress_bar.border_width, 1.0);
+        assert_eq!(red_view.vanilla.progress_bar.fill_inset, 2.0);
+        assert_eq!(
+            red_view.smoothing,
+            LoadingOverlaySmoothing {
+                previous_displayed_progress_weight: 0.95,
+                actual_progress_weight: 0.05,
+            }
+        );
+        assert_eq!(red_view.fade.fade_in, Duration::from_millis(500));
+        assert_eq!(red_view.fade.fade_out, Duration::from_millis(1_000));
     }
 
     #[test]
