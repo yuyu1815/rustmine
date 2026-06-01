@@ -67,6 +67,7 @@ const DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES: &[&str] = &["assets/minecraft/blocks
 const DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS: &[&str] =
     &["assets/minecraft/models/block/stone.json"];
 const DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS: &[&str] = &["assets/minecraft/models/item/stick.json"];
+const DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS: &[&str] = &["assets/minecraft/items/stone.json"];
 const DEFAULT_REPRESENTATIVE_SHADER_SOURCES: &[&str] = &[
     "assets/minecraft/shaders/core/position_tex.vsh",
     "assets/minecraft/shaders/core/gui.fsh",
@@ -1890,6 +1891,7 @@ pub struct ModelDependencyReloadListener {
     blockstates: Vec<String>,
     block_models: Vec<String>,
     item_models: Vec<String>,
+    item_roots: Vec<String>,
 }
 
 impl ModelDependencyReloadListener {
@@ -1897,11 +1899,13 @@ impl ModelDependencyReloadListener {
         blockstates: impl IntoIterator<Item = impl Into<String>>,
         block_models: impl IntoIterator<Item = impl Into<String>>,
         item_models: impl IntoIterator<Item = impl Into<String>>,
+        item_roots: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         Self {
             blockstates: blockstates.into_iter().map(Into::into).collect(),
             block_models: block_models.into_iter().map(Into::into).collect(),
             item_models: item_models.into_iter().map(Into::into).collect(),
+            item_roots: item_roots.into_iter().map(Into::into).collect(),
         }
     }
 
@@ -1911,6 +1915,7 @@ impl ModelDependencyReloadListener {
             &self.blockstates,
             &self.block_models,
             &self.item_models,
+            &self.item_roots,
         )
     }
 
@@ -1919,6 +1924,7 @@ impl ModelDependencyReloadListener {
             .iter()
             .chain(self.block_models.iter())
             .chain(self.item_models.iter())
+            .chain(self.item_roots.iter())
     }
 }
 
@@ -1928,6 +1934,7 @@ impl Default for ModelDependencyReloadListener {
             DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES.iter().copied(),
             DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS.iter().copied(),
             DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS.iter().copied(),
+            DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS.iter().copied(),
         )
     }
 }
@@ -1942,7 +1949,10 @@ impl ResourceReloadListener for ModelDependencyReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let mut resources = Vec::with_capacity(
-            self.blockstates.len() + self.block_models.len() + self.item_models.len(),
+            self.blockstates.len()
+                + self.block_models.len()
+                + self.item_models.len()
+                + self.item_roots.len(),
         );
         for resource in self.resources() {
             stack.require_resource(resource)?;
@@ -1968,6 +1978,7 @@ pub struct ModelDependencyReport {
     resources: Vec<ModelDependencyResourceReport>,
     counts_by_top_priority_pack: BTreeMap<String, ModelDependencyPackCounts>,
     blockstate_models: BTreeSet<String>,
+    item_root_models: BTreeSet<String>,
     parents: BTreeSet<String>,
     textures: BTreeSet<String>,
 }
@@ -1983,6 +1994,10 @@ impl ModelDependencyReport {
 
     pub fn blockstate_models(&self) -> &BTreeSet<String> {
         &self.blockstate_models
+    }
+
+    pub fn item_root_models(&self) -> &BTreeSet<String> {
+        &self.item_root_models
     }
 
     pub fn parents(&self) -> &BTreeSet<String> {
@@ -2020,6 +2035,7 @@ pub enum ModelDependencyResourceKind {
     Blockstate,
     BlockModel,
     ItemModel,
+    ItemRoot,
 }
 
 impl ModelDependencyResourceKind {
@@ -2028,6 +2044,7 @@ impl ModelDependencyResourceKind {
             Self::Blockstate => "blockstates",
             Self::BlockModel => "block_models",
             Self::ItemModel => "item_models",
+            Self::ItemRoot => "item_roots",
         }
     }
 }
@@ -2037,6 +2054,7 @@ pub struct ModelDependencyPackCounts {
     pub blockstates: usize,
     pub block_models: usize,
     pub item_models: usize,
+    pub item_roots: usize,
 }
 
 impl ModelDependencyPackCounts {
@@ -2045,6 +2063,7 @@ impl ModelDependencyPackCounts {
             ModelDependencyResourceKind::Blockstate => self.blockstates += 1,
             ModelDependencyResourceKind::BlockModel => self.block_models += 1,
             ModelDependencyResourceKind::ItemModel => self.item_models += 1,
+            ModelDependencyResourceKind::ItemRoot => self.item_roots += 1,
         }
     }
 }
@@ -2054,11 +2073,14 @@ pub fn load_model_dependencies(
     blockstates: &[String],
     block_models: &[String],
     item_models: &[String],
+    item_roots: &[String],
 ) -> ResourceReloadResult<ModelDependencyReport> {
-    let mut resources =
-        Vec::with_capacity(blockstates.len() + block_models.len() + item_models.len());
+    let mut resources = Vec::with_capacity(
+        blockstates.len() + block_models.len() + item_models.len() + item_roots.len(),
+    );
     let mut counts_by_top_priority_pack = BTreeMap::new();
     let mut blockstate_models = BTreeSet::new();
+    let mut item_root_models = BTreeSet::new();
     let mut parents = BTreeSet::new();
     let mut textures = BTreeSet::new();
 
@@ -2097,10 +2119,24 @@ pub fn load_model_dependencies(
         );
     }
 
+    for item_root in item_roots {
+        let resource = load_client_json_resource(stack, item_root)?;
+        let model_references = extract_item_root_model_dependencies(resource.value())
+            .map_err(|reason| invalid_model_dependency(&resource, reason))?;
+        item_root_models.extend(model_references);
+        push_model_dependency_resource(
+            &mut resources,
+            &mut counts_by_top_priority_pack,
+            resource.report(),
+            ModelDependencyResourceKind::ItemRoot,
+        );
+    }
+
     Ok(ModelDependencyReport {
         resources,
         counts_by_top_priority_pack,
         blockstate_models,
+        item_root_models,
         parents,
         textures,
     })
@@ -2166,6 +2202,167 @@ fn collect_model_json_dependencies(
     Ok(())
 }
 
+pub fn extract_item_root_model_dependencies(
+    item_root: &serde_json::Value,
+) -> Result<BTreeSet<String>, String> {
+    let Some(object) = item_root.as_object() else {
+        return Err("item root top-level value must be an object".to_owned());
+    };
+    let Some(model) = object.get("model") else {
+        return Err("item root must contain model".to_owned());
+    };
+
+    let mut model_references = BTreeSet::new();
+    collect_item_model_dependencies(model, &mut model_references)?;
+    Ok(model_references)
+}
+
+fn collect_item_model_dependencies(
+    item_model: &serde_json::Value,
+    model_references: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    let Some(object) = item_model.as_object() else {
+        return Err("item model must be an object".to_owned());
+    };
+    let Some(model_type) = object.get("type") else {
+        return Err("item model must contain type".to_owned());
+    };
+    let Some(model_type) = model_type.as_str() else {
+        return Err("item model type must be a string".to_owned());
+    };
+
+    match strip_minecraft_namespace(model_type) {
+        "model" => {
+            let Some(model) = object.get("model") else {
+                return Err("minecraft:model item model must contain model".to_owned());
+            };
+            let Some(model) = model.as_str() else {
+                return Err("minecraft:model item model model must be a string".to_owned());
+            };
+            model_references.insert(model.to_owned());
+        }
+        "special" => {
+            let Some(base) = object.get("base") else {
+                return Err("minecraft:special item model must contain base".to_owned());
+            };
+            let Some(base) = base.as_str() else {
+                return Err("minecraft:special item model base must be a string".to_owned());
+            };
+            model_references.insert(base.to_owned());
+        }
+        "range_dispatch" => {
+            if let Some(entries) = object.get("entries") {
+                let Some(entries) = entries.as_array() else {
+                    return Err("minecraft:range_dispatch entries must be an array".to_owned());
+                };
+                for entry in entries {
+                    let Some(entry) = entry.as_object() else {
+                        return Err("minecraft:range_dispatch entry must be an object".to_owned());
+                    };
+                    collect_required_child_item_model(
+                        entry,
+                        "model",
+                        "minecraft:range_dispatch entry model",
+                        model_references,
+                    )?;
+                }
+            }
+            collect_optional_child_item_model(
+                object,
+                "fallback",
+                "minecraft:range_dispatch fallback",
+                model_references,
+            )?;
+        }
+        "select" => {
+            if let Some(cases) = object.get("cases") {
+                let Some(cases) = cases.as_array() else {
+                    return Err("minecraft:select cases must be an array".to_owned());
+                };
+                for case in cases {
+                    let Some(case) = case.as_object() else {
+                        return Err("minecraft:select case must be an object".to_owned());
+                    };
+                    collect_required_child_item_model(
+                        case,
+                        "model",
+                        "minecraft:select case model",
+                        model_references,
+                    )?;
+                }
+            }
+            collect_optional_child_item_model(
+                object,
+                "fallback",
+                "minecraft:select fallback",
+                model_references,
+            )?;
+        }
+        "condition" => {
+            collect_required_child_item_model(
+                object,
+                "on_true",
+                "minecraft:condition on_true",
+                model_references,
+            )?;
+            collect_required_child_item_model(
+                object,
+                "on_false",
+                "minecraft:condition on_false",
+                model_references,
+            )?;
+        }
+        "composite" => {
+            let Some(models) = object.get("models") else {
+                return Err("minecraft:composite item model must contain models".to_owned());
+            };
+            let Some(models) = models.as_array() else {
+                return Err("minecraft:composite models must be an array".to_owned());
+            };
+            for model in models {
+                collect_item_model_dependencies(model, model_references)?;
+            }
+        }
+        "empty" | "bundle/selected_item" => {}
+        _ => {
+            return Err(format!("unsupported item model type `{model_type}`"));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_required_child_item_model(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    description: &str,
+    model_references: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    let Some(model) = object.get(field) else {
+        return Err(format!("{description} must be present"));
+    };
+    collect_item_model_dependencies(model, model_references)
+}
+
+fn collect_optional_child_item_model(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    description: &str,
+    model_references: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    if let Some(model) = object.get(field) {
+        if !model.is_object() {
+            return Err(format!("{description} must be an object"));
+        }
+        collect_item_model_dependencies(model, model_references)?;
+    }
+    Ok(())
+}
+
+fn strip_minecraft_namespace(model_type: &str) -> &str {
+    model_type.strip_prefix("minecraft:").unwrap_or(model_type)
+}
+
 fn invalid_model_dependency(
     resource: &ClientJsonResource,
     reason: impl Into<String>,
@@ -2191,8 +2388,8 @@ fn model_dependency_report_items(report: &ModelDependencyReport) -> Vec<String> 
 
     for (pack_id, counts) in report.counts_by_top_priority_pack() {
         items.push(format!(
-            "pack:{pack_id}:blockstates:{} block_models:{} item_models:{}",
-            counts.blockstates, counts.block_models, counts.item_models
+            "pack:{pack_id}:blockstates:{} block_models:{} item_models:{} item_roots:{}",
+            counts.blockstates, counts.block_models, counts.item_models, counts.item_roots
         ));
     }
 
@@ -2200,6 +2397,15 @@ fn model_dependency_report_items(report: &ModelDependencyReport) -> Vec<String> 
         "blockstate_models:{}",
         report
             .blockstate_models()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
+    items.push(format!(
+        "item_root_models:{}",
+        report
+            .item_root_models()
             .iter()
             .cloned()
             .collect::<Vec<_>>()
@@ -5136,6 +5342,115 @@ mod tests {
     }
 
     #[test]
+    fn item_root_model_dependency_extraction_reads_direct_model_and_special_base() {
+        let direct = serde_json::json!({
+            "model": {
+                "type": "minecraft:model",
+                "model": "minecraft:item/stick"
+            }
+        });
+        let special = serde_json::json!({
+            "model": {
+                "type": "minecraft:special",
+                "base": "minecraft:item/shield",
+                "model": {
+                    "type": "minecraft:shield"
+                }
+            }
+        });
+
+        assert_eq!(
+            extract_item_root_model_dependencies(&direct)
+                .expect("direct item model dependency should extract"),
+            std::collections::BTreeSet::from(["minecraft:item/stick".to_owned()])
+        );
+        assert_eq!(
+            extract_item_root_model_dependencies(&special)
+                .expect("special base model dependency should extract"),
+            std::collections::BTreeSet::from(["minecraft:item/shield".to_owned()])
+        );
+    }
+
+    #[test]
+    fn item_root_model_dependency_extraction_recurses_condition_select_range_and_composite() {
+        let item_root = serde_json::json!({
+            "model": {
+                "type": "minecraft:condition",
+                "on_true": {
+                    "type": "minecraft:select",
+                    "cases": [
+                        {
+                            "when": "minecraft:bow",
+                            "model": {
+                                "type": "minecraft:model",
+                                "model": "minecraft:item/bow"
+                            }
+                        }
+                    ],
+                    "fallback": {
+                        "type": "minecraft:range_dispatch",
+                        "entries": [
+                            {
+                                "threshold": 0.5,
+                                "model": {
+                                    "type": "minecraft:model",
+                                    "model": "minecraft:item/bow_pulling_0"
+                                }
+                            }
+                        ],
+                        "fallback": {
+                            "type": "minecraft:model",
+                            "model": "minecraft:item/bow_standby"
+                        }
+                    }
+                },
+                "on_false": {
+                    "type": "minecraft:composite",
+                    "models": [
+                        {
+                            "type": "minecraft:model",
+                            "model": "minecraft:item/bow_overlay"
+                        },
+                        {
+                            "type": "minecraft:empty"
+                        },
+                        {
+                            "type": "minecraft:bundle/selected_item"
+                        }
+                    ]
+                }
+            }
+        });
+
+        assert_eq!(
+            extract_item_root_model_dependencies(&item_root)
+                .expect("nested item root model dependencies should extract"),
+            std::collections::BTreeSet::from([
+                "minecraft:item/bow".to_owned(),
+                "minecraft:item/bow_overlay".to_owned(),
+                "minecraft:item/bow_pulling_0".to_owned(),
+                "minecraft:item/bow_standby".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn item_root_model_dependency_extraction_rejects_invalid_json_shape() {
+        let item_root = serde_json::json!({
+            "model": {
+                "type": "minecraft:model",
+                "model": 42
+            }
+        });
+
+        assert_eq!(
+            extract_item_root_model_dependencies(&item_root)
+                .expect_err("invalid item root model dependency shape should fail"),
+            "minecraft:model item model model must be a string"
+        );
+    }
+
+    #[test]
     fn blockstate_model_reference_listener_reports_priority_pack_and_models() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
@@ -5296,6 +5611,7 @@ mod tests {
                 "assets/minecraft/blockstates/stone.json".to_owned(),
                 "assets/minecraft/models/block/stone.json".to_owned(),
                 "assets/minecraft/models/item/stick.json".to_owned(),
+                "assets/minecraft/items/stone.json".to_owned(),
             ]
         );
         assert_eq!(
@@ -5304,8 +5620,10 @@ mod tests {
                 "assets/minecraft/blockstates/stone.json@vanilla:blockstates".to_owned(),
                 "assets/minecraft/models/block/stone.json@vanilla:block_models".to_owned(),
                 "assets/minecraft/models/item/stick.json@vanilla:item_models".to_owned(),
-                "pack:vanilla:blockstates:1 block_models:1 item_models:1".to_owned(),
+                "assets/minecraft/items/stone.json@vanilla:item_roots".to_owned(),
+                "pack:vanilla:blockstates:1 block_models:1 item_models:1 item_roots:1".to_owned(),
                 "blockstate_models:minecraft:block/stone,minecraft:block/stone_mirrored".to_owned(),
+                "item_root_models:minecraft:block/stone".to_owned(),
                 "parents:minecraft:block/cube_all,minecraft:item/handheld".to_owned(),
                 "textures:minecraft:block/stone,minecraft:item/stick".to_owned(),
             ]
@@ -5328,6 +5646,10 @@ mod tests {
             "assets/minecraft/models/item/stick.json",
             r#"{"parent":"minecraft:item/handheld","textures":{"layer0":"minecraft:item/stick"}}"#,
         );
+        base.write(
+            "assets/minecraft/items/stone.json",
+            r#"{"model":{"type":"minecraft:model","model":"minecraft:block/stone"}}"#,
+        );
         override_pack.write(
             "assets/minecraft/models/item/stick.json",
             r#"{"parent":"minecraft:item/generated","textures":{"layer0":"minecraft:item/custom_stick"}}"#,
@@ -5349,9 +5671,11 @@ mod tests {
                 "assets/minecraft/blockstates/stone.json@base:blockstates".to_owned(),
                 "assets/minecraft/models/block/stone.json@base:block_models".to_owned(),
                 "assets/minecraft/models/item/stick.json@override:item_models".to_owned(),
-                "pack:base:blockstates:1 block_models:1 item_models:0".to_owned(),
-                "pack:override:blockstates:0 block_models:0 item_models:1".to_owned(),
+                "assets/minecraft/items/stone.json@base:item_roots".to_owned(),
+                "pack:base:blockstates:1 block_models:1 item_models:0 item_roots:1".to_owned(),
+                "pack:override:blockstates:0 block_models:0 item_models:1 item_roots:0".to_owned(),
                 "blockstate_models:minecraft:block/stone".to_owned(),
+                "item_root_models:minecraft:block/stone".to_owned(),
                 "parents:minecraft:block/cube_all,minecraft:item/generated".to_owned(),
                 "textures:minecraft:block/stone,minecraft:item/custom_stick".to_owned(),
             ]
@@ -5372,6 +5696,10 @@ mod tests {
         temp.write(
             "assets/minecraft/models/item/stick.json",
             r#"{"parent":"minecraft:item/handheld","textures":{"layer0":"minecraft:item/stick"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/items/stone.json",
+            r#"{"model":{"type":"minecraft:model","model":"minecraft:block/stone"}}"#,
         );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
