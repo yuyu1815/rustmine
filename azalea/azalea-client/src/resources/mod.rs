@@ -94,22 +94,6 @@ const DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS: &[&str] =
     &["assets/minecraft/models/block/stone.json"];
 const DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS: &[&str] = &["assets/minecraft/models/item/stick.json"];
 const DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS: &[&str] = &["assets/minecraft/items/stone.json"];
-const DEFAULT_REPRESENTATIVE_SHADER_SOURCES: &[&str] = &[
-    "assets/minecraft/shaders/core/position_tex.vsh",
-    "assets/minecraft/shaders/core/gui.fsh",
-    "assets/minecraft/shaders/post/blit.fsh",
-];
-const DEFAULT_SHADER_INCLUDE_SOURCES: &[&str] = &[
-    "assets/minecraft/shaders/include/animation_sprite.glsl",
-    "assets/minecraft/shaders/include/chunksection.glsl",
-    "assets/minecraft/shaders/include/dynamictransforms.glsl",
-    "assets/minecraft/shaders/include/fog.glsl",
-    "assets/minecraft/shaders/include/globals.glsl",
-    "assets/minecraft/shaders/include/light.glsl",
-    "assets/minecraft/shaders/include/matrix.glsl",
-    "assets/minecraft/shaders/include/projection.glsl",
-    "assets/minecraft/shaders/include/sample_lightmap.glsl",
-];
 const FONT_DEFINITION_ROOT_DIR: &str = "assets/minecraft/font";
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
 const DEFAULT_WAYPOINT_STYLE_NEAR_DISTANCE: u32 = 128;
@@ -4827,44 +4811,8 @@ fn model_dependency_report_items(report: &ModelDependencyReport) -> Vec<String> 
     items
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HeadlessShaderSourceReloadListener {
-    sources: Vec<String>,
-    includes: Vec<String>,
-}
-
-impl HeadlessShaderSourceReloadListener {
-    pub fn new(
-        sources: impl IntoIterator<Item = impl Into<String>>,
-        includes: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
-        Self {
-            sources: sources.into_iter().map(Into::into).collect(),
-            includes: includes.into_iter().map(Into::into).collect(),
-        }
-    }
-
-    pub fn sources(&self) -> &[String] {
-        &self.sources
-    }
-
-    pub fn includes(&self) -> &[String] {
-        &self.includes
-    }
-
-    fn resources(&self) -> impl Iterator<Item = &String> {
-        self.sources.iter().chain(self.includes.iter())
-    }
-}
-
-impl Default for HeadlessShaderSourceReloadListener {
-    fn default() -> Self {
-        Self::new(
-            DEFAULT_REPRESENTATIVE_SHADER_SOURCES.iter().copied(),
-            DEFAULT_SHADER_INCLUDE_SOURCES.iter().copied(),
-        )
-    }
-}
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct HeadlessShaderSourceReloadListener;
 
 impl ResourceReloadListener for HeadlessShaderSourceReloadListener {
     fn name(&self) -> &str {
@@ -4875,37 +4823,177 @@ impl ResourceReloadListener for HeadlessShaderSourceReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let mut resources = Vec::with_capacity(self.sources.len() + self.includes.len());
-        for resource in self.resources() {
-            stack.require_resource(resource)?;
-            resources.push(resource.clone());
-        }
-
-        Ok(ResourceReloadTaskReport::new(resources))
+        load_headless_shader_manager_prepare(stack)
+            .map(|report| ResourceReloadTaskReport::new(report.items()))
     }
 
     fn reload(
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let mut loaded = Vec::with_capacity(self.sources.len() + self.includes.len());
-        for resource in self.resources() {
-            let report = load_headless_shader_source(stack, resource)?;
-            loaded.push(shader_source_report_item(&report));
-        }
+        let _ = stack;
+        Ok(ResourceReloadTaskReport::empty())
+    }
+}
 
-        Ok(ResourceReloadTaskReport::new(loaded))
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderManagerPrepareReport {
+    shader_sources: Vec<HeadlessShaderSourceReloadReport>,
+    includes: Vec<HeadlessShaderIncludeReport>,
+    post_chains: Vec<HeadlessPostChainReport>,
+}
+
+impl HeadlessShaderManagerPrepareReport {
+    fn new(
+        shader_sources: Vec<HeadlessShaderSourceReloadReport>,
+        includes: Vec<HeadlessShaderIncludeReport>,
+        post_chains: Vec<HeadlessPostChainReport>,
+    ) -> Self {
+        Self {
+            shader_sources,
+            includes,
+            post_chains,
+        }
+    }
+
+    pub fn shader_sources(&self) -> &[HeadlessShaderSourceReloadReport] {
+        &self.shader_sources
+    }
+
+    pub fn includes(&self) -> &[HeadlessShaderIncludeReport] {
+        &self.includes
+    }
+
+    pub fn post_chains(&self) -> &[HeadlessPostChainReport] {
+        &self.post_chains
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![
+            format!("shader_sources:{}", self.shader_sources.len()),
+            format!("includes:{}", self.includes.len()),
+            format!("post_chains:{}", self.post_chains.len()),
+        ];
+        items.extend(
+            self.shader_sources
+                .iter()
+                .map(HeadlessShaderSourceReloadReport::item_string),
+        );
+        items.extend(
+            self.includes
+                .iter()
+                .map(HeadlessShaderIncludeReport::item_string),
+        );
+        items.extend(
+            self.post_chains
+                .iter()
+                .map(HeadlessPostChainReport::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HeadlessShaderSourceKind {
+    Vertex,
+    Fragment,
+}
+
+impl HeadlessShaderSourceKind {
+    fn from_extension(extension: &str) -> Option<Self> {
+        match extension {
+            "vsh" => Some(Self::Vertex),
+            "fsh" => Some(Self::Fragment),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Vertex => "vertex",
+            Self::Fragment => "fragment",
+        }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HeadlessShaderSourceReloadReport {
+    id: String,
+    kind: HeadlessShaderSourceKind,
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    imports: Vec<String>,
+}
+
+impl HeadlessShaderSourceReloadReport {
+    fn new(
+        id: impl Into<String>,
+        kind: HeadlessShaderSourceKind,
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        byte_count: usize,
+        imports: Vec<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            byte_count,
+            imports,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn kind(&self) -> HeadlessShaderSourceKind {
+        self.kind
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn imports(&self) -> &[String] {
+        &self.imports
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "shader_source:{} kind:{} resource:{}@{} bytes:{} imports:{}",
+            self.id,
+            self.kind.as_str(),
+            self.resource,
+            self.pack_id,
+            self.byte_count,
+            self.imports.join(",")
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderIncludeReport {
     resource: String,
     pack_id: String,
     byte_count: usize,
 }
 
-impl HeadlessShaderSourceReloadReport {
+impl HeadlessShaderIncludeReport {
     fn new(resource: impl Into<String>, pack_id: impl Into<String>, byte_count: usize) -> Self {
         Self {
             resource: resource.into(),
@@ -4926,9 +5014,103 @@ impl HeadlessShaderSourceReloadReport {
         self.byte_count
     }
 
-    pub fn loaded_resource_pack(&self) -> String {
-        format!("{}@{}", self.resource, self.pack_id)
+    fn item_string(&self) -> String {
+        format!(
+            "include:{}@{} bytes:{}",
+            self.resource, self.pack_id, self.byte_count
+        )
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessPostChainReport {
+    id: String,
+    resource: String,
+    pack_id: String,
+    target_count: usize,
+    pass_count: usize,
+    shader_ids: Vec<String>,
+}
+
+impl HeadlessPostChainReport {
+    fn new(
+        id: impl Into<String>,
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        target_count: usize,
+        pass_count: usize,
+        shader_ids: Vec<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            target_count,
+            pass_count,
+            shader_ids,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn target_count(&self) -> usize {
+        self.target_count
+    }
+
+    pub fn pass_count(&self) -> usize {
+        self.pass_count
+    }
+
+    pub fn shader_ids(&self) -> &[String] {
+        &self.shader_ids
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "post_chain:{} resource:{}@{} targets:{} passes:{} shaders:{}",
+            self.id,
+            self.resource,
+            self.pack_id,
+            self.target_count,
+            self.pass_count,
+            self.shader_ids.join(",")
+        )
+    }
+}
+
+pub fn load_headless_shader_manager_prepare(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<HeadlessShaderManagerPrepareReport> {
+    let resources = discover_headless_shader_manager_resources(stack)?;
+    let mut shader_sources = Vec::new();
+    let mut includes = Vec::new();
+    let mut post_chains = Vec::new();
+
+    for resource in resources.shader_sources {
+        shader_sources.push(load_headless_shader_source(stack, &resource)?);
+    }
+    for resource in resources.includes {
+        includes.push(load_headless_shader_include(stack, &resource)?);
+    }
+    for resource in resources.post_chains {
+        post_chains.push(load_headless_post_chain(stack, &resource)?);
+    }
+
+    Ok(HeadlessShaderManagerPrepareReport::new(
+        shader_sources,
+        includes,
+        post_chains,
+    ))
 }
 
 pub fn load_headless_shader_source(
@@ -4937,29 +5119,67 @@ pub fn load_headless_shader_source(
 ) -> ResourceReloadResult<HeadlessShaderSourceReloadReport> {
     let resource = resource.as_ref();
     let location = stack.require_resource(resource)?;
-    let bytes = location
-        .read_bytes()
-        .map_err(|source| ResourceReloadError::ReadResource {
-            resource: resource.to_string_lossy().into_owned(),
-            path: location.path.clone(),
-            source,
-        })?;
-
+    let bytes = read_headless_shader_bytes(resource, &location)?;
     let resource_name = resource.to_string_lossy().into_owned();
-    validate_headless_shader_source(&resource_name, &location, &bytes)?;
+    let source = validate_headless_shader_utf8(&resource_name, &location, &bytes)?;
+    let id = shader_source_id(&resource_name)?;
+    let extension = resource
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    let kind = HeadlessShaderSourceKind::from_extension(extension).ok_or_else(|| {
+        invalid_shader_source(
+            &resource_name,
+            &location,
+            "shader source must end .vsh or .fsh",
+        )
+    })?;
+    let imports = resolve_shader_imports(stack, &resource_name, &location, source)?;
 
     Ok(HeadlessShaderSourceReloadReport::new(
+        id,
+        kind,
+        resource_name,
+        location.pack_id,
+        bytes.len(),
+        imports,
+    ))
+}
+
+fn load_headless_shader_include(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<HeadlessShaderIncludeReport> {
+    let resource = resource.as_ref();
+    let location = stack.require_resource(resource)?;
+    let bytes = read_headless_shader_bytes(resource, &location)?;
+    let resource_name = resource.to_string_lossy().into_owned();
+    validate_headless_shader_utf8(&resource_name, &location, &bytes)?;
+    Ok(HeadlessShaderIncludeReport::new(
         resource_name,
         location.pack_id,
         bytes.len(),
     ))
 }
 
-fn validate_headless_shader_source(
+fn read_headless_shader_bytes(
+    resource: &Path,
+    location: &ResourceLocation,
+) -> ResourceReloadResult<Vec<u8>> {
+    location
+        .read_bytes()
+        .map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource.to_string_lossy().into_owned(),
+            path: location.path.clone(),
+            source,
+        })
+}
+
+fn validate_headless_shader_utf8<'a>(
     resource: &str,
     location: &ResourceLocation,
-    bytes: &[u8],
-) -> ResourceReloadResult<()> {
+    bytes: &'a [u8],
+) -> ResourceReloadResult<&'a str> {
     if bytes.is_empty() {
         return Err(ResourceReloadError::InvalidShaderSource {
             resource: resource.to_owned(),
@@ -4983,16 +5203,459 @@ fn validate_headless_shader_source(
         });
     }
 
+    Ok(source)
+}
+
+fn invalid_shader_source(
+    resource: &str,
+    location: &ResourceLocation,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidShaderSource {
+        resource: resource.to_owned(),
+        path: location.path.clone(),
+        reason: reason.into(),
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct HeadlessShaderManagerResources {
+    shader_sources: Vec<String>,
+    includes: Vec<String>,
+    post_chains: Vec<String>,
+}
+
+fn discover_headless_shader_manager_resources(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<HeadlessShaderManagerResources> {
+    let mut resources = HeadlessShaderManagerResources::default();
+    let mut shader_sources = BTreeSet::new();
+    let mut includes = BTreeSet::new();
+    let mut post_chains = BTreeSet::new();
+
+    for pack in stack.packs() {
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_shader_manager_resources(
+                    root,
+                    &mut shader_sources,
+                    &mut includes,
+                    &mut post_chains,
+                )?
+            }
+            ClientResourcePackSource::RootZip(root) => discover_zip_shader_manager_resources(
+                root,
+                &mut shader_sources,
+                &mut includes,
+                &mut post_chains,
+            )?,
+            ClientResourcePackSource::Unavailable(_) => {}
+        }
+    }
+
+    resources.shader_sources = shader_sources.into_iter().collect();
+    resources.includes = includes.into_iter().collect();
+    resources.post_chains = post_chains.into_iter().collect();
+    Ok(resources)
+}
+
+fn discover_directory_shader_manager_resources(
+    root: &Path,
+    shader_sources: &mut BTreeSet<String>,
+    includes: &mut BTreeSet<String>,
+    post_chains: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+
+    discover_directory_shader_manager_resources_inner(
+        root,
+        &assets,
+        shader_sources,
+        includes,
+        post_chains,
+    )
+}
+
+fn discover_directory_shader_manager_resources_inner(
+    root: &Path,
+    directory: &Path,
+    shader_sources: &mut BTreeSet<String>,
+    includes: &mut BTreeSet<String>,
+    post_chains: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let entries = fs::read_dir(directory).map_err(|source| ResourceReloadError::ReadResource {
+        resource: directory_resource_name(root, directory),
+        path: directory.to_owned(),
+        source,
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: directory_resource_name(root, directory),
+            path: directory.to_owned(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            discover_directory_shader_manager_resources_inner(
+                root,
+                &path,
+                shader_sources,
+                includes,
+                post_chains,
+            )?;
+            continue;
+        }
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(resource_path) = path.strip_prefix(root) else {
+            continue;
+        };
+        if let Some(resource) = resource_path.to_str() {
+            collect_shader_manager_resource_path(resource, shader_sources, includes, post_chains);
+        }
+    }
+
     Ok(())
 }
 
-fn shader_source_report_item(report: &HeadlessShaderSourceReloadReport) -> String {
-    format!(
-        "{}@{}:{} bytes",
-        report.resource(),
-        report.pack_id(),
-        report.byte_count()
-    )
+fn discover_zip_shader_manager_resources(
+    root: &Path,
+    shader_sources: &mut BTreeSet<String>,
+    includes: &mut BTreeSet<String>,
+    post_chains: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets/*/{shaders,post_effect}".to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets/*/{shaders,post_effect}".to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: "assets/*/{shaders,post_effect}".to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        if entry.is_dir() {
+            continue;
+        }
+        collect_shader_manager_resource_path(entry.name(), shader_sources, includes, post_chains);
+    }
+
+    Ok(())
+}
+
+fn collect_shader_manager_resource_path(
+    resource: &str,
+    shader_sources: &mut BTreeSet<String>,
+    includes: &mut BTreeSet<String>,
+    post_chains: &mut BTreeSet<String>,
+) {
+    let Some((namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once('/')?;
+        Some((namespace, rest))
+    }) else {
+        return;
+    };
+
+    if namespace.is_empty() || namespace.contains('/') {
+        return;
+    }
+
+    if rest.starts_with("shaders/") {
+        match Path::new(resource)
+            .extension()
+            .and_then(|extension| extension.to_str())
+        {
+            Some("vsh" | "fsh") => {
+                shader_sources.insert(resource.to_owned());
+            }
+            Some("glsl") => {
+                includes.insert(resource.to_owned());
+            }
+            _ => {}
+        }
+    } else if rest.starts_with("post_effect/")
+        && !rest["post_effect/".len()..].contains('/')
+        && resource.ends_with(".json")
+    {
+        post_chains.insert(resource.to_owned());
+    }
+}
+
+fn directory_resource_name(root: &Path, directory: &Path) -> String {
+    directory
+        .strip_prefix(root)
+        .unwrap_or(directory)
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn shader_source_id(resource: &str) -> ResourceReloadResult<String> {
+    let Some((namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once("/shaders/")?;
+        Some((namespace, rest))
+    }) else {
+        return Err(ResourceReloadError::MissingResource(resource.to_owned()));
+    };
+    let Some((path, _extension)) = rest.rsplit_once('.') else {
+        return Err(ResourceReloadError::MissingResource(resource.to_owned()));
+    };
+    Ok(format!("{namespace}:{path}"))
+}
+
+fn resolve_shader_imports(
+    stack: &ClientResourceStack,
+    top_level_resource: &str,
+    top_level_location: &ResourceLocation,
+    source: &str,
+) -> ResourceReloadResult<Vec<String>> {
+    let mut imports = BTreeSet::new();
+    for line in source.lines() {
+        let Some(import) = parse_moj_import(line).map_err(|reason| {
+            invalid_shader_source(top_level_resource, top_level_location, reason)
+        })?
+        else {
+            continue;
+        };
+        let include =
+            resolve_shader_import_resource(top_level_resource, &import).map_err(|reason| {
+                invalid_shader_source(top_level_resource, top_level_location, reason)
+            })?;
+        let location = stack.require_resource(&include)?;
+        let bytes = read_headless_shader_bytes(Path::new(&include), &location)?;
+        validate_headless_shader_utf8(&include, &location, &bytes)?;
+        imports.insert(include);
+    }
+    Ok(imports.into_iter().collect())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum MojImport {
+    Relative(String),
+    Id(String),
+}
+
+fn parse_moj_import(line: &str) -> Result<Option<MojImport>, String> {
+    let line = line.trim_start();
+    let Some(rest) = line.strip_prefix("#moj_import") else {
+        return Ok(None);
+    };
+    let rest = rest.trim_start();
+    if let Some(rest) = rest.strip_prefix('"') {
+        let Some((path, _)) = rest.split_once('"') else {
+            return Err("malformed #moj_import path".to_owned());
+        };
+        Ok(Some(MojImport::Relative(path.to_owned())))
+    } else if let Some(rest) = rest.strip_prefix('<') {
+        let Some((id, _)) = rest.split_once('>') else {
+            return Err("malformed #moj_import id".to_owned());
+        };
+        Ok(Some(MojImport::Id(id.to_owned())))
+    } else {
+        Err("malformed #moj_import".to_owned())
+    }
+}
+
+fn resolve_shader_import_resource(
+    importing_resource: &str,
+    import: &MojImport,
+) -> Result<String, String> {
+    match import {
+        MojImport::Relative(path) => resolve_relative_shader_import(importing_resource, path),
+        MojImport::Id(id) => resolve_id_shader_import(id),
+    }
+}
+
+fn resolve_relative_shader_import(importing_resource: &str, path: &str) -> Result<String, String> {
+    if path.is_empty() || path.starts_with('/') || path.contains('\\') {
+        return Err(format!(
+            "{importing_resource} imports malformed path `{path}`"
+        ));
+    }
+
+    let mut parts = importing_resource
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.split('/').collect::<Vec<_>>())
+        .unwrap_or_default();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() || parts.len() < 3 {
+                    return Err(format!(
+                        "{importing_resource} imports malformed path `{path}`"
+                    ));
+                }
+            }
+            segment => parts.push(segment),
+        }
+    }
+
+    let resource = parts.join("/");
+    if !resource.ends_with(".glsl") {
+        return Err(format!(
+            "{importing_resource} imports malformed path `{path}`"
+        ));
+    }
+    Ok(resource)
+}
+
+fn resolve_id_shader_import(id: &str) -> Result<String, String> {
+    let Some((namespace, path)) = id.split_once(':') else {
+        return Err(format!("malformed shader import id `{id}`"));
+    };
+    if namespace.is_empty()
+        || path.is_empty()
+        || path.starts_with('/')
+        || path.contains('\\')
+        || path
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+        || !path.ends_with(".glsl")
+    {
+        return Err(format!("malformed shader import id `{id}`"));
+    }
+    Ok(format!("assets/{namespace}/shaders/include/{path}"))
+}
+
+fn load_headless_post_chain(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<HeadlessPostChainReport> {
+    let resource = resource.as_ref();
+    let location = stack.require_resource(resource)?;
+    let json = read_client_json_resource(resource, &location)?;
+    let value = json.value();
+    let resource_name = resource.to_string_lossy().into_owned();
+    let object = value.as_object().ok_or_else(|| {
+        invalid_post_chain(
+            &resource_name,
+            &location,
+            "post effect root must be an object",
+        )
+    })?;
+    let target_count = object
+        .get("targets")
+        .and_then(serde_json::Value::as_object)
+        .map(serde_json::Map::len)
+        .unwrap_or(0);
+    let passes = object
+        .get("passes")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| invalid_post_chain(&resource_name, &location, "missing passes array"))?;
+    let mut shader_ids = BTreeSet::new();
+    for (pass_index, pass) in passes.iter().enumerate() {
+        let pass_object = pass.as_object().ok_or_else(|| {
+            invalid_post_chain(
+                &resource_name,
+                &location,
+                format!("pass {pass_index} must be an object"),
+            )
+        })?;
+        for key in ["vertex_shader", "fragment_shader"] {
+            let shader_id = pass_object
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    invalid_post_chain(
+                        &resource_name,
+                        &location,
+                        format!("pass {pass_index} missing {key} string"),
+                    )
+                })?;
+            shader_ids.insert(shader_id.to_owned());
+        }
+        validate_post_pass_sampler_names(&resource_name, &location, pass_index, pass_object)?;
+    }
+
+    Ok(HeadlessPostChainReport::new(
+        post_chain_id(&resource_name)?,
+        resource_name,
+        location.pack_id,
+        target_count,
+        passes.len(),
+        shader_ids.into_iter().collect(),
+    ))
+}
+
+fn validate_post_pass_sampler_names(
+    resource: &str,
+    location: &ResourceLocation,
+    pass_index: usize,
+    pass: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<()> {
+    let Some(inputs) = pass.get("inputs") else {
+        return Ok(());
+    };
+    let inputs = inputs.as_array().ok_or_else(|| {
+        invalid_post_chain(
+            resource,
+            location,
+            format!("pass {pass_index} inputs must be an array"),
+        )
+    })?;
+    let mut sampler_names = BTreeSet::new();
+    for (input_index, input) in inputs.iter().enumerate() {
+        let sampler_name = input
+            .as_object()
+            .and_then(|input| input.get("sampler_name"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                invalid_post_chain(
+                    resource,
+                    location,
+                    format!("pass {pass_index} input {input_index} missing sampler_name string"),
+                )
+            })?;
+        if !sampler_names.insert(sampler_name.to_owned()) {
+            return Err(invalid_post_chain(
+                resource,
+                location,
+                format!("pass {pass_index} has duplicate sampler `{sampler_name}`"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn post_chain_id(resource: &str) -> ResourceReloadResult<String> {
+    let Some((namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once("/post_effect/")?;
+        Some((namespace, rest))
+    }) else {
+        return Err(ResourceReloadError::MissingResource(resource.to_owned()));
+    };
+    let Some(id) = rest.strip_suffix(".json") else {
+        return Err(ResourceReloadError::MissingResource(resource.to_owned()));
+    };
+    Ok(format!("{namespace}:{id}"))
+}
+
+fn invalid_post_chain(
+    resource: &str,
+    location: &ResourceLocation,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidShaderSource {
+        resource: resource.to_owned(),
+        path: location.path.clone(),
+        reason: reason.into(),
+    }
 }
 
 pub fn load_client_json_manifest_set(
@@ -10052,119 +10715,198 @@ mod tests {
     }
 
     #[test]
-    fn committed_vanilla_headless_shader_source_listener_loads_representative_sources() {
+    fn committed_vanilla_shader_manager_prepare_reports_vanilla_shape() {
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(HeadlessShaderSourceReloadListener::default())
             .run()
-            .expect("committed vanilla shader sources should load");
+            .expect("committed vanilla shader manager prepare should load");
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "headless_shader_sources");
         assert_eq!(
-            listener.preparation.items().len(),
-            DEFAULT_REPRESENTATIVE_SHADER_SOURCES.len() + DEFAULT_SHADER_INCLUDE_SOURCES.len()
+            &listener.preparation.items()[..3],
+            ["shader_sources:79", "includes:9", "post_chains:6"]
         );
-        assert_eq!(
-            listener.preparation.items(),
-            DEFAULT_REPRESENTATIVE_SHADER_SOURCES
-                .iter()
-                .chain(DEFAULT_SHADER_INCLUDE_SOURCES.iter())
-                .map(|resource| (*resource).to_owned())
-                .collect::<Vec<_>>()
-        );
-
-        for resource in DEFAULT_REPRESENTATIVE_SHADER_SOURCES
-            .iter()
-            .chain(DEFAULT_SHADER_INCLUDE_SOURCES.iter())
-        {
-            let item = listener
-                .reload
+        assert_eq!(listener.preparation.items().len(), 3 + 79 + 9 + 6);
+        assert!(listener.preparation.items().iter().any(|item| {
+            item.starts_with("shader_source:minecraft:core/position_tex kind:vertex ")
+        }));
+        assert!(
+            listener
+                .preparation
                 .items()
                 .iter()
-                .find(|item| item.starts_with(&format!("{resource}@{VANILLA_PACK_ID}:")))
-                .unwrap_or_else(|| panic!("reload report should include {resource}"));
-            let byte_count = item
-                .strip_prefix(&format!("{resource}@{VANILLA_PACK_ID}:"))
-                .and_then(|suffix| suffix.strip_suffix(" bytes"))
-                .and_then(|bytes| bytes.parse::<usize>().ok())
-                .expect("shader reload report should include a byte count");
-            assert!(byte_count > 0, "shader report should count bytes");
-        }
+                .any(|item| item.starts_with(
+                    "include:assets/minecraft/shaders/include/dynamictransforms.glsl@vanilla "
+                ))
+        );
+        assert!(
+            listener
+                .preparation
+                .items()
+                .iter()
+                .any(|item| item.starts_with("post_chain:minecraft:spider "))
+        );
+        assert!(listener.reload.items().is_empty());
     }
 
     #[test]
-    fn shader_source_reload_uses_highest_priority_pack_and_reports_bytes() {
+    fn shader_manager_prepare_uses_highest_priority_pack_for_shader_include_and_post_chain() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         let source = "assets/minecraft/shaders/core/position_tex.vsh";
         let include = "assets/minecraft/shaders/include/dynamictransforms.glsl";
         base.write(source, "#version 150\nvoid main() {}\n");
         base.write(include, "#define BASE 1\n");
+        base.write(
+            "assets/minecraft/post_effect/invert.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:base/v","fragment_shader":"minecraft:base/f","inputs":[]}]}"#,
+        );
         override_pack.write(source, "#version 150\n// override\nvoid main() {}\n");
+        override_pack.write(include, "#define OVERRIDE 1\n");
+        override_pack.write(
+            "assets/minecraft/post_effect/invert.json",
+            r#"{"targets":{"swap":{}},"passes":[{"vertex_shader":"minecraft:override/v","fragment_shader":"minecraft:override/f","inputs":[]}]}"#,
+        );
 
         let stack = ClientResourceStack::new(vec![
             ClientResourcePack::new("base", base.path()),
             ClientResourcePack::new("override", override_pack.path()),
         ]);
-        let report = ResourceReloadManager::new(stack)
-            .with_listener(HeadlessShaderSourceReloadListener::new([source], [include]))
-            .run()
-            .expect("shader source reload should succeed");
+        let report = load_headless_shader_manager_prepare(&stack)
+            .expect("shader manager prepare should succeed");
 
-        let listener = &report.listener_reports()[0];
         assert_eq!(
-            listener.reload.items(),
+            report.items(),
             [
-                format!(
-                    "{source}@override:{} bytes",
-                    "#version 150\n// override\nvoid main() {}\n".len()
-                ),
-                format!("{include}@base:{} bytes", "#define BASE 1\n".len()),
+                "shader_sources:1".to_owned(),
+                "includes:1".to_owned(),
+                "post_chains:1".to_owned(),
+                format!("shader_source:minecraft:core/position_tex kind:vertex resource:{source}@override bytes:{} imports:", "#version 150\n// override\nvoid main() {}\n".len()),
+                format!("include:{include}@override bytes:{}", "#define OVERRIDE 1\n".len()),
+                "post_chain:minecraft:invert resource:assets/minecraft/post_effect/invert.json@override targets:1 passes:1 shaders:minecraft:override/f,minecraft:override/v".to_owned(),
             ]
         );
     }
 
     #[test]
-    fn shader_source_reload_fails_when_representative_source_is_missing() {
+    fn shader_manager_prepare_resolves_angle_bracket_import_to_include_directory() {
         let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/position_tex.vsh",
+            "#version 150\n#moj_import <minecraft:dynamictransforms.glsl>\nvoid main() {}\n",
+        );
         temp.write(
             "assets/minecraft/shaders/include/dynamictransforms.glsl",
             "#define PRESENT 1\n",
         );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
-        let error = ResourceReloadManager::new(stack)
-            .with_listener(HeadlessShaderSourceReloadListener::new(
-                ["assets/minecraft/shaders/core/position_tex.vsh"],
-                ["assets/minecraft/shaders/include/dynamictransforms.glsl"],
-            ))
-            .run()
-            .expect_err("missing representative shader source should fail");
+        let report = load_headless_shader_manager_prepare(&stack)
+            .expect("shader manager prepare should resolve include id");
 
-        assert!(
-            matches!(error, ResourceReloadError::MissingResource(resource) if resource == "assets/minecraft/shaders/core/position_tex.vsh")
+        assert_eq!(
+            report.shader_sources()[0].imports(),
+            ["assets/minecraft/shaders/include/dynamictransforms.glsl".to_owned()]
         );
     }
 
     #[test]
-    fn shader_source_reload_fails_when_include_source_is_missing() {
+    fn shader_manager_prepare_resolves_relative_nested_import() {
         let temp = TempPack::new();
         temp.write(
-            "assets/minecraft/shaders/core/position_tex.vsh",
-            "#version 150\nvoid main() {}\n",
+            "assets/minecraft/shaders/core/nested.vsh",
+            "#version 150\n#moj_import \"../include/nested/foo.glsl\"\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/nested/foo.glsl",
+            "#define NESTED 1\n",
         );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
-        let error = ResourceReloadManager::new(stack)
-            .with_listener(HeadlessShaderSourceReloadListener::new(
-                ["assets/minecraft/shaders/core/position_tex.vsh"],
-                ["assets/minecraft/shaders/include/dynamictransforms.glsl"],
-            ))
-            .run()
+        let report = load_headless_shader_manager_prepare(&stack)
+            .expect("shader manager prepare should resolve relative include");
+
+        assert_eq!(
+            report.shader_sources()[0].imports(),
+            ["assets/minecraft/shaders/include/nested/foo.glsl".to_owned()]
+        );
+    }
+
+    #[test]
+    fn shader_manager_prepare_reports_duplicate_import_once_per_top_level_shader() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/position_tex.vsh",
+            "#version 150\n#moj_import <minecraft:dynamictransforms.glsl>\n#moj_import <minecraft:dynamictransforms.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/dynamictransforms.glsl",
+            "#define PRESENT 1\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = load_headless_shader_manager_prepare(&stack)
+            .expect("shader manager prepare should deduplicate imports");
+
+        assert_eq!(
+            report.shader_sources()[0].imports(),
+            ["assets/minecraft/shaders/include/dynamictransforms.glsl".to_owned()]
+        );
+    }
+
+    #[test]
+    fn shader_manager_prepare_fails_when_imported_include_is_missing() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/position_tex.vsh",
+            "#version 150\n#moj_import <minecraft:dynamictransforms.glsl>\nvoid main() {}\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = load_headless_shader_manager_prepare(&stack)
             .expect_err("missing shader include source should fail");
 
         assert!(
             matches!(error, ResourceReloadError::MissingResource(resource) if resource == "assets/minecraft/shaders/include/dynamictransforms.glsl")
+        );
+    }
+
+    #[test]
+    fn shader_manager_prepare_parses_vanilla_spider_post_chain_shape() {
+        let resource =
+            Path::new(VANILLA_PACK_PATH).join("assets/minecraft/post_effect/spider.json");
+        if !resource.is_file() {
+            return;
+        }
+
+        let stack = ClientResourceStack::vanilla();
+        let report = load_headless_shader_manager_prepare(&stack)
+            .expect("vanilla shader manager prepare should parse post chains");
+        let spider = report
+            .post_chains()
+            .iter()
+            .find(|post_chain| post_chain.id() == "minecraft:spider")
+            .expect("spider post chain should be discovered");
+
+        assert_eq!(spider.target_count(), 4);
+        assert_eq!(spider.pass_count(), 10);
+    }
+
+    #[test]
+    fn shader_manager_prepare_rejects_duplicate_sampler_name_in_post_pass() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/post_effect/duplicate.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:post/v","fragment_shader":"minecraft:post/f","inputs":[{"sampler_name":"In","target":"minecraft:main"},{"sampler_name":"In","target":"swap"}]}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = load_headless_shader_manager_prepare(&stack)
+            .expect_err("duplicate sampler name should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidShaderSource { resource, reason, .. } if resource == "assets/minecraft/post_effect/duplicate.json" && reason == "pass 0 has duplicate sampler `In`")
         );
     }
 
