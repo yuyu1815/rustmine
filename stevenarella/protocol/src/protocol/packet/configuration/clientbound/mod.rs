@@ -3,6 +3,7 @@ use std::io;
 
 mod custom_report_details;
 mod dialog;
+mod disconnect_reset_chat;
 mod keep_alive_ping;
 mod resource_pack;
 mod update_tags;
@@ -11,6 +12,9 @@ pub use custom_report_details::{
     ConfigurationCustomReportDetail, ConfigurationCustomReportDetailsClientbound,
 };
 pub use dialog::{ConfigurationClearDialogClientbound, ConfigurationShowDialogClientbound};
+pub use disconnect_reset_chat::{
+    ConfigurationDisconnectClientbound, ConfigurationResetChatClientbound,
+};
 pub use keep_alive_ping::{
     ConfigurationKeepAliveClientbound_i64, ConfigurationPingClientbound_i32,
 };
@@ -88,50 +92,6 @@ impl PacketType for ConfigurationCustomPayloadClientbound {
     fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
         self.channel.write_to(buf)?;
         self.data.write_to(buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationDisconnectClientbound {
-    pub reason: format::Component,
-}
-
-impl PacketType for ConfigurationDisconnectClientbound {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationDisconnectClientbound,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        self.reason.write_to(buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationResetChatClientbound {
-    pub empty: (),
-}
-
-impl PacketType for ConfigurationResetChatClientbound {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationResetChatClientbound,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        self.empty.write_to(buf)?;
         Ok(())
     }
 }
