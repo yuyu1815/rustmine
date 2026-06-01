@@ -23,6 +23,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        super::finish_configuration::read_finish_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
@@ -82,15 +90,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
             let id: i32 = Serializable::read_from(buf)?;
             return Ok(Some(Packet::StatusPong(
                 packet::status::clientbound::StatusPong { ping: id.into() },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationFinishConfigurationServerbound => {
-            let _: () = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::PluginMessageServerbound(
-                packet::play::serverbound::PluginMessageServerbound {
-                    channel: "FinishConfiguration".to_owned(),
-                    data: Vec::new(),
-                },
             )));
         }
         packet::configuration::serverbound::internal_ids::ConfigurationResourcePackServerbound => {
