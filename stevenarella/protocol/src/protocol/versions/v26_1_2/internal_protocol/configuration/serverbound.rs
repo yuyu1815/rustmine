@@ -11,6 +11,7 @@ mod accept_code_of_conduct;
 mod custom_click_action;
 mod custom_payload;
 mod keep_alive;
+mod pong;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     id: i32,
@@ -58,6 +59,11 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        pong::read_pong_configuration_serverbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
@@ -94,12 +100,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                         .map(|payload| payload.data)
                         .unwrap_or_else(Vec::new),
                 },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationPongServerbound_i32 => {
-            let id: i32 = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::StatusPong(
-                packet::status::clientbound::StatusPong { ping: id.into() },
             )));
         }
         packet::configuration::serverbound::internal_ids::ConfigurationResourcePackServerbound => {
