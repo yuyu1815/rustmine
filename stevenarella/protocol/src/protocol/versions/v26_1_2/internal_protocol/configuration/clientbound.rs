@@ -10,6 +10,7 @@ use super::super::super::translate_internal_packet_id;
 mod cookie;
 mod dialog;
 mod resource_pack;
+mod server_links;
 mod update;
 
 pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
@@ -30,6 +31,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         resource_pack::read_resource_pack_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        server_links::read_server_links_configuration_clientbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
@@ -143,31 +152,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "CustomReportDetails".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationServerLinksClientbound => {
-            let link_count = VarInt::read_from(buf)?.0;
-            if link_count < 0 {
-                return Err(Error::Err(format!(
-                    "negative server_links link count {}",
-                    link_count
-                )));
-            }
-            if link_count != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty server_links list count {}",
-                    link_count
-                )));
-            }
-            let _packet = packet::configuration::clientbound::ConfigurationServerLinksClientbound {
-                link_count,
-                links_data: Vec::new(),
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ServerLinks".to_owned(),
                     data: Vec::new(),
                 },
             )));
