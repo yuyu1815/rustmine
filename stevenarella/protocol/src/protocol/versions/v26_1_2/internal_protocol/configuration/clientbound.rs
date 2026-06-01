@@ -2,11 +2,12 @@ use std::io;
 
 use crate::protocol::{
     packet::{self, Packet},
-    read_nbt_string_component, Direction, Error, LenPrefixed, Serializable, State, VarInt, UUID,
+    read_nbt_string_component, Direction, Error, LenPrefixed, Serializable, State, VarInt,
 };
 
 use super::super::super::translate_internal_packet_id;
 
+mod resource_pack;
 mod update;
 
 pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
@@ -17,6 +18,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
         translate_internal_packet_id(State::Configuration, Direction::Clientbound, id, true);
     if let Some(packet) =
         update::read_update_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        resource_pack::read_resource_pack_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
     {
         return Ok(Some(packet));
     }
@@ -72,48 +81,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "RegistryData".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationResourcePackPopClientbound => {
-            let id_present: bool = Serializable::read_from(buf)?;
-            let _packet = packet::configuration::clientbound::ConfigurationResourcePackPopClientbound {
-                id_present,
-                id: if id_present {
-                    Some(Serializable::read_from(buf)?)
-                } else {
-                    None
-                },
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ResourcePackPop".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationResourcePackPushClientbound => {
-            let id: UUID = Serializable::read_from(buf)?;
-            let url: String = Serializable::read_from(buf)?;
-            let hash: String = Serializable::read_from(buf)?;
-            let required: bool = Serializable::read_from(buf)?;
-            let prompt_present: bool = Serializable::read_from(buf)?;
-            let _packet = packet::configuration::clientbound::ConfigurationResourcePackPushClientbound {
-                id,
-                url,
-                hash,
-                required,
-                prompt_present,
-                prompt_data: if prompt_present {
-                    Serializable::read_from(buf)?
-                } else {
-                    Vec::new()
-                },
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ResourcePackPush".to_owned(),
                     data: Vec::new(),
                 },
             )));
