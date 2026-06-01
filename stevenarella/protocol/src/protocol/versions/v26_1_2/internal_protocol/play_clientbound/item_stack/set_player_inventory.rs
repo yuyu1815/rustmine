@@ -12,10 +12,7 @@ pub(crate) fn read_set_player_inventory_play_clientbound_packet_by_internal_id<R
     match internal_id {
         packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
             let slot = VarInt::read_from(buf)?;
-            super::item_stack_marker::read_empty_play_item_stack_marker(
-                buf,
-                "set_player_inventory",
-            )?;
+            super::read_empty_play_item_stack_marker(buf, "set_player_inventory")?;
             Ok(Some(Packet::PlaySetPlayerInventoryClientbound(
                 packet::play::clientbound::PlaySetPlayerInventoryClientbound { slot, item: None },
             )))

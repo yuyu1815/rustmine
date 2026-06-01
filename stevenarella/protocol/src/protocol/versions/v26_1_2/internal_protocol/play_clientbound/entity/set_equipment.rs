@@ -19,10 +19,7 @@ pub(super) fn read_set_equipment_clientbound_packet_by_internal_id<R: io::Read>(
                     equipment_slot
                 )));
             }
-            super::super::item_stack_marker::read_empty_play_item_stack_marker(
-                buf,
-                "set_equipment",
-            )?;
+            super::super::item_stack::read_empty_play_item_stack_marker(buf, "set_equipment")?;
             Ok(Some(Packet::PlaySetEquipmentClientbound(
                 packet::play::clientbound::PlaySetEquipmentClientbound {
                     entity_id,

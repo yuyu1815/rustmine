@@ -8,13 +8,11 @@ mod custom_report_details;
 mod dialog;
 mod disconnect;
 mod entity;
-mod item_stack_marker;
+mod item_stack;
 mod projectile_power;
 mod scoreboard;
 mod server_links;
-mod set_cursor_item;
 mod set_default_spawn_position;
-mod set_player_inventory;
 mod set_time;
 mod sound;
 mod tag_query;
@@ -82,10 +80,7 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
         return Ok(Some(packet));
     }
     if let Some(packet) =
-        set_cursor_item::read_set_cursor_item_play_clientbound_packet_by_internal_id(
-            internal_id,
-            buf,
-        )?
+        item_stack::read_set_cursor_item_play_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
     }
@@ -95,7 +90,7 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
         return Ok(Some(packet));
     }
     if let Some(packet) =
-        set_player_inventory::read_set_player_inventory_play_clientbound_packet_by_internal_id(
+        item_stack::read_set_player_inventory_play_clientbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
