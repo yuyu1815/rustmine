@@ -16,6 +16,12 @@ pub const VANILLA_PACK_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ass
 pub const INITIAL_RELOAD_TASK_NAME: &str = "initial";
 pub const DEFAULT_LANGUAGE_CODE: &str = "en_us";
 pub const SPLASHES_RESOURCE: &str = "assets/minecraft/texts/splashes.txt";
+pub const GRASS_COLORMAP_RESOURCE: &str = "assets/minecraft/textures/colormap/grass.png";
+pub const FOLIAGE_COLORMAP_RESOURCE: &str = "assets/minecraft/textures/colormap/foliage.png";
+pub const DRY_FOLIAGE_COLORMAP_RESOURCE: &str =
+    "assets/minecraft/textures/colormap/dry_foliage.png";
+pub const GPU_WARNLIST_RESOURCE: &str = "assets/minecraft/gpu_warnlist.json";
+pub const REGIONAL_COMPLIANCIES_RESOURCE: &str = "assets/minecraft/regional_compliancies.json";
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
@@ -28,6 +34,12 @@ const DEFAULT_ATLAS_MANIFESTS: &[&str] = &[
     "assets/minecraft/atlases/items.json",
     "assets/minecraft/atlases/particles.json",
 ];
+const DEFAULT_COLORMAPS: &[&str] = &[
+    GRASS_COLORMAP_RESOURCE,
+    FOLIAGE_COLORMAP_RESOURCE,
+    DRY_FOLIAGE_COLORMAP_RESOURCE,
+];
+const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -431,6 +443,229 @@ pub struct CompletedResourceReloadListener {
     pub reload: ResourceReloadTaskReport,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientJsonResource {
+    value: serde_json::Value,
+    report: ClientJsonResourceReloadReport,
+}
+
+impl ClientJsonResource {
+    pub fn value(&self) -> &serde_json::Value {
+        &self.value
+    }
+
+    pub fn report(&self) -> &ClientJsonResourceReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientJsonResourceReloadReport {
+    resource: String,
+    pack_id: String,
+    top_level_shape: ClientJsonTopLevelShape,
+}
+
+impl ClientJsonResourceReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        top_level_shape: ClientJsonTopLevelShape,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            top_level_shape,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+
+    pub fn top_level_shape(&self) -> &ClientJsonTopLevelShape {
+        &self.top_level_shape
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientJsonTopLevelShape {
+    Object { keys: Vec<String> },
+    Array { len: usize },
+    String,
+    Number,
+    Boolean,
+    Null,
+}
+
+impl ClientJsonTopLevelShape {
+    fn from_value(value: &serde_json::Value) -> Self {
+        match value {
+            serde_json::Value::Object(object) => Self::Object {
+                keys: object.keys().cloned().collect(),
+            },
+            serde_json::Value::Array(array) => Self::Array { len: array.len() },
+            serde_json::Value::String(_) => Self::String,
+            serde_json::Value::Number(_) => Self::Number,
+            serde_json::Value::Bool(_) => Self::Boolean,
+            serde_json::Value::Null => Self::Null,
+        }
+    }
+
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::Object { keys } => format!("object keys:{}", keys.join(",")),
+            Self::Array { len } => format!("array len:{len}"),
+            Self::String => "string".to_owned(),
+            Self::Number => "number".to_owned(),
+            Self::Boolean => "boolean".to_owned(),
+            Self::Null => "null".to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GpuWarnlistReloadListener {
+    resource: String,
+}
+
+impl GpuWarnlistReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+        }
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonResource> {
+        load_client_json_resource(stack, &self.resource)
+    }
+}
+
+impl Default for GpuWarnlistReloadListener {
+    fn default() -> Self {
+        Self::new(GPU_WARNLIST_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for GpuWarnlistReloadListener {
+    fn name(&self) -> &str {
+        "gpu_warnlist"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        stack.require_resource(&self.resource)?;
+        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resource = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new([format!(
+            "{}:{}",
+            resource.report().loaded_resource_pack(),
+            resource.report().top_level_shape().report_fragment()
+        )]))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegionalComplianciesReloadListener {
+    resource: String,
+}
+
+impl RegionalComplianciesReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+        }
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonResource> {
+        load_client_json_resource(stack, &self.resource)
+    }
+}
+
+impl Default for RegionalComplianciesReloadListener {
+    fn default() -> Self {
+        Self::new(REGIONAL_COMPLIANCIES_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for RegionalComplianciesReloadListener {
+    fn name(&self) -> &str {
+        "regional_compliancies"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        stack.require_resource(&self.resource)?;
+        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resource = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new([format!(
+            "{}:{}",
+            resource.report().loaded_resource_pack(),
+            resource.report().top_level_shape().report_fragment()
+        )]))
+    }
+}
+
+pub fn load_client_json_resource(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<ClientJsonResource> {
+    let resource = resource.as_ref();
+    let location = stack.require_resource(resource)?;
+    read_client_json_resource(resource, &location)
+}
+
+fn read_client_json_resource(
+    resource: &Path,
+    location: &ResourceLocation,
+) -> ResourceReloadResult<ClientJsonResource> {
+    let contents =
+        fs::read_to_string(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource.to_string_lossy().into_owned(),
+            path: location.path.clone(),
+            source,
+        })?;
+
+    let value: serde_json::Value = serde_json::from_str(&contents).map_err(|source| {
+        ResourceReloadError::ParseResourceJson {
+            resource: resource.to_string_lossy().into_owned(),
+            path: location.path.clone(),
+            source,
+        }
+    })?;
+    let report = ClientJsonResourceReloadReport::new(
+        resource.to_string_lossy(),
+        location.pack_id.clone(),
+        ClientJsonTopLevelShape::from_value(&value),
+    );
+
+    Ok(ClientJsonResource { value, report })
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientLanguageResources {
     translations: BTreeMap<String, String>,
@@ -828,6 +1063,90 @@ impl ResourceReloadListener for AtlasManifestReloadListener {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ColormapReloadListener {
+    name: String,
+    colormaps: Vec<String>,
+}
+
+impl ColormapReloadListener {
+    pub fn new(colormaps: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "colormaps".to_owned(),
+            colormaps: colormaps.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn colormaps(&self) -> &[String] {
+        &self.colormaps
+    }
+}
+
+impl Default for ColormapReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_COLORMAPS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for ColormapReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for colormap in &self.colormaps {
+            stack.require_resource(colormap)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(self.colormaps.clone()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let mut loaded = Vec::with_capacity(self.colormaps.len());
+        for colormap in &self.colormaps {
+            let location = stack.require_resource(colormap)?;
+            let bytes =
+                fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+                    resource: colormap.clone(),
+                    path: location.path.clone(),
+                    source,
+                })?;
+
+            validate_png_signature(colormap, &location, &bytes)?;
+
+            loaded.push(format!(
+                "{colormap}@{}:{} bytes:png-signature-ok",
+                location.pack_id,
+                bytes.len()
+            ));
+        }
+
+        Ok(ResourceReloadTaskReport::new(loaded))
+    }
+}
+
+fn validate_png_signature(
+    resource: &str,
+    location: &ResourceLocation,
+    bytes: &[u8],
+) -> ResourceReloadResult<()> {
+    if bytes.starts_with(PNG_SIGNATURE) {
+        Ok(())
+    } else {
+        Err(ResourceReloadError::InvalidPngSignature {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            byte_count: bytes.len(),
+        })
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ResourceReloadError {
     #[error("missing client resource `{0}`")]
@@ -843,6 +1162,14 @@ pub enum ResourceReloadError {
         resource: String,
         path: PathBuf,
         source: serde_json::Error,
+    },
+    #[error(
+        "invalid png signature for client resource `{resource}` at `{path}` ({byte_count} bytes)"
+    )]
+    InvalidPngSignature {
+        resource: String,
+        path: PathBuf,
+        byte_count: usize,
     },
 }
 
@@ -1085,6 +1412,193 @@ mod tests {
     }
 
     #[test]
+    fn client_json_reload_applies_pack_priority_overrides() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["base"],"version":[],"vendor":[]}"#,
+        );
+        base.write(REGIONAL_COMPLIANCIES_RESOURCE, r#"{"BASE":[]}"#);
+        override_pack.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":[],"vendor":["override"],"version":[]}"#,
+        );
+        override_pack.write(REGIONAL_COMPLIANCIES_RESOURCE, r#"{"OVERRIDE":[]}"#);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let gpu_warnlist = GpuWarnlistReloadListener::default()
+            .load(&stack)
+            .expect("gpu warnlist should load from highest priority pack");
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect("regional compliancies should load from highest priority pack");
+
+        assert_eq!(gpu_warnlist.report().pack_id(), "override");
+        assert_eq!(
+            gpu_warnlist.report().top_level_shape(),
+            &ClientJsonTopLevelShape::Object {
+                keys: vec![
+                    "renderer".to_owned(),
+                    "vendor".to_owned(),
+                    "version".to_owned()
+                ],
+            }
+        );
+        assert_eq!(
+            gpu_warnlist.value()["vendor"][0],
+            serde_json::Value::String("override".to_owned())
+        );
+        assert_eq!(compliancies.report().pack_id(), "override");
+        assert_eq!(
+            compliancies.report().top_level_shape(),
+            &ClientJsonTopLevelShape::Object {
+                keys: vec!["OVERRIDE".to_owned()],
+            }
+        );
+    }
+
+    #[test]
+    fn client_json_listener_reports_loaded_pack_and_top_level_shape() {
+        let temp = TempPack::new();
+        temp.write(GPU_WARNLIST_RESOURCE, r#"["warn","list"]"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(GpuWarnlistReloadListener::default())
+            .run()
+            .expect("json listener should run");
+
+        assert_eq!(report.listener_reports()[0].name, "gpu_warnlist");
+        assert_eq!(
+            report.listener_reports()[0].preparation.items(),
+            [GPU_WARNLIST_RESOURCE.to_owned()]
+        );
+        assert_eq!(
+            report.listener_reports()[0].reload.items(),
+            [format!("{GPU_WARNLIST_RESOURCE}@test:array len:2")]
+        );
+    }
+
+    #[test]
+    fn client_json_reload_rejects_invalid_json() {
+        let temp = TempPack::new();
+        temp.write(GPU_WARNLIST_RESOURCE, "{not json");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = GpuWarnlistReloadListener::default()
+            .load(&stack)
+            .expect_err("invalid gpu warnlist json should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == GPU_WARNLIST_RESOURCE)
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_gpu_warnlist_loads() {
+        let resource =
+            load_client_json_resource(&ClientResourceStack::vanilla(), GPU_WARNLIST_RESOURCE)
+                .expect("committed vanilla gpu warnlist should parse");
+
+        assert_eq!(resource.report().pack_id(), VANILLA_PACK_ID);
+        assert_eq!(
+            resource.report().top_level_shape(),
+            &ClientJsonTopLevelShape::Object {
+                keys: vec![
+                    "renderer".to_owned(),
+                    "vendor".to_owned(),
+                    "version".to_owned()
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_regional_compliancies_loads() {
+        let resource = load_client_json_resource(
+            &ClientResourceStack::vanilla(),
+            REGIONAL_COMPLIANCIES_RESOURCE,
+        )
+        .expect("committed vanilla regional compliancies should parse");
+
+        assert_eq!(resource.report().pack_id(), VANILLA_PACK_ID);
+        assert_eq!(
+            resource.report().top_level_shape(),
+            &ClientJsonTopLevelShape::Object {
+                keys: vec!["KOR".to_owned()],
+            }
+        );
+    }
+
+    #[test]
+    fn colormap_listener_reports_highest_priority_pack_bytes_and_png_signature() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write_bytes(GRASS_COLORMAP_RESOURCE, MINIMAL_PNG);
+        override_pack.write_bytes(GRASS_COLORMAP_RESOURCE, OVERRIDE_MINIMAL_PNG);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let manager = ResourceReloadManager::new(stack)
+            .with_listener(ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE]));
+
+        let report = manager.run().expect("colormap reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "colormaps");
+        assert_eq!(
+            listener.preparation.items(),
+            [GRASS_COLORMAP_RESOURCE.to_owned()]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [format!(
+                "{GRASS_COLORMAP_RESOURCE}@override:{} bytes:png-signature-ok",
+                OVERRIDE_MINIMAL_PNG.len()
+            )]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_colormap_listener_loads_default_colormap_set() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ColormapReloadListener::default());
+
+        let report = manager
+            .run()
+            .expect("committed vanilla colormaps should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "colormaps");
+        assert_eq!(listener.preparation.items(), DEFAULT_COLORMAPS);
+        assert_eq!(listener.reload.items().len(), 3);
+
+        for resource in DEFAULT_COLORMAPS {
+            let prefix = format!("{resource}@{VANILLA_PACK_ID}:");
+            let item = listener
+                .reload
+                .items()
+                .iter()
+                .find(|item| item.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("reload report should include {resource}"));
+            let byte_count = item
+                .strip_prefix(&prefix)
+                .and_then(|value| value.strip_suffix(" bytes:png-signature-ok"))
+                .expect("report should include byte count and signature status")
+                .parse::<usize>()
+                .expect("byte count should be numeric");
+            assert!(byte_count > PNG_SIGNATURE.len());
+        }
+    }
+
+    #[test]
     fn language_reload_applies_pack_priority_overrides() {
         let low = TempPack::new();
         low.write(
@@ -1232,6 +1746,17 @@ mod tests {
         root: PathBuf,
     }
 
+    const MINIMAL_PNG: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4, 0, 9,
+        251, 3, 253, 5, 67, 69, 202, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+    const OVERRIDE_MINIMAL_PNG: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
+        31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+
     impl TempPack {
         fn new() -> Self {
             let nanos = SystemTime::now()
@@ -1251,6 +1776,10 @@ mod tests {
         }
 
         fn write(&self, resource: &str, contents: &str) {
+            self.write_bytes(resource, contents.as_bytes());
+        }
+
+        fn write_bytes(&self, resource: &str, contents: &[u8]) {
             let path = self.root.join(resource);
             fs::create_dir_all(path.parent().expect("resource should have a parent"))
                 .expect("resource parent directory should be created");
