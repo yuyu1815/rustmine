@@ -8,6 +8,7 @@ use crate::protocol::{
 use super::super::super::translate_internal_packet_id;
 
 mod cookie;
+mod custom_payload;
 mod dialog;
 mod resource_pack;
 mod server_links;
@@ -21,6 +22,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
         translate_internal_packet_id(State::Configuration, Direction::Clientbound, id, true);
     if let Some(packet) =
         cookie::read_cookie_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        custom_payload::read_custom_payload_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
     {
         return Ok(Some(packet));
     }
@@ -60,18 +69,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     }
 
     match internal_id {
-        packet::configuration::clientbound::internal_ids::ConfigurationCustomPayloadClientbound => {
-            let packet = packet::configuration::clientbound::ConfigurationCustomPayloadClientbound {
-                channel: Serializable::read_from(buf)?,
-                data: Serializable::read_from(buf)?,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: packet.channel,
-                    data: packet.data,
-                },
-            )));
-        }
         packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
             let packet = packet::configuration::clientbound::ConfigurationDisconnectClientbound {
                 reason: read_nbt_string_component(buf)?,
