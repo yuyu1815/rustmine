@@ -4,12 +4,13 @@ use byteorder::{BigEndian, ReadBytesExt};
 
 use crate::protocol::{
     packet::{self, Packet},
-    read_nbt_string_component, Direction, Error, LenPrefixed, Serializable, State, VarInt,
+    read_nbt_string_component, Direction, Error, Serializable, State, VarInt,
 };
 use crate::shared::Position;
 
 use super::super::translate_internal_packet_id;
 
+mod entity;
 mod scoreboard;
 mod sound;
 mod update;
@@ -28,6 +29,9 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
         return Ok(Some(packet));
     }
     if let Some(packet) = update::read_update_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) = entity::read_entity_clientbound_packet_by_internal_id(internal_id, buf)? {
         return Ok(Some(packet));
     }
 
@@ -59,73 +63,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                     location: Position::read_from(buf)?,
                     yaw: buf.read_f32::<BigEndian>()?,
                     pitch: buf.read_f32::<BigEndian>()?,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetEntityDataClientbound => {
-            let entity_id = VarInt::read_from(buf)?;
-            let marker = u8::read_from(buf)?;
-            if marker != 0xff {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty Play set_entity_data metadata marker {}",
-                    marker
-                )));
-            }
-            return Ok(Some(Packet::PlaySetEntityDataClientbound(
-                packet::play::clientbound::PlaySetEntityDataClientbound {
-                    entity_id,
-                    packed_item_count: VarInt(0),
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetEntityLinkClientbound => {
-            let source_entity_id = i32::read_from(buf)?;
-            let destination_entity_id = i32::read_from(buf)?;
-            if source_entity_id != 1 || destination_entity_id != 2 {
-                return Err(Error::Err(format!(
-                    "unsupported Play set_entity_link fixture source {} destination {}",
-                    source_entity_id, destination_entity_id
-                )));
-            }
-            return Ok(Some(Packet::PlaySetEntityLinkClientbound(
-                packet::play::clientbound::PlaySetEntityLinkClientbound {
-                    source_entity_id,
-                    destination_entity_id,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetEquipmentClientbound => {
-            let entity_id = VarInt::read_from(buf)?;
-            let equipment_slot = u8::read_from(buf)?;
-            if equipment_slot & 0x80 != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported multi-entry Play set_equipment slot byte {}",
-                    equipment_slot
-                )));
-            }
-            read_empty_play_item_stack_marker(buf, "set_equipment")?;
-            return Ok(Some(Packet::PlaySetEquipmentClientbound(
-                packet::play::clientbound::PlaySetEquipmentClientbound {
-                    entity_id,
-                    equipment_slot,
-                    item: None,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetPassengersClientbound => {
-            let vehicle_entity_id = VarInt::read_from(buf)?;
-            let passenger_entity_ids: LenPrefixed<VarInt, VarInt> = LenPrefixed::read_from(buf)?;
-            let passenger_ids: Vec<i32> = passenger_entity_ids.data.iter().map(|id| id.0).collect();
-            if vehicle_entity_id.0 != 3 || passenger_ids != [4] {
-                return Err(Error::Err(format!(
-                    "unsupported Play set_passengers fixture vehicle {} passengers {:?}",
-                    vehicle_entity_id.0, passenger_ids
-                )));
-            }
-            return Ok(Some(Packet::PlaySetPassengersClientbound(
-                packet::play::clientbound::PlaySetPassengersClientbound {
-                    vehicle_entity_id,
-                    passenger_entity_ids,
                 },
             )));
         }
@@ -264,39 +201,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                 },
             )));
         }
-        packet::play::clientbound::internal_ids::PlayTeleportEntityClientbound => {
-            let entity_id = VarInt::read_from(buf)?;
-            let position_x = buf.read_f64::<BigEndian>()?;
-            let position_y = buf.read_f64::<BigEndian>()?;
-            let position_z = buf.read_f64::<BigEndian>()?;
-            let delta_x = buf.read_f64::<BigEndian>()?;
-            let delta_y = buf.read_f64::<BigEndian>()?;
-            let delta_z = buf.read_f64::<BigEndian>()?;
-            let y_rot = buf.read_f32::<BigEndian>()?;
-            let x_rot = buf.read_f32::<BigEndian>()?;
-            let relative_mask = buf.read_i32::<BigEndian>()?;
-            if relative_mask != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported Play teleport_entity non-empty relative mask {}",
-                    relative_mask
-                )));
-            }
-            return Ok(Some(Packet::PlayTeleportEntityClientbound(
-                packet::play::clientbound::PlayTeleportEntityClientbound {
-                    entity_id,
-                    position_x,
-                    position_y,
-                    position_z,
-                    delta_x,
-                    delta_y,
-                    delta_z,
-                    y_rot,
-                    x_rot,
-                    relative_mask,
-                    on_ground: bool::read_from(buf)?,
-                },
-            )));
-        }
         packet::play::clientbound::internal_ids::PlayTestInstanceBlockStatusClientbound => {
             let status = read_nbt_string_component(buf)?;
             let size_present = bool::read_from(buf)?;
@@ -309,14 +213,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PlayTestInstanceBlockStatusClientbound {
                     status,
                     size_present,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlayProjectilePowerClientbound => {
-            return Ok(Some(Packet::PlayProjectilePowerClientbound(
-                packet::play::clientbound::PlayProjectilePowerClientbound {
-                    entity_id: VarInt::read_from(buf)?,
-                    acceleration_power: buf.read_f64::<BigEndian>()?,
                 },
             )));
         }
