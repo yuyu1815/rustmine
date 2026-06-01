@@ -27,9 +27,11 @@ pub const DRY_FOLIAGE_COLORMAP_RESOURCE: &str =
     "assets/minecraft/textures/colormap/dry_foliage.png";
 pub const GPU_WARNLIST_RESOURCE: &str = "assets/minecraft/gpu_warnlist.json";
 pub const REGIONAL_COMPLIANCIES_RESOURCE: &str = "assets/minecraft/regional_compliancies.json";
+pub const SOUND_EVENTS_RESOURCE: &str = "assets/minecraft/sounds.json";
 pub const EQUIPMENT_MANIFEST_DIR: &str = "assets/minecraft/equipment";
 pub const PARTICLE_MANIFEST_DIR: &str = "assets/minecraft/particles";
 pub const WAYPOINT_STYLE_MANIFEST_DIR: &str = "assets/minecraft/waypoint_style";
+pub const FONT_DEFINITION_DIR: &str = "assets/minecraft/font";
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
@@ -52,6 +54,11 @@ const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
     "assets/minecraft/models/item/stick.json",
     "assets/minecraft/blockstates/stone.json",
     "assets/minecraft/items/stone.json",
+];
+const DEFAULT_FONT_DEFINITIONS: &[&str] = &[
+    "assets/minecraft/font/default.json",
+    "assets/minecraft/font/uniform.json",
+    "assets/minecraft/font/alt.json",
 ];
 const DEFAULT_PARTICLE_MANIFEST_IDS: &[&str] = &["rain", "firework", "splash"];
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
@@ -1295,6 +1302,154 @@ impl ClientJsonManifest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSoundEvents {
+    report: ClientSoundEventsReloadReport,
+}
+
+impl ClientSoundEvents {
+    pub fn report(&self) -> &ClientSoundEventsReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSoundEventsReloadReport {
+    resource: String,
+    pack_id: String,
+    event_count: usize,
+}
+
+impl ClientSoundEventsReloadReport {
+    fn new(resource: impl Into<String>, pack_id: impl Into<String>, event_count: usize) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            event_count,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn event_count(&self) -> usize {
+        self.event_count
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoundEventsReloadListener {
+    resource: String,
+}
+
+impl SoundEventsReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+        }
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientSoundEvents> {
+        load_client_sound_events(stack, &self.resource)
+    }
+}
+
+impl Default for SoundEventsReloadListener {
+    fn default() -> Self {
+        Self::new(SOUND_EVENTS_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for SoundEventsReloadListener {
+    fn name(&self) -> &str {
+        "sound_events"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        stack.require_resource(&self.resource)?;
+        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let sound_events = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new([format!(
+            "{}:{} events",
+            sound_events.report().loaded_resource_pack(),
+            sound_events.report().event_count()
+        )]))
+    }
+}
+
+pub fn load_client_sound_events(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<ClientSoundEvents> {
+    let resource = resource.as_ref();
+    let json = load_client_json_resource(stack, resource)?;
+    let events =
+        json.value()
+            .as_object()
+            .ok_or_else(|| ResourceReloadError::InvalidSoundEvents {
+                resource: resource.to_string_lossy().into_owned(),
+                path: stack
+                    .require_resource(resource)
+                    .map(|location| location.path)
+                    .unwrap_or_default(),
+                reason: "top-level value must be an object".to_owned(),
+            })?;
+
+    if let Some((event, _)) = events.iter().find(|(_, value)| !value.is_object()) {
+        let location = stack.require_resource(resource)?;
+        return Err(ResourceReloadError::InvalidSoundEvents {
+            resource: resource.to_string_lossy().into_owned(),
+            path: location.path,
+            reason: format!("sound event `{event}` must be an object"),
+        });
+    }
+
+    for (event, value) in events {
+        let Some(sounds) = value.get("sounds") else {
+            let location = stack.require_resource(resource)?;
+            return Err(ResourceReloadError::InvalidSoundEvents {
+                resource: resource.to_string_lossy().into_owned(),
+                path: location.path,
+                reason: format!("sound event `{event}` must define a sounds array"),
+            });
+        };
+        if !sounds.is_array() {
+            let location = stack.require_resource(resource)?;
+            return Err(ResourceReloadError::InvalidSoundEvents {
+                resource: resource.to_string_lossy().into_owned(),
+                path: location.path,
+                reason: format!("sound event `{event}` sounds must be an array"),
+            });
+        }
+    }
+
+    Ok(ClientSoundEvents {
+        report: ClientSoundEventsReloadReport::new(
+            resource.to_string_lossy(),
+            json.report().pack_id(),
+            events.len(),
+        ),
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParticleManifestReloadListener {
     ids: Vec<String>,
 }
@@ -1617,6 +1772,173 @@ fn json_resource_report_item(report: &ClientJsonResourceReloadReport) -> String 
 
 fn manifest_resource_path(directory: &str, id: &str) -> PathBuf {
     PathBuf::from(directory).join(format!("{id}.json"))
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientFontDefinitionSet {
+    definitions: Vec<ClientFontDefinition>,
+}
+
+impl ClientFontDefinitionSet {
+    pub fn definitions(&self) -> &[ClientFontDefinition] {
+        &self.definitions
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientFontDefinitionReloadReport<'_>> {
+        self.definitions.iter().map(ClientFontDefinition::report)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientFontDefinition {
+    resource: ClientJsonResource,
+    provider_count: usize,
+}
+
+impl ClientFontDefinition {
+    pub fn resource(&self) -> &ClientJsonResource {
+        &self.resource
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_count
+    }
+
+    fn report(&self) -> ClientFontDefinitionReloadReport<'_> {
+        ClientFontDefinitionReloadReport {
+            resource: self.resource.report(),
+            provider_count: self.provider_count,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClientFontDefinitionReloadReport<'a> {
+    resource: &'a ClientJsonResourceReloadReport,
+    provider_count: usize,
+}
+
+impl ClientFontDefinitionReloadReport<'_> {
+    pub fn resource(&self) -> &ClientJsonResourceReloadReport {
+        self.resource
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_count
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontDefinitionsReloadListener {
+    definitions: Vec<String>,
+}
+
+impl FontDefinitionsReloadListener {
+    pub fn new(definitions: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            definitions: definitions.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn definitions(&self) -> &[String] {
+        &self.definitions
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientFontDefinitionSet> {
+        load_client_font_definitions(stack, &self.definitions)
+    }
+}
+
+impl Default for FontDefinitionsReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_FONT_DEFINITIONS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for FontDefinitionsReloadListener {
+    fn name(&self) -> &str {
+        "font_definitions"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for definition in &self.definitions {
+            stack.require_resource(definition)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(self.definitions.clone()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let definitions = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            definitions.reports().map(font_definition_report_item),
+        ))
+    }
+}
+
+pub fn load_client_font_definitions(
+    stack: &ClientResourceStack,
+    definitions: &[String],
+) -> ResourceReloadResult<ClientFontDefinitionSet> {
+    let mut loaded = Vec::with_capacity(definitions.len());
+
+    for definition in definitions {
+        let resource = load_client_json_resource(stack, definition)?;
+        let provider_count = validate_font_definition(&resource)?;
+        loaded.push(ClientFontDefinition {
+            resource,
+            provider_count,
+        });
+    }
+
+    Ok(ClientFontDefinitionSet {
+        definitions: loaded,
+    })
+}
+
+fn validate_font_definition(resource: &ClientJsonResource) -> ResourceReloadResult<usize> {
+    let providers = resource
+        .value()
+        .get("providers")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| invalid_font_definition(resource, "missing providers array"))?;
+
+    if let Some(index) = providers.iter().position(|provider| !provider.is_object()) {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} is not an object"),
+        ));
+    }
+
+    Ok(providers.len())
+}
+
+fn invalid_font_definition(
+    resource: &ClientJsonResource,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidFontDefinition {
+        resource: resource.report().resource().to_owned(),
+        pack_id: resource.report().pack_id().to_owned(),
+        reason: reason.into(),
+    }
+}
+
+fn font_definition_report_item(report: ClientFontDefinitionReloadReport<'_>) -> String {
+    format!(
+        "{}:providers:{}",
+        report.resource().loaded_resource_pack(),
+        report.provider_count()
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2123,6 +2445,18 @@ pub enum ResourceReloadError {
         resource: String,
         path: PathBuf,
         byte_count: usize,
+    },
+    #[error("invalid font definition `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidFontDefinition {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
+    #[error("invalid sound events resource `{resource}` at `{path}`: {reason}")]
+    InvalidSoundEvents {
+        resource: String,
+        path: PathBuf,
+        reason: String,
     },
 }
 
@@ -2834,6 +3168,99 @@ mod tests {
     }
 
     #[test]
+    fn font_definition_listener_reports_priority_pack_and_provider_count() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/font/default.json",
+            r#"{"providers":[{"type":"reference","id":"minecraft:include/default"}]}"#,
+        );
+        base.write(
+            "assets/minecraft/font/uniform.json",
+            r#"{"providers":[{"type":"reference","id":"minecraft:include/unifont"}]}"#,
+        );
+        base.write(
+            "assets/minecraft/font/alt.json",
+            r#"{"providers":[{"type":"reference","id":"minecraft:include/alt"}]}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/font/default.json",
+            r#"{"providers":[{"type":"reference","id":"minecraft:include/space"},{"type":"reference","id":"minecraft:include/default"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(FontDefinitionsReloadListener::default())
+            .run()
+            .expect("font definitions reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "font_definitions");
+        assert_eq!(listener.preparation.items(), DEFAULT_FONT_DEFINITIONS);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/font/default.json@override:providers:2".to_owned(),
+                "assets/minecraft/font/uniform.json@base:providers:1".to_owned(),
+                "assets/minecraft/font/alt.json@base:providers:1".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_font_definition_listener_loads_representative_definitions() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(FontDefinitionsReloadListener::default())
+            .run()
+            .expect("committed vanilla font definitions should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "font_definitions");
+        assert_eq!(listener.preparation.items(), DEFAULT_FONT_DEFINITIONS);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/font/default.json@vanilla:providers:3".to_owned(),
+                "assets/minecraft/font/uniform.json@vanilla:providers:2".to_owned(),
+                "assets/minecraft/font/alt.json@vanilla:providers:2".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn font_definition_reload_rejects_invalid_json() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/font/default.json", "{not json");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = FontDefinitionsReloadListener::new(["assets/minecraft/font/default.json"])
+            .load(&stack)
+            .expect_err("invalid font definition json should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/font/default.json")
+        );
+    }
+
+    #[test]
+    fn font_definition_reload_rejects_missing_providers_array() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/font/default.json", r#"{"providers":{}}"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = FontDefinitionsReloadListener::new(["assets/minecraft/font/default.json"])
+            .load(&stack)
+            .expect_err("font definition without providers array should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidFontDefinition { resource, reason, .. } if resource == "assets/minecraft/font/default.json" && reason == "missing providers array")
+        );
+    }
+
+    #[test]
     fn client_json_reload_applies_pack_priority_overrides() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
@@ -2903,6 +3330,73 @@ mod tests {
         assert_eq!(
             report.listener_reports()[0].reload.items(),
             [format!("{GPU_WARNLIST_RESOURCE}@test:array len:2")]
+        );
+    }
+
+    #[test]
+    fn sound_events_listener_reports_highest_priority_pack_and_event_count() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"sounds":["dig.stone"]}}"#,
+        );
+        override_pack.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"sounds":["override.stone"]},"entity.player.hurt":{"sounds":[{"name":"damage.hit","type":"sound"}]}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(SoundEventsReloadListener::default())
+            .run()
+            .expect("sound events reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "sound_events");
+        assert_eq!(
+            listener.preparation.items(),
+            [SOUND_EVENTS_RESOURCE.to_owned()]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [format!("{SOUND_EVENTS_RESOURCE}@override:2 events")]
+        );
+    }
+
+    #[test]
+    fn sound_events_reload_rejects_invalid_event_shape() {
+        let temp = TempPack::new();
+        temp.write(SOUND_EVENTS_RESOURCE, r#"{"block.stone.break":[]}"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = SoundEventsReloadListener::default()
+            .load(&stack)
+            .expect_err("sound events with non-object event values should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidSoundEvents { resource, reason, .. } if resource == SOUND_EVENTS_RESOURCE && reason == "sound event `block.stone.break` must be an object")
+        );
+    }
+
+    #[test]
+    fn sound_events_reload_rejects_missing_sounds_array() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"subtitle":"subtitles.block.generic.break"}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = SoundEventsReloadListener::default()
+            .load(&stack)
+            .expect_err("sound events without sounds arrays should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidSoundEvents { resource, reason, .. } if resource == SOUND_EVENTS_RESOURCE && reason == "sound event `block.stone.break` must define a sounds array")
         );
     }
 
