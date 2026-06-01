@@ -11,6 +11,7 @@ use std::{
 };
 
 use azalea_chat::FormattedText;
+use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
@@ -2076,6 +2077,148 @@ pub struct GpuWarnlistReloadListener {
     resource: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GpuWarnlistDeviceInfo {
+    pub backend: String,
+    pub renderer: String,
+    pub version: String,
+    pub vendor: String,
+}
+
+impl GpuWarnlistDeviceInfo {
+    pub fn new(
+        backend: impl Into<String>,
+        renderer: impl Into<String>,
+        version: impl Into<String>,
+        vendor: impl Into<String>,
+    ) -> Self {
+        Self {
+            backend: backend.into(),
+            renderer: renderer.into(),
+            version: version.into(),
+            vendor: vendor.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct GpuWarnlist {
+    renderer: Vec<Regex>,
+    version: Vec<Regex>,
+    vendor: Vec<Regex>,
+    report: GpuWarnlistReloadReport,
+}
+
+impl GpuWarnlist {
+    pub fn report(&self) -> &GpuWarnlistReloadReport {
+        &self.report
+    }
+
+    pub fn evaluate(&self, device: &GpuWarnlistDeviceInfo) -> GpuWarnlistWarnings {
+        if device.backend != "OpenGL" {
+            return GpuWarnlistWarnings::default();
+        }
+
+        GpuWarnlistWarnings {
+            renderer: collect_gpu_warnlist_matches(&self.renderer, &device.renderer),
+            version: collect_gpu_warnlist_matches(&self.version, &device.version),
+            vendor: collect_gpu_warnlist_matches(&self.vendor, &device.vendor),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GpuWarnlistReloadReport {
+    resource: String,
+    pack_id: String,
+    renderer_pattern_count: usize,
+    version_pattern_count: usize,
+    vendor_pattern_count: usize,
+}
+
+impl GpuWarnlistReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        renderer_pattern_count: usize,
+        version_pattern_count: usize,
+        vendor_pattern_count: usize,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            renderer_pattern_count,
+            version_pattern_count,
+            vendor_pattern_count,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+
+    pub fn renderer_pattern_count(&self) -> usize {
+        self.renderer_pattern_count
+    }
+
+    pub fn version_pattern_count(&self) -> usize {
+        self.version_pattern_count
+    }
+
+    pub fn vendor_pattern_count(&self) -> usize {
+        self.vendor_pattern_count
+    }
+
+    fn pattern_counts_fragment(&self) -> String {
+        format!(
+            "renderer:{} version:{} vendor:{} patterns",
+            self.renderer_pattern_count, self.version_pattern_count, self.vendor_pattern_count
+        )
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GpuWarnlistWarnings {
+    pub renderer: Vec<String>,
+    pub version: Vec<String>,
+    pub vendor: Vec<String>,
+}
+
+impl GpuWarnlistWarnings {
+    pub fn is_empty(&self) -> bool {
+        self.renderer.is_empty() && self.version.is_empty() && self.vendor.is_empty()
+    }
+
+    pub fn categories(&self) -> Vec<(&'static str, String)> {
+        let mut categories = Vec::new();
+        if !self.renderer.is_empty() {
+            categories.push(("renderer", self.renderer.join(", ")));
+        }
+        if !self.version.is_empty() {
+            categories.push(("version", self.version.join(", ")));
+        }
+        if !self.vendor.is_empty() {
+            categories.push(("vendor", self.vendor.join(", ")));
+        }
+        categories
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GpuWarnlistDefinition {
+    renderer: Vec<String>,
+    version: Vec<String>,
+    vendor: Vec<String>,
+}
+
 impl GpuWarnlistReloadListener {
     pub fn new(resource: impl Into<String>) -> Self {
         Self {
@@ -2083,8 +2226,8 @@ impl GpuWarnlistReloadListener {
         }
     }
 
-    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonResource> {
-        load_client_json_resource(stack, &self.resource)
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<GpuWarnlist> {
+        load_gpu_warnlist_resource(stack, &self.resource)
     }
 }
 
@@ -2111,13 +2254,96 @@ impl ResourceReloadListener for GpuWarnlistReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let resource = self.load(stack)?;
+        let warnlist = self.load(stack)?;
         Ok(ResourceReloadTaskReport::new([format!(
             "{}:{}",
-            resource.report().loaded_resource_pack(),
-            resource.report().top_level_shape().report_fragment()
+            warnlist.report().loaded_resource_pack(),
+            warnlist.report().pattern_counts_fragment()
         )]))
     }
+}
+
+fn load_gpu_warnlist_resource(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<GpuWarnlist> {
+    let resource = resource.as_ref();
+    let json = load_client_json_resource(stack, resource)?;
+    let definition: GpuWarnlistDefinition =
+        serde_json::from_value(json.value().clone()).map_err(|source| {
+            ResourceReloadError::InvalidGpuWarnlist {
+                resource: json.report().resource().to_owned(),
+                pack_id: json.report().pack_id().to_owned(),
+                reason: source.to_string(),
+            }
+        })?;
+
+    let renderer = compile_gpu_warnlist_patterns(
+        json.report().resource(),
+        json.report().pack_id(),
+        "renderer",
+        definition.renderer,
+    )?;
+    let version = compile_gpu_warnlist_patterns(
+        json.report().resource(),
+        json.report().pack_id(),
+        "version",
+        definition.version,
+    )?;
+    let vendor = compile_gpu_warnlist_patterns(
+        json.report().resource(),
+        json.report().pack_id(),
+        "vendor",
+        definition.vendor,
+    )?;
+    let report = GpuWarnlistReloadReport::new(
+        json.report().resource(),
+        json.report().pack_id(),
+        renderer.len(),
+        version.len(),
+        vendor.len(),
+    );
+
+    Ok(GpuWarnlist {
+        renderer,
+        version,
+        vendor,
+        report,
+    })
+}
+
+fn compile_gpu_warnlist_patterns(
+    resource: &str,
+    pack_id: &str,
+    category: &str,
+    patterns: Vec<String>,
+) -> ResourceReloadResult<Vec<Regex>> {
+    patterns
+        .into_iter()
+        .map(|pattern| {
+            RegexBuilder::new(&pattern)
+                .case_insensitive(true)
+                .build()
+                .map_err(|source| ResourceReloadError::InvalidGpuWarnlistRegex {
+                    resource: resource.to_owned(),
+                    pack_id: pack_id.to_owned(),
+                    category: category.to_owned(),
+                    pattern,
+                    reason: source.to_string(),
+                })
+        })
+        .collect()
+}
+
+fn collect_gpu_warnlist_matches(patterns: &[Regex], value: &str) -> Vec<String> {
+    patterns
+        .iter()
+        .flat_map(|pattern| {
+            pattern
+                .find_iter(value)
+                .map(|matched| matched.as_str().to_owned())
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -6297,6 +6523,22 @@ pub enum ResourceReloadError {
         pack_id: String,
         reason: String,
     },
+    #[error("invalid gpu warnlist `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidGpuWarnlist {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
+    #[error(
+        "invalid gpu warnlist regex `{pattern}` in `{category}` for `{resource}` from pack `{pack_id}`: {reason}"
+    )]
+    InvalidGpuWarnlistRegex {
+        resource: String,
+        pack_id: String,
+        category: String,
+        pattern: String,
+        reason: String,
+    },
     #[error("invalid sound events resource `{resource}` at `{path}`: {reason}")]
     InvalidSoundEvents {
         resource: String,
@@ -8448,7 +8690,7 @@ mod tests {
     }
 
     #[test]
-    fn client_json_reload_applies_pack_priority_overrides() {
+    fn gpu_warnlist_reload_applies_pack_priority_overrides() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(
@@ -8474,20 +8716,23 @@ mod tests {
             .load(&stack)
             .expect("regional compliancies should load from highest priority pack");
 
+        assert_eq!(gpu_warnlist.report().resource(), GPU_WARNLIST_RESOURCE);
         assert_eq!(gpu_warnlist.report().pack_id(), "override");
+        assert_eq!(gpu_warnlist.report().renderer_pattern_count(), 0);
+        assert_eq!(gpu_warnlist.report().version_pattern_count(), 0);
+        assert_eq!(gpu_warnlist.report().vendor_pattern_count(), 1);
         assert_eq!(
-            gpu_warnlist.report().top_level_shape(),
-            &ClientJsonTopLevelShape::Object {
-                keys: vec![
-                    "renderer".to_owned(),
-                    "vendor".to_owned(),
-                    "version".to_owned()
-                ],
+            gpu_warnlist.evaluate(&GpuWarnlistDeviceInfo::new(
+                "OpenGL",
+                "base renderer",
+                "4.6",
+                "override vendor"
+            )),
+            GpuWarnlistWarnings {
+                renderer: Vec::new(),
+                version: Vec::new(),
+                vendor: vec!["override".to_owned()],
             }
-        );
-        assert_eq!(
-            gpu_warnlist.value()["vendor"][0],
-            serde_json::Value::String("override".to_owned())
         );
         assert_eq!(compliancies.report().pack_id(), "override");
         assert_eq!(
@@ -8499,15 +8744,18 @@ mod tests {
     }
 
     #[test]
-    fn client_json_listener_reports_loaded_pack_and_top_level_shape() {
+    fn gpu_warnlist_listener_reports_loaded_pack_and_pattern_counts() {
         let temp = TempPack::new();
-        temp.write(GPU_WARNLIST_RESOURCE, r#"["warn","list"]"#);
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel","mesa"],"version":["4\\.6"],"vendor":[]}"#,
+        );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
         let report = ResourceReloadManager::new(stack)
             .with_listener(GpuWarnlistReloadListener::default())
             .run()
-            .expect("json listener should run");
+            .expect("gpu warnlist listener should run");
 
         assert_eq!(report.listener_reports()[0].name, "gpu_warnlist");
         assert_eq!(
@@ -8516,7 +8764,98 @@ mod tests {
         );
         assert_eq!(
             report.listener_reports()[0].reload.items(),
-            [format!("{GPU_WARNLIST_RESOURCE}@test:array len:2")]
+            [format!(
+                "{GPU_WARNLIST_RESOURCE}@test:renderer:2 version:1 vendor:0 patterns"
+            )]
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_evaluation_is_case_insensitive_and_uses_search() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["iris xe"],"version":["opengl"],"vendor":["intel"]}"#,
+        );
+
+        let warnlist = GpuWarnlistReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("gpu warnlist should load");
+        let warnings = warnlist.evaluate(&GpuWarnlistDeviceInfo::new(
+            "OpenGL",
+            "ANGLE (Intel Iris Xe Graphics)",
+            "OpenGL 4.6",
+            "INTEL Corporation",
+        ));
+
+        assert_eq!(
+            warnings.categories(),
+            vec![
+                ("renderer", "Iris Xe".to_owned()),
+                ("version", "OpenGL".to_owned()),
+                ("vendor", "INTEL".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_evaluation_joins_all_matches_in_category_order() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel","iris"],"version":["4\\.6","mesa"],"vendor":["corp","gpu"]}"#,
+        );
+
+        let warnlist = GpuWarnlistReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("gpu warnlist should load");
+        let warnings = warnlist.evaluate(&GpuWarnlistDeviceInfo::new(
+            "OpenGL",
+            "Intel Iris Intel",
+            "Mesa OpenGL 4.6",
+            "GPU Corp",
+        ));
+
+        assert_eq!(
+            warnings.categories(),
+            vec![
+                ("renderer", "Intel, Intel, Iris".to_owned()),
+                ("version", "4.6, Mesa".to_owned()),
+                ("vendor", "Corp, GPU".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_evaluation_skips_non_opengl_backends() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel"],"version":["4\\.6"],"vendor":["intel"]}"#,
+        );
+
+        let warnlist = GpuWarnlistReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("gpu warnlist should load");
+
+        assert!(
+            warnlist
+                .evaluate(&GpuWarnlistDeviceInfo::new(
+                    "Vulkan",
+                    "Intel",
+                    "OpenGL 4.6",
+                    "Intel"
+                ))
+                .is_empty()
         );
     }
 
@@ -8599,6 +8938,42 @@ mod tests {
 
         assert!(
             matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == GPU_WARNLIST_RESOURCE)
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_reload_rejects_invalid_schema() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":"intel","version":[],"vendor":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = GpuWarnlistReloadListener::default()
+            .load(&stack)
+            .expect_err("gpu warnlist with non-array category should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidGpuWarnlist { resource, pack_id, .. } if resource == GPU_WARNLIST_RESOURCE && pack_id == "test")
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_reload_rejects_invalid_regex() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["["],"version":[],"vendor":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = GpuWarnlistReloadListener::default()
+            .load(&stack)
+            .expect_err("gpu warnlist with invalid regex should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidGpuWarnlistRegex { resource, pack_id, category, pattern, .. } if resource == GPU_WARNLIST_RESOURCE && pack_id == "test" && category == "renderer" && pattern == "[")
         );
     }
 
@@ -9435,21 +9810,12 @@ mod tests {
 
     #[test]
     fn committed_vanilla_gpu_warnlist_loads() {
-        let resource =
-            load_client_json_resource(&ClientResourceStack::vanilla(), GPU_WARNLIST_RESOURCE)
-                .expect("committed vanilla gpu warnlist should parse");
+        let warnlist = GpuWarnlistReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla gpu warnlist should parse and compile");
 
-        assert_eq!(resource.report().pack_id(), VANILLA_PACK_ID);
-        assert_eq!(
-            resource.report().top_level_shape(),
-            &ClientJsonTopLevelShape::Object {
-                keys: vec![
-                    "renderer".to_owned(),
-                    "vendor".to_owned(),
-                    "version".to_owned()
-                ],
-            }
-        );
+        assert_eq!(warnlist.report().resource(), GPU_WARNLIST_RESOURCE);
+        assert_eq!(warnlist.report().pack_id(), VANILLA_PACK_ID);
     }
 
     #[test]
