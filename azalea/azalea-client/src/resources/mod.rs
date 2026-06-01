@@ -4,6 +4,7 @@
 //! rendering, audio, or packet handling.
 
 use std::{
+    collections::BTreeMap,
     fmt, fs, io,
     path::{Path, PathBuf},
 };
@@ -13,12 +14,19 @@ use thiserror::Error;
 pub const VANILLA_PACK_ID: &str = "vanilla";
 pub const VANILLA_PACK_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/vanilla-pack");
 pub const INITIAL_RELOAD_TASK_NAME: &str = "initial";
+pub const DEFAULT_LANGUAGE_CODE: &str = "en_us";
+pub const SPLASHES_RESOURCE: &str = "assets/minecraft/texts/splashes.txt";
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
     "assets/minecraft/textures/gui/title/mojangstudios.png",
-    "assets/minecraft/texts/splashes.txt",
+    SPLASHES_RESOURCE,
     "assets/minecraft/atlases/blocks.json",
+];
+const DEFAULT_ATLAS_MANIFESTS: &[&str] = &[
+    "assets/minecraft/atlases/blocks.json",
+    "assets/minecraft/atlases/items.json",
+    "assets/minecraft/atlases/particles.json",
 ];
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
@@ -85,6 +93,20 @@ impl ClientResourceStack {
                 path,
             })
         })
+    }
+
+    pub fn resource_stack(&self, resource: impl AsRef<Path>) -> Vec<ResourceLocation> {
+        let resource = resource.as_ref();
+        self.packs
+            .iter()
+            .filter_map(|pack| {
+                let path = pack.resource_path(resource);
+                path.is_file().then(|| ResourceLocation {
+                    pack_id: pack.id.clone(),
+                    path,
+                })
+            })
+            .collect()
     }
 
     pub fn require_resource(
@@ -410,6 +432,166 @@ pub struct CompletedResourceReloadListener {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLanguageResources {
+    translations: BTreeMap<String, String>,
+    report: ClientLanguageReloadReport,
+}
+
+impl ClientLanguageResources {
+    pub fn translations(&self) -> &BTreeMap<String, String> {
+        &self.translations
+    }
+
+    pub fn report(&self) -> &ClientLanguageReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLanguageReloadReport {
+    language_code: String,
+    loaded_files: Vec<String>,
+    translation_count: usize,
+}
+
+impl ClientLanguageReloadReport {
+    fn new(
+        language_code: impl Into<String>,
+        loaded_files: Vec<String>,
+        translation_count: usize,
+    ) -> Self {
+        Self {
+            language_code: language_code.into(),
+            loaded_files,
+            translation_count,
+        }
+    }
+
+    pub fn language_code(&self) -> &str {
+        &self.language_code
+    }
+
+    pub fn loaded_files(&self) -> &[String] {
+        &self.loaded_files
+    }
+
+    pub fn translation_count(&self) -> usize {
+        self.translation_count
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLanguageReloadListener {
+    requested_language_code: String,
+}
+
+impl ClientLanguageReloadListener {
+    pub fn new(requested_language_code: impl Into<String>) -> Self {
+        Self {
+            requested_language_code: requested_language_code.into(),
+        }
+    }
+
+    pub fn requested_language_code(&self) -> &str {
+        &self.requested_language_code
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientLanguageResources> {
+        load_client_language_resources(stack, &self.requested_language_code)
+    }
+}
+
+impl ResourceReloadListener for ClientLanguageReloadListener {
+    fn name(&self) -> &str {
+        "client_languages"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        stack.require_resource(language_resource_path(DEFAULT_LANGUAGE_CODE))?;
+        Ok(ResourceReloadTaskReport::new(
+            language_resource_paths(&self.requested_language_code)
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned()),
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new([
+            format!("language:{}", resources.report.language_code()),
+            format!("files:{}", resources.report.loaded_files().len()),
+            format!("translations:{}", resources.report.translation_count()),
+        ]))
+    }
+}
+
+pub fn load_client_language_resources(
+    stack: &ClientResourceStack,
+    requested_language_code: &str,
+) -> ResourceReloadResult<ClientLanguageResources> {
+    stack.require_resource(language_resource_path(DEFAULT_LANGUAGE_CODE))?;
+
+    let requested_language_code = requested_language_code.to_ascii_lowercase();
+    let mut translations = BTreeMap::new();
+    let mut loaded_files = Vec::new();
+
+    for resource in language_resource_paths(&requested_language_code) {
+        for location in stack.resource_stack(&resource) {
+            let language_entries = read_language_resource(&resource, &location)?;
+            translations.extend(language_entries);
+            loaded_files.push(format!("{}@{}", resource.display(), location.pack_id));
+        }
+    }
+
+    let report =
+        ClientLanguageReloadReport::new(requested_language_code, loaded_files, translations.len());
+
+    Ok(ClientLanguageResources {
+        translations,
+        report,
+    })
+}
+
+fn language_resource_paths(language_code: &str) -> Vec<PathBuf> {
+    let mut paths = vec![language_resource_path(DEFAULT_LANGUAGE_CODE)];
+    if language_code != DEFAULT_LANGUAGE_CODE {
+        paths.push(language_resource_path(language_code));
+    }
+    paths
+}
+
+fn language_resource_path(language_code: &str) -> PathBuf {
+    PathBuf::from(format!("assets/minecraft/lang/{language_code}.json"))
+}
+
+fn read_language_resource(
+    resource: &Path,
+    location: &ResourceLocation,
+) -> ResourceReloadResult<BTreeMap<String, String>> {
+    let contents =
+        fs::read_to_string(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource.to_string_lossy().into_owned(),
+            path: location.path.clone(),
+            source,
+        })?;
+
+    serde_json::from_str(&contents).map_err(|source| ResourceReloadError::ParseResourceJson {
+        resource: resource.to_string_lossy().into_owned(),
+        path: location.path.clone(),
+        source,
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequiredVanillaAssetsListener {
     name: String,
     required_assets: Vec<String>,
@@ -518,6 +700,134 @@ impl ResourceReloadListener for ListingResourceReloadListener {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SplashesReloadListener {
+    name: String,
+    resource: String,
+}
+
+impl SplashesReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            name: "splashes".to_owned(),
+            resource: resource.into(),
+        }
+    }
+}
+
+impl Default for SplashesReloadListener {
+    fn default() -> Self {
+        Self::new(SPLASHES_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for SplashesReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        stack.require_resource(&self.resource)?;
+
+        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let location = stack.require_resource(&self.resource)?;
+        let contents = fs::read_to_string(&location.path).map_err(|source| {
+            ResourceReloadError::ReadResource {
+                resource: self.resource.clone(),
+                path: location.path.clone(),
+                source,
+            }
+        })?;
+        let splash_count = contents
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+
+        Ok(ResourceReloadTaskReport::new([format!(
+            "{}@{}:{splash_count} splashes",
+            self.resource, location.pack_id
+        )]))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasManifestReloadListener {
+    name: String,
+    manifests: Vec<String>,
+}
+
+impl AtlasManifestReloadListener {
+    pub fn new(manifests: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "atlas_manifests".to_owned(),
+            manifests: manifests.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn manifests(&self) -> &[String] {
+        &self.manifests
+    }
+}
+
+impl Default for AtlasManifestReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_ATLAS_MANIFESTS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for AtlasManifestReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for manifest in &self.manifests {
+            stack.require_resource(manifest)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(self.manifests.clone()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let mut loaded = Vec::with_capacity(self.manifests.len());
+        for manifest in &self.manifests {
+            let location = stack.require_resource(manifest)?;
+            let contents = fs::read_to_string(&location.path).map_err(|source| {
+                ResourceReloadError::ReadResource {
+                    resource: manifest.clone(),
+                    path: location.path.clone(),
+                    source,
+                }
+            })?;
+            serde_json::from_str::<serde_json::Value>(&contents).map_err(|source| {
+                ResourceReloadError::ParseResourceJson {
+                    resource: manifest.clone(),
+                    path: location.path,
+                    source,
+                }
+            })?;
+            loaded.push(format!("{manifest}@{}", location.pack_id));
+        }
+
+        Ok(ResourceReloadTaskReport::new(loaded))
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ResourceReloadError {
     #[error("missing client resource `{0}`")]
@@ -527,6 +837,12 @@ pub enum ResourceReloadError {
         resource: String,
         path: PathBuf,
         source: io::Error,
+    },
+    #[error("failed to parse client resource json `{resource}` at `{path}`")]
+    ParseResourceJson {
+        resource: String,
+        path: PathBuf,
+        source: serde_json::Error,
     },
 }
 
@@ -666,6 +982,235 @@ mod tests {
                 "reload report should include {resource}"
             );
         }
+    }
+
+    #[test]
+    fn splashes_listener_counts_non_empty_lines_from_highest_priority_pack() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(SPLASHES_RESOURCE, "base one\nbase two\nbase three\n");
+        override_pack.write(SPLASHES_RESOURCE, "\ncustom one\n \ncustom two\n");
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(SplashesReloadListener::default());
+
+        let report = manager.run().expect("splashes reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "splashes");
+        assert_eq!(listener.preparation.items(), [SPLASHES_RESOURCE.to_owned()]);
+        assert_eq!(
+            listener.reload.items(),
+            [format!("{SPLASHES_RESOURCE}@override:2 splashes")]
+        );
+    }
+
+    #[test]
+    fn atlas_manifest_listener_reports_loaded_manifests_by_resolved_pack() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write("assets/minecraft/atlases/blocks.json", r#"{"sources":[]}"#);
+        base.write("assets/minecraft/atlases/items.json", r#"{"sources":[]}"#);
+        base.write(
+            "assets/minecraft/atlases/particles.json",
+            r#"{"sources":[]}"#,
+        );
+        override_pack.write("assets/minecraft/atlases/items.json", r#"{"sources":[{}]}"#);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(AtlasManifestReloadListener::default());
+
+        let report = manager.run().expect("atlas manifest reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "atlas_manifests");
+        assert_eq!(listener.preparation.items(), DEFAULT_ATLAS_MANIFESTS);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/atlases/blocks.json@base".to_owned(),
+                "assets/minecraft/atlases/items.json@override".to_owned(),
+                "assets/minecraft/atlases/particles.json@base".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_splashes_listener_reports_a_non_empty_count() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(SplashesReloadListener::default());
+
+        let report = manager
+            .run()
+            .expect("committed vanilla splashes should load");
+
+        let item = &report.listener_reports()[0].reload.items()[0];
+        let count = item
+            .strip_prefix(&format!("{SPLASHES_RESOURCE}@{VANILLA_PACK_ID}:"))
+            .and_then(|value| value.strip_suffix(" splashes"))
+            .expect("report should include vanilla splash count")
+            .parse::<usize>()
+            .expect("splash count should be numeric");
+        assert!(count > 0, "vanilla splashes should not be empty");
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_manifest_listener_loads_default_manifest_set() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(AtlasManifestReloadListener::default());
+
+        let report = manager
+            .run()
+            .expect("committed vanilla atlas manifests should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "atlas_manifests");
+        assert_eq!(listener.preparation.items(), DEFAULT_ATLAS_MANIFESTS);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/atlases/blocks.json@vanilla".to_owned(),
+                "assets/minecraft/atlases/items.json@vanilla".to_owned(),
+                "assets/minecraft/atlases/particles.json@vanilla".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn language_reload_applies_pack_priority_overrides() {
+        let low = TempPack::new();
+        low.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play","shared":"low en","only.low":"Low"}"#,
+        );
+        low.write(
+            "assets/minecraft/lang/pirate.json",
+            r#"{"menu.play":"Sail","shared":"low pirate"}"#,
+        );
+
+        let high = TempPack::new();
+        high.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"shared":"high en"}"#,
+        );
+        high.write(
+            "assets/minecraft/lang/pirate.json",
+            r#"{"shared":"high pirate","only.high":"High"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("low", low.path()),
+            ClientResourcePack::new("high", high.path()),
+        ]);
+
+        let resources = ClientLanguageReloadListener::new("pirate")
+            .load(&stack)
+            .expect("language resources should load");
+
+        assert_eq!(
+            resources.translations().get("menu.play"),
+            Some(&"Sail".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("shared"),
+            Some(&"high pirate".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("only.low"),
+            Some(&"Low".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("only.high"),
+            Some(&"High".to_owned())
+        );
+        assert_eq!(
+            resources.report().loaded_files(),
+            [
+                "assets/minecraft/lang/en_us.json@low".to_owned(),
+                "assets/minecraft/lang/en_us.json@high".to_owned(),
+                "assets/minecraft/lang/pirate.json@low".to_owned(),
+                "assets/minecraft/lang/pirate.json@high".to_owned(),
+            ]
+        );
+        assert_eq!(resources.report().translation_count(), 4);
+    }
+
+    #[test]
+    fn language_reload_uses_en_us_before_selected_language() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play","menu.quit":"Quit"}"#,
+        );
+        temp.write(
+            "assets/minecraft/lang/pirate.json",
+            r#"{"menu.play":"Sail"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let resources = load_client_language_resources(&stack, "pirate")
+            .expect("language resources should load");
+
+        assert_eq!(
+            resources.translations().get("menu.play"),
+            Some(&"Sail".to_owned())
+        );
+        assert_eq!(
+            resources.translations().get("menu.quit"),
+            Some(&"Quit".to_owned())
+        );
+        assert_eq!(resources.report().language_code(), "pirate");
+        assert_eq!(resources.report().translation_count(), 2);
+    }
+
+    #[test]
+    fn language_reload_listener_reports_file_and_translation_counts() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE))
+            .run()
+            .expect("language reload listener should run");
+
+        assert_eq!(report.listener_reports().len(), 1);
+        assert_eq!(report.listener_reports()[0].name, "client_languages");
+        assert_eq!(
+            report.listener_reports()[0].reload.items(),
+            [
+                "language:en_us".to_owned(),
+                "files:1".to_owned(),
+                "translations:1".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_en_us_language_loads() {
+        let resources = load_client_language_resources(&ClientResourceStack::vanilla(), "en_us")
+            .expect("committed vanilla en_us should load");
+
+        assert_eq!(
+            resources.translations().get("language.code"),
+            Some(&"en_us".to_owned())
+        );
+        assert!(resources.report().translation_count() > 1000);
+        assert_eq!(
+            resources.report().loaded_files(),
+            ["assets/minecraft/lang/en_us.json@vanilla".to_owned()]
+        );
     }
 
     #[test]
