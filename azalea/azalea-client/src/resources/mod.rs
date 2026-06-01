@@ -2240,6 +2240,195 @@ impl ClientJsonManifest {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentAssetSet {
+    assets: Vec<ClientEquipmentAsset>,
+}
+
+impl ClientEquipmentAssetSet {
+    pub fn assets(&self) -> &[ClientEquipmentAsset] {
+        &self.assets
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = &ClientEquipmentAssetReloadReport> {
+        self.assets.iter().map(ClientEquipmentAsset::report)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentAsset {
+    id: String,
+    layers: Vec<ClientEquipmentLayer>,
+    report: ClientEquipmentAssetReloadReport,
+}
+
+impl ClientEquipmentAsset {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn layers(&self) -> &[ClientEquipmentLayer] {
+        &self.layers
+    }
+
+    pub fn report(&self) -> &ClientEquipmentAssetReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentLayer {
+    layer_type: String,
+    entries: Vec<ClientEquipmentLayerEntry>,
+}
+
+impl ClientEquipmentLayer {
+    pub fn layer_type(&self) -> &str {
+        &self.layer_type
+    }
+
+    pub fn entries(&self) -> &[ClientEquipmentLayerEntry] {
+        &self.entries
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentLayerEntry {
+    texture: String,
+    dyeable: Option<ClientEquipmentDyeable>,
+    use_player_texture: Option<bool>,
+}
+
+impl ClientEquipmentLayerEntry {
+    pub fn texture(&self) -> &str {
+        &self.texture
+    }
+
+    pub fn dyeable(&self) -> Option<&ClientEquipmentDyeable> {
+        self.dyeable.as_ref()
+    }
+
+    pub fn use_player_texture(&self) -> Option<bool> {
+        self.use_player_texture
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientEquipmentDyeable {
+    color_when_undyed: Option<i32>,
+}
+
+impl ClientEquipmentDyeable {
+    pub fn color_when_undyed(&self) -> Option<i32> {
+        self.color_when_undyed
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentAssetReloadReport {
+    resource: String,
+    pack_id: String,
+    layer_types: Vec<String>,
+    layer_count: usize,
+    entry_count: usize,
+    textures: Vec<String>,
+    texture_locations: Vec<String>,
+    dyeable_entry_count: usize,
+    player_texture_entry_count: usize,
+}
+
+impl ClientEquipmentAssetReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        layers: &[ClientEquipmentLayer],
+    ) -> Self {
+        let layer_types = layers
+            .iter()
+            .map(|layer| layer.layer_type.clone())
+            .collect::<Vec<_>>();
+        let entries = layers
+            .iter()
+            .flat_map(|layer| layer.entries.iter())
+            .collect::<Vec<_>>();
+        let textures = entries
+            .iter()
+            .map(|entry| entry.texture.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let texture_locations = layers
+            .iter()
+            .flat_map(|layer| {
+                layer.entries.iter().map(|entry| {
+                    equipment_layer_texture_location(
+                        layer.layer_type.as_str(),
+                        entry.texture.as_str(),
+                    )
+                })
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let dyeable_entry_count = entries
+            .iter()
+            .filter(|entry| entry.dyeable.is_some())
+            .count();
+        let player_texture_entry_count = entries
+            .iter()
+            .filter(|entry| entry.use_player_texture == Some(true))
+            .count();
+
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            layer_types,
+            layer_count: layers.len(),
+            entry_count: entries.len(),
+            textures,
+            texture_locations,
+            dyeable_entry_count,
+            player_texture_entry_count,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn layer_types(&self) -> &[String] {
+        &self.layer_types
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layer_count
+    }
+
+    pub fn entry_count(&self) -> usize {
+        self.entry_count
+    }
+
+    pub fn textures(&self) -> &[String] {
+        &self.textures
+    }
+
+    pub fn texture_locations(&self) -> &[String] {
+        &self.texture_locations
+    }
+
+    pub fn dyeable_entry_count(&self) -> usize {
+        self.dyeable_entry_count
+    }
+
+    pub fn player_texture_entry_count(&self) -> usize {
+        self.player_texture_entry_count
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientParticleDescriptionSet {
     descriptions: Vec<ClientParticleDescription>,
@@ -2719,8 +2908,11 @@ impl EquipmentAssetsReloadListener {
         &self.directory
     }
 
-    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonManifestSet> {
-        load_client_json_manifest_directory(stack, &self.directory)
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientEquipmentAssetSet> {
+        load_client_equipment_assets(stack, &self.directory)
     }
 }
 
@@ -2754,9 +2946,9 @@ impl ResourceReloadListener for EquipmentAssetsReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let manifests = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(manifest_report_items(
-            &manifests,
+        let assets = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(equipment_asset_report_items(
+            &assets,
         )))
     }
 }
@@ -3780,6 +3972,199 @@ pub fn load_client_waypoint_styles(
     Ok(ClientWaypointStyleSet { styles })
 }
 
+pub fn load_client_equipment_assets(
+    stack: &ClientResourceStack,
+    directory: &str,
+) -> ResourceReloadResult<ClientEquipmentAssetSet> {
+    let manifests = load_client_json_manifest_directory(stack, directory)?;
+    let assets = manifests
+        .manifests()
+        .iter()
+        .map(parse_client_equipment_asset)
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+
+    Ok(ClientEquipmentAssetSet { assets })
+}
+
+fn parse_client_equipment_asset(
+    manifest: &ClientJsonManifest,
+) -> ResourceReloadResult<ClientEquipmentAsset> {
+    let report = manifest.resource().report();
+    let value = manifest.resource().value();
+    let object = value.as_object().ok_or_else(|| {
+        invalid_equipment_asset_error(report, "top-level value must be an object")
+    })?;
+    let layers = object
+        .get("layers")
+        .ok_or_else(|| invalid_equipment_asset_error(report, "layers must be an object"))?
+        .as_object()
+        .ok_or_else(|| invalid_equipment_asset_error(report, "layers must be an object"))?;
+    if layers.is_empty() {
+        return Err(invalid_equipment_asset_error(
+            report,
+            "layers must not be empty",
+        ));
+    }
+    let layers = layers
+        .iter()
+        .map(|(layer_type, entries)| parse_client_equipment_layer(report, layer_type, entries))
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+
+    Ok(ClientEquipmentAsset {
+        id: manifest.id().to_owned(),
+        report: ClientEquipmentAssetReloadReport::new(report.resource(), report.pack_id(), &layers),
+        layers,
+    })
+}
+
+fn parse_client_equipment_layer(
+    report: &ClientJsonResourceReloadReport,
+    layer_type: &str,
+    entries: &serde_json::Value,
+) -> ResourceReloadResult<ClientEquipmentLayer> {
+    if !is_known_equipment_layer_type(layer_type) {
+        return Err(invalid_equipment_asset_error(
+            report,
+            format!("layers.{layer_type} is not a known equipment layer type"),
+        ));
+    }
+    let entries = entries.as_array().ok_or_else(|| {
+        invalid_equipment_asset_error(
+            report,
+            format!("layers.{layer_type} must be an array of layer entries"),
+        )
+    })?;
+    if entries.is_empty() {
+        return Err(invalid_equipment_asset_error(
+            report,
+            format!("layers.{layer_type} must not be empty"),
+        ));
+    }
+    let entries = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| parse_client_equipment_layer_entry(report, layer_type, index, entry))
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+
+    Ok(ClientEquipmentLayer {
+        layer_type: layer_type.to_owned(),
+        entries,
+    })
+}
+
+fn parse_client_equipment_layer_entry(
+    report: &ClientJsonResourceReloadReport,
+    layer_type: &str,
+    index: usize,
+    entry: &serde_json::Value,
+) -> ResourceReloadResult<ClientEquipmentLayerEntry> {
+    let entry = entry.as_object().ok_or_else(|| {
+        invalid_equipment_asset_error(
+            report,
+            format!("layers.{layer_type}[{index}] must be an object"),
+        )
+    })?;
+    let texture = entry
+        .get("texture")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            invalid_equipment_asset_error(
+                report,
+                format!("layers.{layer_type}[{index}].texture must be a resource id string"),
+            )
+        })?;
+    if !is_valid_vanilla_resource_identifier(texture) {
+        return Err(invalid_equipment_asset_error(
+            report,
+            format!("layers.{layer_type}[{index}].texture is not a valid resource id"),
+        ));
+    }
+    let dyeable = entry
+        .get("dyeable")
+        .map(|dyeable| parse_client_equipment_dyeable(report, layer_type, index, dyeable))
+        .transpose()?;
+    let use_player_texture = entry
+        .get("use_player_texture")
+        .map(|use_player_texture| {
+            use_player_texture.as_bool().ok_or_else(|| {
+                invalid_equipment_asset_error(
+                    report,
+                    format!("layers.{layer_type}[{index}].use_player_texture must be a boolean"),
+                )
+            })
+        })
+        .transpose()?;
+
+    Ok(ClientEquipmentLayerEntry {
+        texture: texture.to_owned(),
+        dyeable,
+        use_player_texture,
+    })
+}
+
+fn parse_client_equipment_dyeable(
+    report: &ClientJsonResourceReloadReport,
+    layer_type: &str,
+    index: usize,
+    dyeable: &serde_json::Value,
+) -> ResourceReloadResult<ClientEquipmentDyeable> {
+    let dyeable = dyeable.as_object().ok_or_else(|| {
+        invalid_equipment_asset_error(
+            report,
+            format!("layers.{layer_type}[{index}].dyeable must be an object"),
+        )
+    })?;
+    let color_when_undyed = dyeable
+        .get("color_when_undyed")
+        .map(|color| {
+            color.as_i64().and_then(|color| i32::try_from(color).ok()).ok_or_else(|| {
+                invalid_equipment_asset_error(
+                    report,
+                    format!(
+                        "layers.{layer_type}[{index}].dyeable.color_when_undyed must be an integer"
+                    ),
+                )
+            })
+        })
+        .transpose()?;
+
+    Ok(ClientEquipmentDyeable { color_when_undyed })
+}
+
+fn is_known_equipment_layer_type(layer_type: &str) -> bool {
+    matches!(
+        layer_type,
+        "humanoid"
+            | "humanoid_leggings"
+            | "humanoid_baby"
+            | "wings"
+            | "wolf_body"
+            | "horse_body"
+            | "llama_body"
+            | "pig_saddle"
+            | "strider_saddle"
+            | "camel_saddle"
+            | "camel_husk_saddle"
+            | "horse_saddle"
+            | "donkey_saddle"
+            | "mule_saddle"
+            | "zombie_horse_saddle"
+            | "skeleton_horse_saddle"
+            | "happy_ghast_body"
+            | "nautilus_saddle"
+            | "nautilus_body"
+    )
+}
+
+fn equipment_layer_texture_location(layer_type: &str, texture: &str) -> String {
+    let (namespace, path) = texture
+        .split_once(':')
+        .map_or(("minecraft", texture), |(namespace, path)| {
+            (namespace, path)
+        });
+    format!("{namespace}:textures/entity/equipment/{layer_type}/{path}.png")
+}
+
 fn parse_client_particle_description(
     manifest: &ClientJsonManifest,
 ) -> ResourceReloadResult<ClientParticleDescription> {
@@ -4003,6 +4388,17 @@ fn invalid_particle_manifest_error(
     }
 }
 
+fn invalid_equipment_asset_error(
+    report: &ClientJsonResourceReloadReport,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidEquipmentAsset {
+        resource: report.resource().to_owned(),
+        pack_id: report.pack_id().to_owned(),
+        reason: reason.into(),
+    }
+}
+
 fn available_manifest_paths(
     stack: &ClientResourceStack,
     directory: &str,
@@ -4063,10 +4459,6 @@ fn manifest_ids_in_directory(
     Ok(ids.into_iter().collect())
 }
 
-fn manifest_report_items(manifests: &ClientJsonManifestSet) -> Vec<String> {
-    manifests.reports().map(json_resource_report_item).collect()
-}
-
 fn particle_description_report_items(descriptions: &ClientParticleDescriptionSet) -> Vec<String> {
     descriptions
         .reports()
@@ -4076,6 +4468,25 @@ fn particle_description_report_items(descriptions: &ClientParticleDescriptionSet
 
 fn waypoint_style_report_items(styles: &ClientWaypointStyleSet) -> Vec<String> {
     styles.reports().map(waypoint_style_report_item).collect()
+}
+
+fn equipment_asset_report_items(assets: &ClientEquipmentAssetSet) -> Vec<String> {
+    assets.reports().map(equipment_asset_report_item).collect()
+}
+
+fn equipment_asset_report_item(report: &ClientEquipmentAssetReloadReport) -> String {
+    format!(
+        "{}@{}:layers:{} entries:{} layer_types:{} textures:{} texture_locations:{} dyeable:{} player_textures:{}",
+        report.resource(),
+        report.pack_id(),
+        report.layer_count(),
+        report.entry_count(),
+        report.layer_types().join(","),
+        report.textures().join(","),
+        report.texture_locations().join(","),
+        report.dyeable_entry_count(),
+        report.player_texture_entry_count(),
+    )
 }
 
 fn particle_description_report_item(report: &ClientParticleDescriptionReloadReport) -> String {
@@ -5900,6 +6311,12 @@ pub enum ResourceReloadError {
     },
     #[error("invalid waypoint style manifest `{resource}` from pack `{pack_id}`: {reason}")]
     InvalidWaypointStyleManifest {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
+    #[error("invalid equipment asset `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidEquipmentAsset {
         resource: String,
         pack_id: String,
         reason: String,
@@ -8378,20 +8795,20 @@ mod tests {
     }
 
     #[test]
-    fn equipment_assets_listener_reports_priority_pack_and_shape() {
+    fn equipment_assets_listener_reports_priority_pack_and_layers() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(
             "assets/minecraft/equipment/diamond.json",
-            r#"{"layers":{"humanoid":[]}}"#,
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:diamond"}]}}"#,
         );
         base.write(
             "assets/minecraft/equipment/elytra.json",
-            r#"{"layers":{"wings":[]}}"#,
+            r#"{"layers":{"wings":[{"texture":"minecraft:elytra","use_player_texture":true}]}}"#,
         );
         override_pack.write(
             "assets/minecraft/equipment/diamond.json",
-            r#"{"layers":{"humanoid":[]},"override":true}"#,
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:custom_diamond","dyeable":{}}]},"override":true}"#,
         );
 
         let stack = ClientResourceStack::new(vec![
@@ -8415,9 +8832,8 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/equipment/diamond.json@override:object keys:layers,override"
-                    .to_owned(),
-                "assets/minecraft/equipment/elytra.json@base:object keys:layers".to_owned(),
+                "assets/minecraft/equipment/diamond.json@override:layers:1 entries:1 layer_types:humanoid textures:minecraft:custom_diamond texture_locations:minecraft:textures/entity/equipment/humanoid/custom_diamond.png dyeable:1 player_textures:0".to_owned(),
+                "assets/minecraft/equipment/elytra.json@base:layers:1 entries:1 layer_types:wings textures:minecraft:elytra texture_locations:minecraft:textures/entity/equipment/wings/elytra.png dyeable:0 player_textures:1".to_owned(),
             ]
         );
     }
@@ -8840,6 +9256,48 @@ mod tests {
     }
 
     #[test]
+    fn equipment_asset_reload_rejects_invalid_layers_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/equipment/diamond.json",
+            r#"{"layers":["humanoid"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = EquipmentAssetsReloadListener::default()
+            .load(&stack)
+            .expect_err("invalid equipment layers shape should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidEquipmentAsset { resource, pack_id, reason }
+                if resource == "assets/minecraft/equipment/diamond.json"
+                    && pack_id == "test"
+                    && reason == "layers must be an object")
+        );
+    }
+
+    #[test]
+    fn equipment_asset_reload_rejects_invalid_layer_texture_id() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/equipment/diamond.json",
+            r#"{"layers":{"humanoid":[{"texture":"Minecraft:Diamond"}]}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = EquipmentAssetsReloadListener::default()
+            .load(&stack)
+            .expect_err("invalid equipment layer texture id should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidEquipmentAsset { resource, pack_id, reason }
+                if resource == "assets/minecraft/equipment/diamond.json"
+                    && pack_id == "test"
+                    && reason == "layers.humanoid[0].texture is not a valid resource id")
+        );
+    }
+
+    #[test]
     fn model_entry_smoke_reload_rejects_invalid_json() {
         let temp = TempPack::new();
         temp.write("assets/minecraft/models/block/stone.json", "{not json");
@@ -9109,10 +9567,10 @@ mod tests {
             listener.reload.items().len()
         );
         assert!(listener.reload.items().contains(
-            &"assets/minecraft/equipment/diamond.json@vanilla:object keys:layers".to_owned()
+            &"assets/minecraft/equipment/diamond.json@vanilla:layers:5 entries:5 layer_types:horse_body,humanoid,humanoid_baby,humanoid_leggings,nautilus_body textures:minecraft:diamond texture_locations:minecraft:textures/entity/equipment/horse_body/diamond.png,minecraft:textures/entity/equipment/humanoid/diamond.png,minecraft:textures/entity/equipment/humanoid_baby/diamond.png,minecraft:textures/entity/equipment/humanoid_leggings/diamond.png,minecraft:textures/entity/equipment/nautilus_body/diamond.png dyeable:0 player_textures:0".to_owned()
         ));
         assert!(listener.reload.items().contains(
-            &"assets/minecraft/equipment/elytra.json@vanilla:object keys:layers".to_owned()
+            &"assets/minecraft/equipment/elytra.json@vanilla:layers:1 entries:1 layer_types:wings textures:minecraft:elytra texture_locations:minecraft:textures/entity/equipment/wings/elytra.png dyeable:0 player_textures:1".to_owned()
         ));
     }
 
