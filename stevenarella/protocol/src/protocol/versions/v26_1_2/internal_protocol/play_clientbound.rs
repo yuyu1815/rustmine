@@ -19,6 +19,7 @@ mod tag_query;
 mod test_instance_block_status;
 mod text;
 mod update;
+mod update_advancements;
 mod update_attributes;
 mod update_mob_effect;
 mod update_recipes;
