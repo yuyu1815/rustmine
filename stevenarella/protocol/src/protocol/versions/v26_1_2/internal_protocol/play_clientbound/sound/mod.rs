@@ -5,12 +5,14 @@ use crate::protocol::{
     Error, Serializable, VarInt,
 };
 
+mod sound_entity;
+
 pub(crate) fn read_sound_clientbound_packet_by_internal_id<R: io::Read>(
     internal_id: i32,
     buf: &mut R,
 ) -> Result<Option<Packet>, Error> {
     if let Some(packet) =
-        super::sound_entity::read_sound_entity_clientbound_packet_by_internal_id(internal_id, buf)?
+        sound_entity::read_sound_entity_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
     }
