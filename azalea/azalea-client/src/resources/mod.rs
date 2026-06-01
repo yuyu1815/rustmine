@@ -89,6 +89,9 @@ const DEFAULT_SHADER_INCLUDE_SOURCES: &[&str] = &[
 ];
 const FONT_DEFINITION_ROOT_DIR: &str = "assets/minecraft/font";
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
+const DEFAULT_WAYPOINT_STYLE_NEAR_DISTANCE: u32 = 128;
+const DEFAULT_WAYPOINT_STYLE_FAR_DISTANCE: u32 = 332;
+const WAYPOINT_STYLE_SPRITE_LOCATION_PREFIX: &str = "hud/locator_bar_dot";
 const VANILLA_EXCLUDED_SPLASH_JAVA_HASH: i32 = 125_780_783;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const PACK_MCMETA_RESOURCE: &str = "pack.mcmeta";
@@ -2315,6 +2318,121 @@ impl ClientParticleDescriptionReloadReport {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientWaypointStyleSet {
+    styles: Vec<ClientWaypointStyle>,
+}
+
+impl ClientWaypointStyleSet {
+    pub fn styles(&self) -> &[ClientWaypointStyle] {
+        &self.styles
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = &ClientWaypointStyleReloadReport> {
+        self.styles.iter().map(ClientWaypointStyle::report)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientWaypointStyle {
+    id: String,
+    sprites: Vec<String>,
+    sprite_locations: Vec<String>,
+    near_distance: u32,
+    far_distance: u32,
+    report: ClientWaypointStyleReloadReport,
+}
+
+impl ClientWaypointStyle {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn sprite_locations(&self) -> &[String] {
+        &self.sprite_locations
+    }
+
+    pub fn near_distance(&self) -> u32 {
+        self.near_distance
+    }
+
+    pub fn far_distance(&self) -> u32 {
+        self.far_distance
+    }
+
+    pub fn report(&self) -> &ClientWaypointStyleReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientWaypointStyleReloadReport {
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    sprites: Vec<String>,
+    sprite_locations: Vec<String>,
+    near_distance: u32,
+    far_distance: u32,
+}
+
+impl ClientWaypointStyleReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        sprites: impl IntoIterator<Item = impl Into<String>>,
+        near_distance: u32,
+        far_distance: u32,
+    ) -> Self {
+        let sprites: Vec<String> = sprites.into_iter().map(Into::into).collect();
+        let sprite_locations = sprites
+            .iter()
+            .map(|sprite| waypoint_style_sprite_location(sprite))
+            .collect::<Vec<_>>();
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            sprite_count: sprites.len(),
+            sprites,
+            sprite_locations,
+            near_distance,
+            far_distance,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn sprite_locations(&self) -> &[String] {
+        &self.sprite_locations
+    }
+
+    pub fn near_distance(&self) -> u32 {
+        self.near_distance
+    }
+
+    pub fn far_distance(&self) -> u32 {
+        self.far_distance
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSoundEvents {
     report: ClientSoundEventsReloadReport,
@@ -2544,8 +2662,11 @@ impl WaypointStyleManifestReloadListener {
         &self.ids
     }
 
-    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonManifestSet> {
-        load_client_json_manifest_set(stack, WAYPOINT_STYLE_MANIFEST_DIR, &self.ids)
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientWaypointStyleSet> {
+        load_client_waypoint_styles(stack, &self.ids)
     }
 }
 
@@ -2575,9 +2696,9 @@ impl ResourceReloadListener for WaypointStyleManifestReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let manifests = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(manifest_report_items(
-            &manifests,
+        let styles = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(waypoint_style_report_items(
+            &styles,
         )))
     }
 }
@@ -3645,6 +3766,20 @@ pub fn load_client_particle_descriptions(
     Ok(ClientParticleDescriptionSet { descriptions })
 }
 
+pub fn load_client_waypoint_styles(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<ClientWaypointStyleSet> {
+    let manifests = load_client_json_manifest_set(stack, WAYPOINT_STYLE_MANIFEST_DIR, ids)?;
+    let styles = manifests
+        .manifests()
+        .iter()
+        .map(parse_client_waypoint_style)
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+
+    Ok(ClientWaypointStyleSet { styles })
+}
+
 fn parse_client_particle_description(
     manifest: &ClientJsonManifest,
 ) -> ResourceReloadResult<ClientParticleDescription> {
@@ -3692,6 +3827,131 @@ fn parse_client_particle_description(
     })
 }
 
+fn parse_client_waypoint_style(
+    manifest: &ClientJsonManifest,
+) -> ResourceReloadResult<ClientWaypointStyle> {
+    let report = manifest.resource().report();
+    let value = manifest.resource().value();
+    let object = value.as_object().ok_or_else(|| {
+        invalid_waypoint_style_manifest_error(report, "top-level value must be an object")
+    })?;
+    let sprites = object
+        .get("sprites")
+        .ok_or_else(|| {
+            invalid_waypoint_style_manifest_error(
+                report,
+                "sprites must be an array of resource ids",
+            )
+        })?
+        .as_array()
+        .ok_or_else(|| {
+            invalid_waypoint_style_manifest_error(
+                report,
+                "sprites must be an array of resource ids",
+            )
+        })?;
+    let sprites = sprites
+        .iter()
+        .enumerate()
+        .map(|(index, sprite)| {
+            let Some(sprite) = sprite.as_str() else {
+                return Err(invalid_waypoint_style_manifest_error(
+                    report,
+                    format!("sprites[{index}] must be a resource id string"),
+                ));
+            };
+            if !is_valid_vanilla_resource_identifier(sprite) {
+                return Err(invalid_waypoint_style_manifest_error(
+                    report,
+                    format!("sprites[{index}] is not a valid resource id"),
+                ));
+            }
+            Ok(sprite.to_owned())
+        })
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+    if sprites.is_empty() {
+        return Err(invalid_waypoint_style_manifest_error(
+            report,
+            "sprites must not be empty",
+        ));
+    }
+    let (near_distance, far_distance) = parse_waypoint_style_distances(report, object)?;
+
+    Ok(ClientWaypointStyle {
+        id: manifest.id().to_owned(),
+        report: ClientWaypointStyleReloadReport::new(
+            report.resource(),
+            report.pack_id(),
+            sprites.iter().cloned(),
+            near_distance,
+            far_distance,
+        ),
+        sprite_locations: sprites
+            .iter()
+            .map(|sprite| waypoint_style_sprite_location(sprite))
+            .collect(),
+        sprites,
+        near_distance,
+        far_distance,
+    })
+}
+
+fn parse_waypoint_style_distances(
+    report: &ClientJsonResourceReloadReport,
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<(u32, u32)> {
+    let near_distance = parse_optional_waypoint_distance(report, object, "near_distance")?
+        .unwrap_or(DEFAULT_WAYPOINT_STYLE_NEAR_DISTANCE);
+    let far_distance = parse_optional_waypoint_distance(report, object, "far_distance")?
+        .unwrap_or(DEFAULT_WAYPOINT_STYLE_FAR_DISTANCE);
+
+    if near_distance == 0 {
+        return Err(invalid_waypoint_style_manifest_error(
+            report,
+            "near_distance must be greater than 0",
+        ));
+    }
+    if far_distance <= near_distance {
+        return Err(invalid_waypoint_style_manifest_error(
+            report,
+            "far_distance must be greater than near_distance",
+        ));
+    }
+
+    Ok((near_distance, far_distance))
+}
+
+fn parse_optional_waypoint_distance(
+    report: &ClientJsonResourceReloadReport,
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> ResourceReloadResult<Option<u32>> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    let Some(distance) = value
+        .as_u64()
+        .and_then(|distance| u32::try_from(distance).ok())
+    else {
+        return Err(invalid_waypoint_style_manifest_error(
+            report,
+            format!("{key} must be an integer"),
+        ));
+    };
+    if distance > 60_000_000 {
+        return Err(invalid_waypoint_style_manifest_error(
+            report,
+            format!("{key} must be at most 60000000"),
+        ));
+    }
+    Ok(Some(distance))
+}
+
+fn waypoint_style_sprite_location(sprite: &str) -> String {
+    let (namespace, path) = sprite.split_once(':').unwrap_or(("minecraft", sprite));
+    format!("{namespace}:{WAYPOINT_STYLE_SPRITE_LOCATION_PREFIX}/{path}")
+}
+
 fn is_valid_vanilla_resource_identifier(value: &str) -> bool {
     let (namespace, path) = value
         .split_once(':')
@@ -3719,6 +3979,17 @@ fn is_valid_vanilla_resource_path(path: &str) -> bool {
             || byte.is_ascii_digit()
             || matches!(byte, b'_' | b'-' | b'.' | b'/')
     })
+}
+
+fn invalid_waypoint_style_manifest_error(
+    report: &ClientJsonResourceReloadReport,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidWaypointStyleManifest {
+        resource: report.resource().to_owned(),
+        pack_id: report.pack_id().to_owned(),
+        reason: reason.into(),
+    }
 }
 
 fn invalid_particle_manifest_error(
@@ -3803,6 +4074,10 @@ fn particle_description_report_items(descriptions: &ClientParticleDescriptionSet
         .collect()
 }
 
+fn waypoint_style_report_items(styles: &ClientWaypointStyleSet) -> Vec<String> {
+    styles.reports().map(waypoint_style_report_item).collect()
+}
+
 fn particle_description_report_item(report: &ClientParticleDescriptionReloadReport) -> String {
     format!(
         "{}@{}:{} sprites:{}",
@@ -3810,6 +4085,19 @@ fn particle_description_report_item(report: &ClientParticleDescriptionReloadRepo
         report.pack_id(),
         report.sprite_count(),
         report.sprites().join(",")
+    )
+}
+
+fn waypoint_style_report_item(report: &ClientWaypointStyleReloadReport) -> String {
+    format!(
+        "{}@{}:near:{} far:{} sprites:{}:{} locations:{}",
+        report.resource(),
+        report.pack_id(),
+        report.near_distance(),
+        report.far_distance(),
+        report.sprite_count(),
+        report.sprites().join(","),
+        report.sprite_locations().join(",")
     )
 }
 
@@ -5606,6 +5894,12 @@ pub enum ResourceReloadError {
     },
     #[error("invalid particle manifest `{resource}` from pack `{pack_id}`: {reason}")]
     InvalidParticleManifest {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
+    #[error("invalid waypoint style manifest `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidWaypointStyleManifest {
         resource: String,
         pack_id: String,
         reason: String,
@@ -7938,12 +8232,12 @@ mod tests {
     }
 
     #[test]
-    fn waypoint_style_manifest_listener_reports_priority_pack_and_shape() {
+    fn waypoint_style_manifest_listener_reports_priority_override_sprites_and_distances() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(
             "assets/minecraft/waypoint_style/default.json",
-            r#"{"sprites":["minecraft:default_0"]}"#,
+            r#"{"far_distance":192,"sprites":["minecraft:default_0"]}"#,
         );
         base.write(
             "assets/minecraft/waypoint_style/bowtie.json",
@@ -7951,7 +8245,7 @@ mod tests {
         );
         override_pack.write(
             "assets/minecraft/waypoint_style/bowtie.json",
-            r#"{"near_distance":64,"sprites":["minecraft:override_bowtie"]}"#,
+            r#"{"far_distance":192,"near_distance":64,"sprites":["minecraft:override_bowtie","custom:pin"]}"#,
         );
 
         let stack = ClientResourceStack::new(vec![
@@ -7975,12 +8269,112 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/waypoint_style/default.json@base:object keys:sprites"
+                "assets/minecraft/waypoint_style/default.json@base:near:128 far:192 sprites:1:minecraft:default_0 locations:minecraft:hud/locator_bar_dot/default_0"
                     .to_owned(),
-                "assets/minecraft/waypoint_style/bowtie.json@override:object keys:near_distance,sprites"
+                "assets/minecraft/waypoint_style/bowtie.json@override:near:64 far:192 sprites:2:minecraft:override_bowtie,custom:pin locations:minecraft:hud/locator_bar_dot/override_bowtie,custom:hud/locator_bar_dot/pin"
                     .to_owned(),
             ]
         );
+    }
+
+    #[test]
+    fn waypoint_style_manifest_reload_rejects_invalid_sprite_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":"minecraft:default_0"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = WaypointStyleManifestReloadListener::new(["default"])
+            .load(&stack)
+            .expect_err("invalid waypoint style sprite shape should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidWaypointStyleManifest {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/waypoint_style/default.json"
+                && pack_id == "test"
+                && reason == "sprites must be an array of resource ids"
+        ));
+    }
+
+    #[test]
+    fn waypoint_style_manifest_reload_rejects_invalid_sprite_identifier() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["Minecraft:Uppercase"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = WaypointStyleManifestReloadListener::new(["default"])
+            .load(&stack)
+            .expect_err("invalid waypoint style sprite identifier should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidWaypointStyleManifest {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/waypoint_style/default.json"
+                && pack_id == "test"
+                && reason == "sprites[0] is not a valid resource id"
+        ));
+    }
+
+    #[test]
+    fn waypoint_style_manifest_reload_rejects_empty_sprites() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = WaypointStyleManifestReloadListener::new(["default"])
+            .load(&stack)
+            .expect_err("empty waypoint style sprites should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidWaypointStyleManifest {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/waypoint_style/default.json"
+                && pack_id == "test"
+                && reason == "sprites must not be empty"
+        ));
+    }
+
+    #[test]
+    fn waypoint_style_manifest_reload_rejects_invalid_distances() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"near_distance":64,"far_distance":64,"sprites":["minecraft:default_0"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = WaypointStyleManifestReloadListener::new(["default"])
+            .load(&stack)
+            .expect_err("invalid waypoint style distances should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidWaypointStyleManifest {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/waypoint_style/default.json"
+                && pack_id == "test"
+                && reason == "far_distance must be greater than near_distance"
+        ));
     }
 
     #[test]
@@ -8646,6 +9040,35 @@ mod tests {
 
     #[test]
     fn committed_vanilla_waypoint_style_manifest_listener_loads_default_manifest_set() {
+        let stack = ClientResourceStack::vanilla();
+        let styles = WaypointStyleManifestReloadListener::default()
+            .load(&stack)
+            .expect("committed vanilla waypoint styles should load");
+        let default_style = styles
+            .styles()
+            .iter()
+            .find(|style| style.id() == "default")
+            .expect("default waypoint style should load");
+        let bowtie_style = styles
+            .styles()
+            .iter()
+            .find(|style| style.id() == "bowtie")
+            .expect("bowtie waypoint style should load");
+
+        assert_eq!(default_style.near_distance(), 128);
+        assert_eq!(default_style.far_distance(), 332);
+        assert_eq!(
+            default_style.sprite_locations(),
+            [
+                "minecraft:hud/locator_bar_dot/default_0",
+                "minecraft:hud/locator_bar_dot/default_1",
+                "minecraft:hud/locator_bar_dot/default_2",
+                "minecraft:hud/locator_bar_dot/default_3",
+            ]
+        );
+        assert_eq!(bowtie_style.near_distance(), 64);
+        assert_eq!(bowtie_style.far_distance(), 332);
+
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(WaypointStyleManifestReloadListener::default())
             .run()
@@ -8663,9 +9086,9 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/waypoint_style/default.json@vanilla:object keys:sprites"
+                "assets/minecraft/waypoint_style/default.json@vanilla:near:128 far:332 sprites:4:minecraft:default_0,minecraft:default_1,minecraft:default_2,minecraft:default_3 locations:minecraft:hud/locator_bar_dot/default_0,minecraft:hud/locator_bar_dot/default_1,minecraft:hud/locator_bar_dot/default_2,minecraft:hud/locator_bar_dot/default_3"
                     .to_owned(),
-                "assets/minecraft/waypoint_style/bowtie.json@vanilla:object keys:near_distance,sprites"
+                "assets/minecraft/waypoint_style/bowtie.json@vanilla:near:64 far:332 sprites:5:minecraft:bowtie,minecraft:default_0,minecraft:default_1,minecraft:default_2,minecraft:default_3 locations:minecraft:hud/locator_bar_dot/bowtie,minecraft:hud/locator_bar_dot/default_0,minecraft:hud/locator_bar_dot/default_1,minecraft:hud/locator_bar_dot/default_2,minecraft:hud/locator_bar_dot/default_3"
                     .to_owned(),
             ]
         );
