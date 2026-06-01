@@ -6,6 +6,7 @@ use crate::protocol::{
 };
 
 mod set_display_objective;
+mod set_player_team;
 mod set_score;
 
 pub(crate) fn read_scoreboard_clientbound_packet_by_internal_id<R: io::Read>(
@@ -25,6 +26,11 @@ pub(crate) fn read_scoreboard_clientbound_packet_by_internal_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        set_player_team::read_set_player_team_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::PlaySetObjectiveClientbound => {
@@ -41,19 +47,6 @@ pub(crate) fn read_scoreboard_clientbound_packet_by_internal_id<R: io::Read>(
                     objective_name,
                     method,
                 },
-            )))
-        }
-        packet::play::clientbound::internal_ids::PlaySetPlayerTeamClientbound => {
-            let team_name = String::read_from(buf)?;
-            let method = i8::read_from(buf)?;
-            if method != 1 {
-                return Err(Error::Err(format!(
-                    "unsupported Play set_player_team method {}",
-                    method
-                )));
-            }
-            Ok(Some(Packet::PlaySetPlayerTeamClientbound(
-                packet::play::clientbound::PlaySetPlayerTeamClientbound { team_name, method },
             )))
         }
         _ => Ok(None),
