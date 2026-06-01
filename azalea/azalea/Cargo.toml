@@ -39,6 +39,8 @@ parking_lot.workspace = true
 radix-heap.workspace = true
 rustc-hash.workspace = true
 serde = { workspace = true, optional = true }
+async-compat = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -58,7 +60,7 @@ default = ["log", "serde", "packet-event", "online-mode"]
 log = ["azalea-client/log"]
 serde = ["dep:serde", "azalea-registry/serde", "azalea-world/serde"]
 packet-event = ["azalea-client/packet-event"]
-online-mode = ["azalea-client/online-mode"]
+online-mode = ["azalea-client/online-mode", "dep:async-compat", "dep:reqwest"]
 
 [[example]]
 name = "testbot"
