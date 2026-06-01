@@ -1181,11 +1181,25 @@ impl ClientResourceRepository {
         self.rebuild_stack().stack
     }
 
+    pub fn default_client_resource_reload_manager(&self) -> ResourceReloadManager {
+        self.rebuild_stack()
+            .into_default_client_resource_reload_manager()
+    }
+
     pub fn rebuild_stack(&self) -> ClientResourcePackSelectionReport {
         let mut packs = vec![self.vanilla_pack.clone()];
         let mut selected_pack_ids = Vec::new();
         let mut missing_selected_pack_ids = Vec::new();
+        let mut known_pack_ids = Vec::new();
         let mut seen = BTreeSet::new();
+
+        if let Some(vanilla) = self
+            .available_packs
+            .get(self.vanilla_pack.id())
+            .and_then(AvailableClientResourcePack::known_pack_id)
+        {
+            known_pack_ids.push(vanilla.clone());
+        }
 
         for id in &self.selected_pack_ids {
             if id == self.vanilla_pack.id() {
@@ -1199,6 +1213,9 @@ impl ClientResourceRepository {
             match self.available_packs.get(id) {
                 Some(available) => {
                     selected_pack_ids.push(id.clone());
+                    if let Some(known_pack_id) = available.known_pack_id() {
+                        known_pack_ids.push(known_pack_id.clone());
+                    }
                     packs.push(available.pack().clone());
                 }
                 None => missing_selected_pack_ids.push(id.clone()),
@@ -1209,43 +1226,26 @@ impl ClientResourceRepository {
             stack: ClientResourceStack::new(packs),
             selected_pack_ids,
             missing_selected_pack_ids,
+            known_pack_ids,
         }
     }
 
     pub fn known_pack_ids(&self) -> Vec<KnownPackId> {
-        let mut known_pack_ids = Vec::new();
-
-        if let Some(vanilla) = self
-            .available_packs
-            .get(self.vanilla_pack.id())
-            .and_then(AvailableClientResourcePack::known_pack_id)
-        {
-            known_pack_ids.push(vanilla.clone());
-        }
-
-        for id in &self.rebuild_stack().selected_pack_ids {
-            if let Some(known_pack_id) = self
-                .available_packs
-                .get(id)
-                .and_then(AvailableClientResourcePack::known_pack_id)
-            {
-                known_pack_ids.push(known_pack_id.clone());
-            }
-        }
-
-        known_pack_ids
+        self.rebuild_stack().known_pack_ids
     }
 
     pub fn recognized_known_pack_ids<'a>(
         &self,
         offered: impl IntoIterator<Item = &'a KnownPackId>,
     ) -> Vec<KnownPackId> {
-        let known_pack_ids = self.known_pack_ids();
-        offered
-            .into_iter()
-            .filter(|known_pack_id| known_pack_ids.contains(known_pack_id))
-            .cloned()
-            .collect()
+        self.accepted_known_pack_ids(offered)
+    }
+
+    pub fn accepted_known_pack_ids<'a>(
+        &self,
+        offered: impl IntoIterator<Item = &'a KnownPackId>,
+    ) -> Vec<KnownPackId> {
+        self.rebuild_stack().accepted_known_pack_ids(offered)
     }
 }
 
@@ -1321,6 +1321,7 @@ pub struct ClientResourcePackSelectionReport {
     stack: ClientResourceStack,
     selected_pack_ids: Vec<String>,
     missing_selected_pack_ids: Vec<String>,
+    known_pack_ids: Vec<KnownPackId>,
 }
 
 impl ClientResourcePackSelectionReport {
@@ -1338,6 +1339,29 @@ impl ClientResourcePackSelectionReport {
 
     pub fn missing_selected_pack_ids(&self) -> &[String] {
         &self.missing_selected_pack_ids
+    }
+
+    pub fn known_pack_ids(&self) -> &[KnownPackId] {
+        &self.known_pack_ids
+    }
+
+    pub fn accepted_known_pack_ids<'a>(
+        &self,
+        offered: impl IntoIterator<Item = &'a KnownPackId>,
+    ) -> Vec<KnownPackId> {
+        offered
+            .into_iter()
+            .filter(|known_pack_id| self.known_pack_ids.contains(known_pack_id))
+            .cloned()
+            .collect()
+    }
+
+    pub fn default_client_resource_reload_manager(&self) -> ResourceReloadManager {
+        ResourceReloadManager::with_default_client_resources(self.stack.clone())
+    }
+
+    pub fn into_default_client_resource_reload_manager(self) -> ResourceReloadManager {
+        ResourceReloadManager::with_default_client_resources(self.stack)
     }
 }
 
@@ -10865,7 +10889,7 @@ mod tests {
     }
 
     #[test]
-    fn repository_stack_always_keeps_vanilla_at_bottom() {
+    fn client_resource_repository_stack_always_keeps_vanilla_at_bottom() {
         let custom = TempPack::new();
 
         let repository = ClientResourceRepository::committed_vanilla()
@@ -10887,7 +10911,26 @@ mod tests {
     }
 
     #[test]
-    fn repository_preserves_selected_pack_order_above_vanilla() {
+    fn client_resource_repository_default_stack_is_vanilla_only() {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let report = repository.rebuild_stack();
+
+        assert_eq!(
+            report
+                .stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID]
+        );
+        assert!(report.selected_pack_ids().is_empty());
+        assert!(report.missing_selected_pack_ids().is_empty());
+        assert_eq!(report.known_pack_ids(), [KnownPackId::vanilla()]);
+    }
+
+    #[test]
+    fn client_resource_repository_preserves_selected_pack_order_above_vanilla() {
         let low = TempPack::new();
         let high = TempPack::new();
 
@@ -10920,7 +10963,40 @@ mod tests {
     }
 
     #[test]
-    fn repository_reports_missing_selected_pack_ids_without_loading_them() {
+    fn client_resource_repository_duplicate_selected_ids_apply_once() {
+        let custom = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new("custom", custom.path()))
+                    .with_known_pack_id(KnownPackId::new("example", "custom", "1")),
+            )
+            .with_selected_pack_ids(["custom", "custom", "missing", "missing"]);
+
+        let report = repository.rebuild_stack();
+
+        assert_eq!(
+            report
+                .stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "custom"]
+        );
+        assert_eq!(report.selected_pack_ids(), ["custom".to_owned()]);
+        assert_eq!(report.missing_selected_pack_ids(), ["missing".to_owned()]);
+        assert_eq!(
+            report.known_pack_ids(),
+            [
+                KnownPackId::vanilla(),
+                KnownPackId::new("example", "custom", "1")
+            ]
+        );
+    }
+
+    #[test]
+    fn client_resource_repository_reports_missing_selected_pack_ids_without_loading_them() {
         let present = TempPack::new();
 
         let repository = ClientResourceRepository::committed_vanilla()
@@ -10945,7 +11021,7 @@ mod tests {
     }
 
     #[test]
-    fn repository_higher_selected_pack_overrides_lower_pack() {
+    fn client_resource_repository_higher_selected_pack_overrides_lower_pack() {
         let low = TempPack::new();
         let high = TempPack::new();
         low.write("assets/minecraft/lang/en_us.json", r#"{"menu.play":"Low"}"#);
@@ -10978,15 +11054,29 @@ mod tests {
     }
 
     #[test]
-    fn repository_known_pack_ids_include_vanilla() {
+    fn client_resource_repository_known_pack_ids_include_vanilla_and_selected_available_packs() {
         let custom = TempPack::new();
+        let unselected = TempPack::new();
 
         let repository = ClientResourceRepository::committed_vanilla()
             .with_available_pack(
                 AvailableClientResourcePack::new(ClientResourcePack::new("custom", custom.path()))
                     .with_known_pack_id(KnownPackId::new("example", "custom", "1")),
             )
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new(
+                    "unselected",
+                    unselected.path(),
+                ))
+                .with_known_pack_id(KnownPackId::new(
+                    "example",
+                    "unselected",
+                    "1",
+                )),
+            )
             .with_selected_pack_ids(["custom"]);
+
+        let report = repository.rebuild_stack();
 
         assert_eq!(
             repository.known_pack_ids(),
@@ -10995,10 +11085,11 @@ mod tests {
                 KnownPackId::new("example", "custom", "1")
             ]
         );
+        assert_eq!(report.known_pack_ids(), repository.known_pack_ids());
     }
 
     #[test]
-    fn repository_recognizes_only_offered_known_packs_in_server_order() {
+    fn client_resource_repository_recognizes_only_offered_known_packs_in_server_order() {
         let custom = TempPack::new();
 
         let repository = ClientResourceRepository::committed_vanilla()
@@ -11020,6 +11111,56 @@ mod tests {
                 KnownPackId::new("example", "custom", "1"),
                 KnownPackId::vanilla(),
             ]
+        );
+        assert_eq!(
+            repository.accepted_known_pack_ids(&offered),
+            [
+                KnownPackId::new("example", "custom", "1"),
+                KnownPackId::vanilla(),
+            ]
+        );
+        assert_eq!(
+            repository.rebuild_stack().accepted_known_pack_ids(&offered),
+            [
+                KnownPackId::new("example", "custom", "1"),
+                KnownPackId::vanilla(),
+            ]
+        );
+    }
+
+    #[test]
+    fn client_resource_repository_report_feeds_default_client_resource_reload_manager() {
+        let custom = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "custom",
+                custom.path(),
+            )))
+            .with_selected_pack_ids(["custom"]);
+
+        let manager = repository.default_client_resource_reload_manager();
+        let report_manager = repository
+            .rebuild_stack()
+            .default_client_resource_reload_manager();
+
+        assert_eq!(
+            manager
+                .stack
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "custom"]
+        );
+        assert_eq!(
+            report_manager
+                .stack
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "custom"]
         );
     }
 
