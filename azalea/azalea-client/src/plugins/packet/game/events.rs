@@ -137,6 +137,12 @@ pub struct ResourcePackEvent {
     pub prompt: Option<FormattedText>,
 }
 
+#[derive(Clone, Debug, Message)]
+pub struct ResourcePackPopEvent {
+    pub entity: Entity,
+    pub id: Option<Uuid>,
+}
+
 /// A world instance (aka dimension) was loaded by a client.
 ///
 /// Since the world is given to you as a weak reference, it won't be able to be

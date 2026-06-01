@@ -8,6 +8,10 @@ use azalea_client::{
         death_event_on_0_health,
         game::{ResourcePackEvent, SendGamePacketEvent},
     },
+    resources::{
+        ServerResourcePackAck, ServerResourcePackAckAction, ServerResourcePackApplyState,
+        ServerResourcePackRequest,
+    },
     respawn::perform_respawn,
 };
 use azalea_protocol::packets::{
@@ -46,36 +50,83 @@ fn accept_resource_pack(
             continue;
         };
 
-        if in_config_state_option.is_some() {
-            commands.trigger(SendConfigPacketEvent::new(
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            event.id,
+            event.url.to_owned(),
+            event.hash.to_owned(),
+            event.required,
+            event.prompt.clone(),
+        ));
+        let acks = [pack.accept(), {
+            pack.start_download();
+            pack.download_succeeded();
+            pack.apply_downloaded()
+        }];
+
+        for ack in acks {
+            send_resource_pack_ack(
+                &mut commands,
                 event.entity,
-                config::ServerboundResourcePack {
-                    id: event.id,
-                    action: config::s_resource_pack::Action::Accepted,
-                },
-            ));
-            commands.trigger(SendConfigPacketEvent::new(
-                event.entity,
-                config::ServerboundResourcePack {
-                    id: event.id,
-                    action: config::s_resource_pack::Action::SuccessfullyLoaded,
-                },
-            ));
-        } else {
-            commands.trigger(SendGamePacketEvent::new(
-                event.entity,
-                ServerboundResourcePack {
-                    id: event.id,
-                    action: s_resource_pack::Action::Accepted,
-                },
-            ));
-            commands.trigger(SendGamePacketEvent::new(
-                event.entity,
-                ServerboundResourcePack {
-                    id: event.id,
-                    action: s_resource_pack::Action::SuccessfullyLoaded,
-                },
-            ));
+                in_config_state_option.is_some(),
+                ack,
+            );
         }
+    }
+}
+
+fn send_resource_pack_ack(
+    commands: &mut Commands,
+    entity: Entity,
+    in_config_state: bool,
+    ack: ServerResourcePackAck,
+) {
+    if in_config_state {
+        commands.trigger(SendConfigPacketEvent::new(
+            entity,
+            config::ServerboundResourcePack {
+                id: ack.id,
+                action: config_resource_pack_ack_action(ack.action),
+            },
+        ));
+    } else {
+        commands.trigger(SendGamePacketEvent::new(
+            entity,
+            ServerboundResourcePack {
+                id: ack.id,
+                action: game_resource_pack_ack_action(ack.action),
+            },
+        ));
+    }
+}
+
+fn config_resource_pack_ack_action(
+    action: ServerResourcePackAckAction,
+) -> config::s_resource_pack::Action {
+    match action {
+        ServerResourcePackAckAction::SuccessfullyLoaded => {
+            config::s_resource_pack::Action::SuccessfullyLoaded
+        }
+        ServerResourcePackAckAction::Declined => config::s_resource_pack::Action::Declined,
+        ServerResourcePackAckAction::FailedDownload => {
+            config::s_resource_pack::Action::FailedDownload
+        }
+        ServerResourcePackAckAction::Accepted => config::s_resource_pack::Action::Accepted,
+        ServerResourcePackAckAction::InvalidUrl => config::s_resource_pack::Action::InvalidUrl,
+        ServerResourcePackAckAction::FailedReload => config::s_resource_pack::Action::FailedReload,
+        ServerResourcePackAckAction::Discarded => config::s_resource_pack::Action::Discarded,
+    }
+}
+
+fn game_resource_pack_ack_action(action: ServerResourcePackAckAction) -> s_resource_pack::Action {
+    match action {
+        ServerResourcePackAckAction::SuccessfullyLoaded => {
+            s_resource_pack::Action::SuccessfullyLoaded
+        }
+        ServerResourcePackAckAction::Declined => s_resource_pack::Action::Declined,
+        ServerResourcePackAckAction::FailedDownload => s_resource_pack::Action::FailedDownload,
+        ServerResourcePackAckAction::Accepted => s_resource_pack::Action::Accepted,
+        ServerResourcePackAckAction::InvalidUrl => s_resource_pack::Action::InvalidUrl,
+        ServerResourcePackAckAction::FailedReload => s_resource_pack::Action::FailedReload,
+        ServerResourcePackAckAction::Discarded => s_resource_pack::Action::Discarded,
     }
 }

@@ -386,6 +386,18 @@ impl ServerResourcePackApplyModel {
         );
         ClientResourceStack::new(packs)
     }
+
+    pub fn pop(&mut self, id: Uuid) -> bool {
+        let original_len = self.packs.len();
+        self.packs.retain(|pack| pack.request().id() != id);
+        self.packs.len() != original_len
+    }
+
+    pub fn pop_all(&mut self) -> bool {
+        let had_packs = !self.packs.is_empty();
+        self.packs.clear();
+        had_packs
+    }
 }
 
 impl Default for ServerResourcePackApplyModel {
@@ -523,6 +535,18 @@ impl ClientResourceRepository {
         }
 
         known_pack_ids
+    }
+
+    pub fn recognized_known_pack_ids<'a>(
+        &self,
+        offered: impl IntoIterator<Item = &'a KnownPackId>,
+    ) -> Vec<KnownPackId> {
+        let known_pack_ids = self.known_pack_ids();
+        offered
+            .into_iter()
+            .filter(|known_pack_id| known_pack_ids.contains(known_pack_id))
+            .cloned()
+            .collect()
     }
 }
 
@@ -2139,6 +2163,32 @@ mod tests {
     }
 
     #[test]
+    fn repository_recognizes_only_offered_known_packs_in_server_order() {
+        let custom = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new("custom", custom.path()))
+                    .with_known_pack_id(KnownPackId::new("example", "custom", "1")),
+            )
+            .with_selected_pack_ids(["custom"]);
+
+        let offered = [
+            KnownPackId::new("unknown", "missing", "1"),
+            KnownPackId::new("example", "custom", "1"),
+            KnownPackId::vanilla(),
+        ];
+
+        assert_eq!(
+            repository.recognized_known_pack_ids(&offered),
+            [
+                KnownPackId::new("example", "custom", "1"),
+                KnownPackId::vanilla(),
+            ]
+        );
+    }
+
+    #[test]
     fn reload_plan_uses_simple_reload_weights() {
         let plan = ResourceReloadPlan::new(["a", "b"]);
 
@@ -2304,6 +2354,60 @@ mod tests {
                 format!("server:{first_id}"),
                 format!("server:{second_id}"),
             ]
+        );
+    }
+
+    #[test]
+    fn server_pack_pop_removes_matching_applied_pack_from_stack() {
+        let removed_id = resource_pack_id(9);
+        let kept_id = resource_pack_id(10);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model
+            .receive(server_pack_request(removed_id, true))
+            .apply_downloaded();
+        model
+            .receive(server_pack_request(kept_id, true))
+            .apply_downloaded();
+
+        assert!(model.pop(removed_id));
+        assert!(!model.pop(resource_pack_id(11)));
+
+        let pack_ids = model
+            .resource_stack()
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            pack_ids,
+            [VANILLA_PACK_ID.to_owned(), format!("server:{kept_id}")]
+        );
+    }
+
+    #[test]
+    fn server_pack_pop_all_keeps_vanilla_only() {
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model
+            .receive(server_pack_request(resource_pack_id(12), true))
+            .apply_downloaded();
+        model
+            .receive(server_pack_request(resource_pack_id(13), true))
+            .apply_downloaded();
+
+        assert!(model.pop_all());
+        assert!(!model.pop_all());
+
+        assert_eq!(
+            model
+                .resource_stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID]
         );
     }
 

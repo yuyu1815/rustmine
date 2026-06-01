@@ -1360,7 +1360,16 @@ impl GamePacketHandler<'_> {
         });
     }
 
-    pub fn resource_pack_pop(&mut self, _p: &ClientboundResourcePackPop) {}
+    pub fn resource_pack_pop(&mut self, p: &ClientboundResourcePackPop) {
+        debug!("Got resource pack pop packet {p:?}");
+
+        as_system::<MessageWriter<_>>(self.ecs, |mut events| {
+            events.write(ResourcePackPopEvent {
+                entity: self.player,
+                id: p.id,
+            });
+        });
+    }
 
     pub fn respawn(&mut self, p: &ClientboundRespawn) {
         debug!("Got respawn packet {p:?}");

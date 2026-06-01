@@ -4,7 +4,10 @@ use std::io::Cursor;
 
 use azalea_entity::LocalEntity;
 use azalea_protocol::{
-    packets::{ConnectionProtocol, config::*},
+    packets::{
+        ConnectionProtocol,
+        config::{s_select_known_packs::KnownPack, *},
+    },
     read::{ReadPacketError, deserialize_packet},
 };
 use bevy_ecs::prelude::*;
@@ -18,7 +21,8 @@ use crate::{
     cookies::{RequestCookieEvent, StoreCookieEvent},
     disconnect::DisconnectEvent,
     local_player::WorldHolder,
-    packet::game::{KeepAliveEvent, ResourcePackEvent},
+    packet::game::{KeepAliveEvent, ResourcePackEvent, ResourcePackPopEvent},
+    resources::{ClientResourceRepository, KnownPackId},
 };
 
 pub fn process_raw_packet(
@@ -168,6 +172,13 @@ impl ConfigPacketHandler<'_> {
 
     pub fn resource_pack_pop(&mut self, p: &ClientboundResourcePackPop) {
         debug!("Got resource pack pop packet {p:?}");
+
+        as_system::<MessageWriter<_>>(self.ecs, |mut events| {
+            events.write(ResourcePackPopEvent {
+                entity: self.player,
+                id: p.id,
+            });
+        });
     }
 
     pub fn update_enabled_features(&mut self, p: &ClientboundUpdateEnabledFeatures) {
@@ -209,13 +220,21 @@ impl ConfigPacketHandler<'_> {
     pub fn select_known_packs(&mut self, p: &ClientboundSelectKnownPacks) {
         debug!("Got select known packs packet {p:?}");
 
+        let offered = p
+            .known_packs
+            .iter()
+            .map(known_pack_id_from_protocol)
+            .collect::<Vec<_>>();
+        let known_packs = ClientResourceRepository::committed_vanilla()
+            .recognized_known_pack_ids(&offered)
+            .into_iter()
+            .map(known_pack_id_to_protocol)
+            .collect();
+
         as_system::<Commands>(self.ecs, |mut commands| {
-            // resource pack management isn't implemented
             commands.trigger(SendConfigPacketEvent::new(
                 self.player,
-                ServerboundSelectKnownPacks {
-                    known_packs: vec![],
-                },
+                ServerboundSelectKnownPacks { known_packs },
             ));
         });
     }
@@ -236,5 +255,17 @@ impl ConfigPacketHandler<'_> {
     }
     pub fn code_of_conduct(&mut self, p: &ClientboundCodeOfConduct) {
         debug!("Got code of conduct packet {p:?}");
+    }
+}
+
+fn known_pack_id_from_protocol(known_pack: &KnownPack) -> KnownPackId {
+    KnownPackId::new(&known_pack.namespace, &known_pack.id, &known_pack.version)
+}
+
+fn known_pack_id_to_protocol(known_pack_id: KnownPackId) -> KnownPack {
+    KnownPack {
+        namespace: known_pack_id.namespace,
+        id: known_pack_id.id,
+        version: known_pack_id.version,
     }
 }

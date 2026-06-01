@@ -49,6 +49,7 @@ impl Plugin for PacketPlugin {
         .add_message::<ChatReceivedEvent>()
         .add_message::<game::DeathEvent>()
         .add_message::<game::ResourcePackEvent>()
+        .add_message::<game::ResourcePackPopEvent>()
         .add_message::<game::WorldLoadedEvent>()
         .add_message::<login::ReceiveCustomQueryEvent>();
     }
