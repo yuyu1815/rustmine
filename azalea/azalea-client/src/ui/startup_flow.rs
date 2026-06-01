@@ -112,11 +112,58 @@ pub struct StartupScreen<'a> {
     pub loading_overlay: Option<&'a [LoadingTask]>,
 }
 
+impl StartupScreen<'_> {
+    pub fn loading_panels(&self) -> Vec<LoadingOverlayPanel<'_>> {
+        self.loading_overlay
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .map(|(stack_index, task)| LoadingOverlayPanel::new(stack_index, task))
+            .collect()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartupLoadingPhase {
     WaitingForTasks,
     Loading,
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoadingOverlayAnchor {
+    BottomLeft,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LoadingOverlayPanel<'a> {
+    pub anchor: LoadingOverlayAnchor,
+    pub stack_index: usize,
+    pub offset_y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub progress_bar_height: f32,
+    pub progress_bar_width: f32,
+    pub task: &'a LoadingTask,
+}
+
+impl<'a> LoadingOverlayPanel<'a> {
+    pub const WIDTH: f32 = 350.0;
+    pub const HEIGHT: f32 = 32.0;
+    pub const PROGRESS_BAR_HEIGHT: f32 = 10.0;
+
+    fn new(stack_index: usize, task: &'a LoadingTask) -> Self {
+        Self {
+            anchor: LoadingOverlayAnchor::BottomLeft,
+            stack_index,
+            offset_y: stack_index as f32 * Self::HEIGHT,
+            width: Self::WIDTH,
+            height: Self::HEIGHT,
+            progress_bar_height: Self::PROGRESS_BAR_HEIGHT,
+            progress_bar_width: Self::WIDTH * task.progress,
+            task,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -327,5 +374,37 @@ mod tests {
 
         assert!(flow.is_loading());
         assert_eq!(flow.loading_overlay(), None);
+    }
+
+    #[test]
+    fn loading_panels_expose_stevenarella_bottom_left_stack_geometry() {
+        let mut flow = StartupFlow::new(Vec::new());
+        flow.replace_loading_tasks([
+            LoadingTask::new(
+                loading_task_names::DOWNLOADING_ASSET_INDEX,
+                "1.21.6.json",
+                0.25,
+            ),
+            LoadingTask::new(
+                loading_task_names::DOWNLOADING_ASSET,
+                "minecraft/textures/block/stone.png",
+                0.5,
+            ),
+        ]);
+
+        let screen = flow.screen();
+        let panels = screen.loading_panels();
+
+        assert_eq!(panels.len(), 2);
+        assert_eq!(panels[0].anchor, LoadingOverlayAnchor::BottomLeft);
+        assert_eq!(panels[0].stack_index, 0);
+        assert_eq!(panels[0].offset_y, 0.0);
+        assert_eq!(panels[0].width, 350.0);
+        assert_eq!(panels[0].height, 32.0);
+        assert_eq!(panels[0].progress_bar_height, 10.0);
+        assert_eq!(panels[0].progress_bar_width, 87.5);
+        assert_eq!(panels[1].stack_index, 1);
+        assert_eq!(panels[1].offset_y, 32.0);
+        assert_eq!(panels[1].progress_bar_width, 175.0);
     }
 }
