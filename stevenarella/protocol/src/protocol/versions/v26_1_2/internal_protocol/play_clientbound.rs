@@ -18,6 +18,7 @@ mod set_default_spawn_position;
 mod set_player_inventory;
 mod set_time;
 mod sound;
+mod tag_query;
 mod text;
 mod update;
 mod waypoint;
@@ -101,32 +102,13 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        tag_query::read_tag_query_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
-        packet::play::clientbound::internal_ids::PlayTagQueryClientbound => {
-            let transaction_id = VarInt::read_from(buf)?;
-            let nbt_tag_type = u8::read_from(buf)?;
-            if nbt_tag_type != 10 {
-                return Err(Error::Err(format!(
-                    "unsupported Play tag_query root NBT tag type {}",
-                    nbt_tag_type
-                )));
-            }
-            let mut tag = Vec::new();
-            buf.read_to_end(&mut tag)?;
-            if tag != [0] {
-                return Err(Error::Err(
-                    "unsupported non-empty Play tag_query compound payload".to_owned(),
-                ));
-            }
-            return Ok(Some(Packet::PlayTagQueryClientbound(
-                packet::play::clientbound::PlayTagQueryClientbound {
-                    transaction_id,
-                    nbt_tag_type,
-                    tag,
-                },
-            )));
-        }
         packet::play::clientbound::internal_ids::PlayTestInstanceBlockStatusClientbound => {
             let status = read_nbt_string_component(buf)?;
             let size_present = bool::read_from(buf)?;
