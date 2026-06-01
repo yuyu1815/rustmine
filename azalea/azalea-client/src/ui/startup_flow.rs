@@ -55,13 +55,17 @@ impl StartupFlow {
         self.loading_phase == StartupLoadingPhase::Complete
     }
 
+    pub fn begin_loading(&mut self) {
+        if !self.loading_is_complete() {
+            self.loading_phase = StartupLoadingPhase::Loading;
+        }
+    }
+
     pub fn replace_loading_tasks(&mut self, tasks: impl IntoIterator<Item = LoadingTask>) {
         self.loading_tasks = tasks.into_iter().collect();
-        self.loading_phase = if self.loading_tasks.is_empty() {
-            StartupLoadingPhase::Complete
-        } else {
-            StartupLoadingPhase::Loading
-        };
+        if !self.loading_tasks.is_empty() {
+            self.loading_phase = StartupLoadingPhase::Loading;
+        }
     }
 
     pub fn upsert_loading_task(&mut self, task: LoadingTask) {
@@ -87,15 +91,16 @@ impl StartupFlow {
             .iter()
             .position(|task| task.matches(name.as_ref(), file.as_ref()))?;
         let removed_task = self.loading_tasks.remove(index);
-        if self.loading_tasks.is_empty() {
-            self.loading_phase = StartupLoadingPhase::Complete;
-        }
         Some(removed_task)
+    }
+
+    pub fn finish_loading(&mut self) {
+        self.loading_tasks.clear();
+        self.loading_phase = StartupLoadingPhase::Complete;
     }
 
     pub fn clear_loading_tasks(&mut self) {
         self.loading_tasks.clear();
-        self.loading_phase = StartupLoadingPhase::Complete;
     }
 }
 
@@ -202,7 +207,7 @@ mod tests {
             1.0,
         )]);
 
-        flow.clear_loading_tasks();
+        flow.finish_loading();
 
         assert_eq!(flow.screen().loading_overlay, None);
         assert_eq!(flow.screen().loading_phase, StartupLoadingPhase::Complete);
@@ -247,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_the_last_loading_task_completes_loading() {
+    fn removing_the_last_loading_task_leaves_loading_active_until_completion_signal() {
         let mut flow = StartupFlow::new(Vec::new());
         flow.upsert_loading_task(LoadingTask::new(
             loading_task_names::UNPACKING_CORE_ASSETS,
@@ -266,7 +271,7 @@ mod tests {
                 0.5,
             ))
         );
-        assert!(flow.loading_is_complete());
+        assert!(flow.is_loading());
         assert_eq!(flow.loading_overlay(), None);
     }
 
@@ -296,5 +301,31 @@ mod tests {
                 .as_slice()
             )
         );
+    }
+
+    #[test]
+    fn empty_task_snapshot_does_not_complete_loading_without_completion_signal() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.begin_loading();
+        flow.replace_loading_tasks([]);
+
+        assert!(flow.is_loading());
+        assert_eq!(flow.loading_overlay(), None);
+    }
+
+    #[test]
+    fn clearing_overlay_keeps_current_loading_phase() {
+        let mut flow = StartupFlow::new(Vec::new());
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_CORE_ASSETS,
+            "client.jar",
+            0.5,
+        ));
+
+        flow.clear_loading_tasks();
+
+        assert!(flow.is_loading());
+        assert_eq!(flow.loading_overlay(), None);
     }
 }
