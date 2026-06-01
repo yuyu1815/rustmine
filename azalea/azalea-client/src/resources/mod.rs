@@ -1963,6 +1963,7 @@ impl ResourceReloadManager {
             .with_listener(AtlasStitchCandidateReloadListener::default())
             .with_listener(FontDefinitionsReloadListener::default())
             .with_listener(FontProviderAssetReloadListener::default())
+            .with_listener(FontGlyphAtlasCandidateReloadListener::default())
             .with_listener(ColormapReloadListener::default())
             .with_listener(ModelDependencyReloadListener::default())
             .with_listener(ModelBakeCandidateReloadListener::default())
@@ -9365,13 +9366,19 @@ impl ClientFontDefinition {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientFontProviderDefinition {
+    provider_index: usize,
     provider_type: String,
     referenced_assets: Vec<String>,
     asset_candidates: Vec<ClientFontProviderAssetCandidate>,
     referenced_provider_ids: Vec<String>,
+    glyph_source_estimate: Option<ClientFontGlyphSourceEstimate>,
 }
 
 impl ClientFontProviderDefinition {
+    pub fn provider_index(&self) -> usize {
+        self.provider_index
+    }
+
     pub fn provider_type(&self) -> &str {
         &self.provider_type
     }
@@ -9386,6 +9393,10 @@ impl ClientFontProviderDefinition {
 
     pub fn referenced_provider_ids(&self) -> &[String] {
         &self.referenced_provider_ids
+    }
+
+    pub fn glyph_source_estimate(&self) -> Option<ClientFontGlyphSourceEstimate> {
+        self.glyph_source_estimate
     }
 }
 
@@ -9418,6 +9429,34 @@ impl ClientFontProviderAssetKind {
             Self::BitmapTexture => "bitmap",
             Self::TrueTypeFont => "ttf",
             Self::UnihexFile => "unihex",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientFontGlyphSourceEstimate {
+    BitmapChars(usize),
+    SpaceAdvances(usize),
+    UnihexSizeOverrides(usize),
+    TrueTypePresent,
+}
+
+impl ClientFontGlyphSourceEstimate {
+    pub fn estimated_count(self) -> usize {
+        match self {
+            Self::BitmapChars(count)
+            | Self::SpaceAdvances(count)
+            | Self::UnihexSizeOverrides(count) => count,
+            Self::TrueTypePresent => 1,
+        }
+    }
+
+    pub fn report_fragment(self) -> String {
+        match self {
+            Self::BitmapChars(count) => format!("bitmap_chars={count}"),
+            Self::SpaceAdvances(count) => format!("space_advances={count}"),
+            Self::UnihexSizeOverrides(count) => format!("unihex_size_overrides={count}"),
+            Self::TrueTypePresent => "ttf=present".to_owned(),
         }
     }
 }
@@ -9740,11 +9779,15 @@ fn parse_font_definition_providers(
             let asset_candidates = font_provider_asset_candidates(resource, index, &provider)?;
             let referenced_provider_ids =
                 font_provider_referenced_provider_ids(resource, index, &provider)?;
+            let glyph_source_estimate =
+                font_provider_glyph_source_estimate(resource, index, &provider)?;
             Ok(ClientFontProviderDefinition {
+                provider_index: index,
                 provider_type: provider.provider_type,
                 referenced_assets,
                 asset_candidates,
                 referenced_provider_ids,
+                glyph_source_estimate,
             })
         })
         .collect()
@@ -10179,6 +10222,54 @@ fn font_provider_referenced_provider_ids(
     }
     let id = require_font_provider_identifier_field(resource, index, provider, "id")?;
     Ok(vec![id.to_owned()])
+}
+
+fn font_provider_glyph_source_estimate(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<Option<ClientFontGlyphSourceEstimate>> {
+    match provider.provider_type.as_str() {
+        "bitmap" => {
+            let chars = provider
+                .fields
+                .get("chars")
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| {
+                    invalid_font_definition(
+                        resource,
+                        format!("provider {index} bitmap chars must be an array"),
+                    )
+                })?;
+            let count = chars
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .flat_map(str::chars)
+                .filter(|codepoint| *codepoint != '\0')
+                .count();
+            Ok(Some(ClientFontGlyphSourceEstimate::BitmapChars(count)))
+        }
+        "space" => {
+            let advances =
+                require_font_provider_object_field(resource, index, provider, "advances")?;
+            Ok(Some(ClientFontGlyphSourceEstimate::SpaceAdvances(
+                advances.len(),
+            )))
+        }
+        "ttf" => Ok(Some(ClientFontGlyphSourceEstimate::TrueTypePresent)),
+        "unihex" => {
+            let count = provider
+                .fields
+                .get("size_overrides")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, Vec::len);
+            Ok(Some(ClientFontGlyphSourceEstimate::UnihexSizeOverrides(
+                count,
+            )))
+        }
+        "reference" => Ok(None),
+        _ => Ok(None),
+    }
 }
 
 fn font_definition_resource_path_for_identifier(identifier: &str) -> String {
@@ -10653,6 +10744,663 @@ fn font_provider_asset_blockers_fragment(blockers: &[ClientFontProviderAssetBloc
     blockers
         .iter()
         .map(|blocker| format!("missing:{}:{}", blocker.kind().as_str(), blocker.resource()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasCandidateCollection {
+    definitions: Vec<ClientFontGlyphAtlasDefinitionCandidate>,
+}
+
+impl ClientFontGlyphAtlasCandidateCollection {
+    pub fn definitions(&self) -> &[ClientFontGlyphAtlasDefinitionCandidate] {
+        &self.definitions
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientFontGlyphAtlasDefinitionReport<'_>> {
+        self.definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::report)
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        let definitions = self.definitions.len();
+        let providers = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::provider_count)
+            .sum::<usize>();
+        let asset_candidates = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::asset_candidate_count)
+            .sum::<usize>();
+        let ready_assets = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::ready_asset_count)
+            .sum::<usize>();
+        let reference_edges = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::reference_edge_count)
+            .sum::<usize>();
+        let glyph_sources = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::estimated_glyph_source_count)
+            .sum::<usize>();
+        let blockers = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::blocker_count)
+            .sum::<usize>();
+        let bytes = self
+            .definitions
+            .iter()
+            .map(ClientFontGlyphAtlasDefinitionCandidate::selected_byte_count)
+            .sum::<usize>();
+        format!(
+            "font_glyph_atlas_candidates:fonts:{definitions} providers:{providers} assets:{asset_candidates} ready:{ready_assets} refs:{reference_edges} glyph_sources:{glyph_sources} blockers:{blockers} bytes:{bytes}"
+        )
+    }
+
+    fn report_items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.reports().map(|report| report.report_item()));
+        for definition in &self.definitions {
+            items.extend(
+                definition
+                    .providers()
+                    .iter()
+                    .map(|provider| font_glyph_atlas_provider_report_item(definition, provider)),
+            );
+        }
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasDefinitionCandidate {
+    resource: String,
+    pack_id: String,
+    provider_type_counts: BTreeMap<String, usize>,
+    providers: Vec<ClientFontGlyphAtlasProviderCandidate>,
+}
+
+impl ClientFontGlyphAtlasDefinitionCandidate {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn provider_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.provider_type_counts
+    }
+
+    pub fn providers(&self) -> &[ClientFontGlyphAtlasProviderCandidate] {
+        &self.providers
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.providers.len()
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.providers
+            .iter()
+            .map(ClientFontGlyphAtlasProviderCandidate::asset_candidate_count)
+            .sum()
+    }
+
+    pub fn ready_asset_count(&self) -> usize {
+        self.providers
+            .iter()
+            .map(ClientFontGlyphAtlasProviderCandidate::ready_asset_count)
+            .sum()
+    }
+
+    pub fn reference_edge_count(&self) -> usize {
+        self.providers
+            .iter()
+            .map(ClientFontGlyphAtlasProviderCandidate::reference_edge_count)
+            .sum()
+    }
+
+    pub fn estimated_glyph_source_count(&self) -> usize {
+        self.providers
+            .iter()
+            .map(ClientFontGlyphAtlasProviderCandidate::estimated_glyph_source_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.providers
+            .iter()
+            .map(ClientFontGlyphAtlasProviderCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn selected_byte_count(&self) -> usize {
+        self.providers
+            .iter()
+            .map(ClientFontGlyphAtlasProviderCandidate::selected_byte_count)
+            .sum()
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+
+    fn report(&self) -> ClientFontGlyphAtlasDefinitionReport<'_> {
+        ClientFontGlyphAtlasDefinitionReport { definition: self }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasProviderCandidate {
+    provider_index: usize,
+    provider_type: String,
+    glyph_source_estimate: Option<ClientFontGlyphSourceEstimate>,
+    asset_candidates: Vec<ClientFontGlyphAtlasAssetCandidate>,
+    reference_edges: Vec<ClientFontGlyphAtlasReferenceEdge>,
+    blockers: Vec<ClientFontGlyphAtlasBlocker>,
+}
+
+impl ClientFontGlyphAtlasProviderCandidate {
+    pub fn provider_index(&self) -> usize {
+        self.provider_index
+    }
+
+    pub fn provider_type(&self) -> &str {
+        &self.provider_type
+    }
+
+    pub fn glyph_source_estimate(&self) -> Option<ClientFontGlyphSourceEstimate> {
+        self.glyph_source_estimate
+    }
+
+    pub fn asset_candidates(&self) -> &[ClientFontGlyphAtlasAssetCandidate] {
+        &self.asset_candidates
+    }
+
+    pub fn reference_edges(&self) -> &[ClientFontGlyphAtlasReferenceEdge] {
+        &self.reference_edges
+    }
+
+    pub fn blockers(&self) -> &[ClientFontGlyphAtlasBlocker] {
+        &self.blockers
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.asset_candidates.len()
+    }
+
+    pub fn ready_asset_count(&self) -> usize {
+        self.asset_candidates
+            .iter()
+            .filter(|asset| asset.selected_pack_id().is_some() && asset.byte_count().is_some())
+            .count()
+    }
+
+    pub fn reference_edge_count(&self) -> usize {
+        self.reference_edges.len()
+    }
+
+    pub fn estimated_glyph_source_count(&self) -> usize {
+        self.glyph_source_estimate
+            .map(ClientFontGlyphSourceEstimate::estimated_count)
+            .unwrap_or(0)
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn selected_byte_count(&self) -> usize {
+        self.asset_candidates
+            .iter()
+            .filter_map(ClientFontGlyphAtlasAssetCandidate::byte_count)
+            .sum()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasAssetCandidate {
+    kind: ClientFontProviderAssetKind,
+    resource: String,
+    selected_pack_id: Option<String>,
+    byte_count: Option<usize>,
+}
+
+impl ClientFontGlyphAtlasAssetCandidate {
+    pub fn kind(&self) -> ClientFontProviderAssetKind {
+        self.kind
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn selected_pack_id(&self) -> Option<&str> {
+        self.selected_pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasReferenceEdge {
+    id: String,
+    resource: String,
+    selected_pack_id: Option<String>,
+}
+
+impl ClientFontGlyphAtlasReferenceEdge {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn selected_pack_id(&self) -> Option<&str> {
+        self.selected_pack_id.as_deref()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasBlocker {
+    reason: ClientFontGlyphAtlasBlockerReason,
+    provider_index: usize,
+    detail: String,
+}
+
+impl ClientFontGlyphAtlasBlocker {
+    pub fn reason(&self) -> ClientFontGlyphAtlasBlockerReason {
+        self.reason
+    }
+
+    pub fn provider_index(&self) -> usize {
+        self.provider_index
+    }
+
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientFontGlyphAtlasBlockerReason {
+    MissingProviderAsset,
+    UnreadableProviderAsset,
+    UnresolvedReference,
+}
+
+impl ClientFontGlyphAtlasBlockerReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingProviderAsset => "missing_asset",
+            Self::UnreadableProviderAsset => "unreadable_asset",
+            Self::UnresolvedReference => "unresolved_reference",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClientFontGlyphAtlasDefinitionReport<'a> {
+    definition: &'a ClientFontGlyphAtlasDefinitionCandidate,
+}
+
+impl ClientFontGlyphAtlasDefinitionReport<'_> {
+    pub fn resource(&self) -> &str {
+        self.definition.resource()
+    }
+
+    pub fn pack_id(&self) -> &str {
+        self.definition.pack_id()
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.definition.provider_count()
+    }
+
+    pub fn provider_type_counts(&self) -> &BTreeMap<String, usize> {
+        self.definition.provider_type_counts()
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.definition.asset_candidate_count()
+    }
+
+    pub fn ready_asset_count(&self) -> usize {
+        self.definition.ready_asset_count()
+    }
+
+    pub fn reference_edge_count(&self) -> usize {
+        self.definition.reference_edge_count()
+    }
+
+    pub fn estimated_glyph_source_count(&self) -> usize {
+        self.definition.estimated_glyph_source_count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.definition.blocker_count()
+    }
+
+    pub fn selected_byte_count(&self) -> usize {
+        self.definition.selected_byte_count()
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        self.definition.loaded_resource_pack()
+    }
+
+    fn report_item(&self) -> String {
+        format!(
+            "{}:providers:{}:types:{}:assets:{} ready:{} refs:{} glyph_sources:{} bytes:{} blockers:{}",
+            self.loaded_resource_pack(),
+            self.provider_count(),
+            font_provider_counts_fragment(self.provider_type_counts()),
+            self.asset_candidate_count(),
+            self.ready_asset_count(),
+            self.reference_edge_count(),
+            self.estimated_glyph_source_count(),
+            self.selected_byte_count(),
+            self.blocker_count(),
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontGlyphAtlasCandidateReloadListener {
+    definitions: Vec<String>,
+}
+
+impl FontGlyphAtlasCandidateReloadListener {
+    pub fn new(definitions: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            definitions: definitions.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn definitions(&self) -> &[String] {
+        &self.definitions
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientFontGlyphAtlasCandidateCollection> {
+        load_client_font_glyph_atlas_candidates(stack, &self.definitions)
+    }
+}
+
+impl Default for FontGlyphAtlasCandidateReloadListener {
+    fn default() -> Self {
+        Self {
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl ResourceReloadListener for FontGlyphAtlasCandidateReloadListener {
+    fn name(&self) -> &str {
+        "font_glyph_atlas_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            font_provider_asset_definition_resources(stack, &self.definitions)?,
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let candidates = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(candidates.report_items()))
+    }
+}
+
+pub fn load_client_font_glyph_atlas_candidates(
+    stack: &ClientResourceStack,
+    definitions: &[String],
+) -> ResourceReloadResult<ClientFontGlyphAtlasCandidateCollection> {
+    let definitions = load_client_font_definitions(stack, definitions)?;
+    Ok(build_client_font_glyph_atlas_candidates(
+        stack,
+        &definitions,
+    ))
+}
+
+fn build_client_font_glyph_atlas_candidates(
+    stack: &ClientResourceStack,
+    definitions: &ClientFontDefinitionSet,
+) -> ClientFontGlyphAtlasCandidateCollection {
+    ClientFontGlyphAtlasCandidateCollection {
+        definitions: definitions
+            .definitions()
+            .iter()
+            .map(|definition| build_client_font_glyph_atlas_definition_candidate(stack, definition))
+            .collect(),
+    }
+}
+
+fn build_client_font_glyph_atlas_definition_candidate(
+    stack: &ClientResourceStack,
+    definition: &ClientFontDefinition,
+) -> ClientFontGlyphAtlasDefinitionCandidate {
+    let mut provider_type_counts = BTreeMap::new();
+    let providers = definition
+        .providers()
+        .iter()
+        .map(|provider| {
+            *provider_type_counts
+                .entry(provider.provider_type().to_owned())
+                .or_insert(0) += 1;
+            build_client_font_glyph_atlas_provider_candidate(stack, provider)
+        })
+        .collect();
+
+    ClientFontGlyphAtlasDefinitionCandidate {
+        resource: definition.resource().report().resource().to_owned(),
+        pack_id: definition.resource().report().pack_id().to_owned(),
+        provider_type_counts,
+        providers,
+    }
+}
+
+fn build_client_font_glyph_atlas_provider_candidate(
+    stack: &ClientResourceStack,
+    provider: &ClientFontProviderDefinition,
+) -> ClientFontGlyphAtlasProviderCandidate {
+    let provider_index = provider.provider_index();
+    let mut blockers = Vec::new();
+    let asset_candidates = provider
+        .asset_candidates()
+        .iter()
+        .map(|candidate| {
+            build_client_font_glyph_atlas_asset_candidate(
+                stack,
+                provider_index,
+                candidate,
+                &mut blockers,
+            )
+        })
+        .collect();
+    let reference_edges = provider
+        .referenced_provider_ids()
+        .iter()
+        .filter_map(|id| {
+            build_client_font_glyph_atlas_reference_edge(stack, provider_index, id, &mut blockers)
+        })
+        .collect();
+
+    ClientFontGlyphAtlasProviderCandidate {
+        provider_index,
+        provider_type: provider.provider_type().to_owned(),
+        glyph_source_estimate: provider.glyph_source_estimate(),
+        asset_candidates,
+        reference_edges,
+        blockers,
+    }
+}
+
+fn build_client_font_glyph_atlas_asset_candidate(
+    stack: &ClientResourceStack,
+    provider_index: usize,
+    candidate: &ClientFontProviderAssetCandidate,
+    blockers: &mut Vec<ClientFontGlyphAtlasBlocker>,
+) -> ClientFontGlyphAtlasAssetCandidate {
+    let Some(location) = stack.find_resource(candidate.resource()) else {
+        blockers.push(ClientFontGlyphAtlasBlocker {
+            reason: ClientFontGlyphAtlasBlockerReason::MissingProviderAsset,
+            provider_index,
+            detail: format!("{}:{}", candidate.kind().as_str(), candidate.resource()),
+        });
+        return ClientFontGlyphAtlasAssetCandidate {
+            kind: candidate.kind(),
+            resource: candidate.resource().to_owned(),
+            selected_pack_id: None,
+            byte_count: None,
+        };
+    };
+
+    let selected_pack_id = location.pack_id.clone();
+    match read_resource_bytes(candidate.resource(), &location) {
+        Ok(bytes) => ClientFontGlyphAtlasAssetCandidate {
+            kind: candidate.kind(),
+            resource: candidate.resource().to_owned(),
+            selected_pack_id: Some(selected_pack_id),
+            byte_count: Some(bytes.len()),
+        },
+        Err(_) => {
+            blockers.push(ClientFontGlyphAtlasBlocker {
+                reason: ClientFontGlyphAtlasBlockerReason::UnreadableProviderAsset,
+                provider_index,
+                detail: format!("{}:{}", candidate.kind().as_str(), candidate.resource()),
+            });
+            ClientFontGlyphAtlasAssetCandidate {
+                kind: candidate.kind(),
+                resource: candidate.resource().to_owned(),
+                selected_pack_id: Some(selected_pack_id),
+                byte_count: None,
+            }
+        }
+    }
+}
+
+fn build_client_font_glyph_atlas_reference_edge(
+    stack: &ClientResourceStack,
+    provider_index: usize,
+    id: &str,
+    blockers: &mut Vec<ClientFontGlyphAtlasBlocker>,
+) -> Option<ClientFontGlyphAtlasReferenceEdge> {
+    let resource = font_definition_resource_path_for_identifier(id);
+    if let Some(location) = stack.find_resource(&resource) {
+        Some(ClientFontGlyphAtlasReferenceEdge {
+            id: id.to_owned(),
+            resource,
+            selected_pack_id: Some(location.pack_id),
+        })
+    } else {
+        blockers.push(ClientFontGlyphAtlasBlocker {
+            reason: ClientFontGlyphAtlasBlockerReason::UnresolvedReference,
+            provider_index,
+            detail: format!("{id}:{resource}"),
+        });
+        None
+    }
+}
+
+fn font_glyph_atlas_provider_report_item(
+    definition: &ClientFontGlyphAtlasDefinitionCandidate,
+    provider: &ClientFontGlyphAtlasProviderCandidate,
+) -> String {
+    format!(
+        "{}#{}:{} glyph_sources:{} assets:{} refs:{} blockers:{}",
+        definition.loaded_resource_pack(),
+        provider.provider_index(),
+        provider.provider_type(),
+        font_glyph_source_estimate_fragment(provider.glyph_source_estimate()),
+        font_glyph_atlas_assets_fragment(provider.asset_candidates()),
+        font_glyph_atlas_reference_edges_fragment(provider.reference_edges()),
+        font_glyph_atlas_blockers_fragment(provider.blockers()),
+    )
+}
+
+fn font_glyph_source_estimate_fragment(estimate: Option<ClientFontGlyphSourceEstimate>) -> String {
+    estimate
+        .map(ClientFontGlyphSourceEstimate::report_fragment)
+        .unwrap_or_else(|| "none".to_owned())
+}
+
+fn font_glyph_atlas_assets_fragment(assets: &[ClientFontGlyphAtlasAssetCandidate]) -> String {
+    if assets.is_empty() {
+        return "none".to_owned();
+    }
+    assets
+        .iter()
+        .map(|asset| {
+            let source = match (asset.selected_pack_id(), asset.byte_count()) {
+                (Some(pack_id), Some(byte_count)) => format!("{pack_id}:bytes={byte_count}"),
+                (Some(pack_id), None) => format!("{pack_id}:bytes=unavailable"),
+                (None, None) => "missing".to_owned(),
+                (None, Some(byte_count)) => format!("unknown:bytes={byte_count}"),
+            };
+            format!("{}:{}@{}", asset.kind().as_str(), asset.resource(), source)
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn font_glyph_atlas_reference_edges_fragment(
+    edges: &[ClientFontGlyphAtlasReferenceEdge],
+) -> String {
+    if edges.is_empty() {
+        return "none".to_owned();
+    }
+    edges
+        .iter()
+        .map(|edge| {
+            format!(
+                "{}:{}@{}",
+                edge.id(),
+                edge.resource(),
+                edge.selected_pack_id().unwrap_or("unresolved")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn font_glyph_atlas_blockers_fragment(blockers: &[ClientFontGlyphAtlasBlocker]) -> String {
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+    blockers
+        .iter()
+        .map(|blocker| {
+            format!(
+                "#{}:{}:{}",
+                blocker.provider_index(),
+                blocker.reason().as_str(),
+                blocker.detail()
+            )
+        })
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -16270,11 +17018,13 @@ mod tests {
                 "texture_manager_registered_textures",
                 "texture_manager_upload_candidates",
                 "headless_shader_sources",
+                "headless_shader_manager",
                 "splashes",
                 "atlas_sources",
                 "atlas_stitch_candidates",
                 "font_definitions",
                 "font_provider_assets",
+                "font_glyph_atlas_candidates",
                 "colormaps",
                 "model_dependencies",
                 "model_bake_candidates",
@@ -17269,6 +18019,134 @@ mod tests {
     }
 
     #[test]
+    fn font_glyph_atlas_candidates_inventory_sources_assets_references_and_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/all.json",
+            r#"{"providers":[
+                {"type":"reference","id":"example:include/base"},
+                {"type":"reference","id":"example:include/missing"},
+                {"type":"bitmap","file":"example:font/custom.png","height":8,"ascent":7,"chars":["ab","\u0000c"]},
+                {"type":"space","advances":{" ":4,"\u200c":0}},
+                {"type":"ttf","file":"example:custom.ttf"},
+                {"type":"unihex","hex_file":"example:unifont.zip","size_overrides":[{"from":65,"to":67,"left":0,"right":8}]},
+                {"type":"bitmap","file":"example:font/missing.png","height":8,"ascent":7,"chars":["z"]}
+            ]}"#,
+        );
+        temp.write(
+            "assets/example/font/include/base.json",
+            r#"{"providers":[{"type":"space","advances":{" ":4}}]}"#,
+        );
+        temp.write_bytes("assets/example/textures/font/custom.png", b"bitmap");
+        temp.write_bytes("assets/example/font/custom.ttf", b"ttf bytes");
+        temp.write_bytes("assets/example/font/unifont.zip", b"unihex");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let collection =
+            FontGlyphAtlasCandidateReloadListener::new(["assets/example/font/all.json"])
+                .load(&stack)
+                .expect("font glyph atlas candidates should load");
+        let definition = &collection.definitions()[0];
+
+        assert_eq!(definition.provider_count(), 7);
+        assert_eq!(definition.asset_candidate_count(), 4);
+        assert_eq!(definition.ready_asset_count(), 3);
+        assert_eq!(definition.reference_edge_count(), 1);
+        assert_eq!(definition.estimated_glyph_source_count(), 8);
+        assert_eq!(definition.blocker_count(), 2);
+        assert_eq!(definition.selected_byte_count(), 21);
+        assert_eq!(
+            collection.summary_fragment(),
+            "font_glyph_atlas_candidates:fonts:1 providers:7 assets:4 ready:3 refs:1 glyph_sources:8 blockers:2 bytes:21"
+        );
+
+        let providers = definition.providers();
+        assert_eq!(providers[0].provider_index(), 0);
+        assert_eq!(providers[0].provider_type(), "reference");
+        assert_eq!(
+            providers[0].reference_edges()[0],
+            ClientFontGlyphAtlasReferenceEdge {
+                id: "example:include/base".to_owned(),
+                resource: "assets/example/font/include/base.json".to_owned(),
+                selected_pack_id: Some("test".to_owned()),
+            }
+        );
+        assert_eq!(
+            providers[1].blockers()[0].reason(),
+            ClientFontGlyphAtlasBlockerReason::UnresolvedReference
+        );
+        assert_eq!(
+            providers[2].glyph_source_estimate(),
+            Some(ClientFontGlyphSourceEstimate::BitmapChars(3))
+        );
+        assert_eq!(
+            providers[2].asset_candidates()[0],
+            ClientFontGlyphAtlasAssetCandidate {
+                kind: ClientFontProviderAssetKind::BitmapTexture,
+                resource: "assets/example/textures/font/custom.png".to_owned(),
+                selected_pack_id: Some("test".to_owned()),
+                byte_count: Some(6),
+            }
+        );
+        assert_eq!(
+            providers[3].glyph_source_estimate(),
+            Some(ClientFontGlyphSourceEstimate::SpaceAdvances(2))
+        );
+        assert_eq!(
+            providers[4].glyph_source_estimate(),
+            Some(ClientFontGlyphSourceEstimate::TrueTypePresent)
+        );
+        assert_eq!(
+            providers[5].glyph_source_estimate(),
+            Some(ClientFontGlyphSourceEstimate::UnihexSizeOverrides(1))
+        );
+        assert_eq!(
+            providers[6].blockers()[0].reason(),
+            ClientFontGlyphAtlasBlockerReason::MissingProviderAsset
+        );
+    }
+
+    #[test]
+    fn font_glyph_atlas_candidate_listener_reports_summary_and_provider_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/custom.png","ascent":7,"chars":["ab"]},
+                {"type":"reference","id":"example:include/missing"}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/font/custom.png", b"bitmap");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(FontGlyphAtlasCandidateReloadListener::new([
+                "assets/example/font/default.json",
+            ]))
+            .run()
+            .expect("font glyph atlas candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "font_glyph_atlas_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            "font_glyph_atlas_candidates:fonts:1 providers:2 assets:1 ready:1 refs:0 glyph_sources:2 blockers:1 bytes:6"
+        );
+        assert_eq!(
+            listener.reload.items()[1],
+            "assets/example/font/default.json@test:providers:2:types:bitmap=1,reference=1:assets:1 ready:1 refs:0 glyph_sources:2 bytes:6 blockers:1"
+        );
+        assert_eq!(
+            listener.reload.items()[2],
+            "assets/example/font/default.json@test#0:bitmap glyph_sources:bitmap_chars=2 assets:bitmap:assets/example/textures/font/custom.png@test:bytes=6 refs:none blockers:none"
+        );
+        assert_eq!(
+            listener.reload.items()[3],
+            "assets/example/font/default.json@test#1:reference glyph_sources:none assets:none refs:none blockers:#1:unresolved_reference:example:include/missing:assets/example/font/include/missing.json"
+        );
+    }
+
+    #[test]
     fn committed_vanilla_font_asset_report_has_nonzero_surface_without_blockers() {
         let collection = FontProviderAssetReloadListener::default()
             .load(&ClientResourceStack::vanilla())
@@ -17294,6 +18172,40 @@ mod tests {
             report.resource() == "assets/minecraft/font/include/default.json"
                 && report.available_asset_count() > 0
         }));
+    }
+
+    #[test]
+    fn committed_vanilla_font_glyph_atlas_candidates_have_nonzero_surface_without_blockers() {
+        let collection = FontGlyphAtlasCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla font glyph atlas candidates should load");
+
+        assert_eq!(collection.definitions().len(), 7);
+        assert!(
+            collection
+                .definitions()
+                .iter()
+                .map(ClientFontGlyphAtlasDefinitionCandidate::asset_candidate_count)
+                .sum::<usize>()
+                > 0,
+            "vanilla font glyph atlas asset candidate surface should not be empty"
+        );
+        assert!(
+            collection
+                .definitions()
+                .iter()
+                .all(|definition| definition.blocker_count() == 0),
+            "committed vanilla font glyph atlas candidates should not have blockers"
+        );
+        assert!(
+            collection
+                .definitions()
+                .iter()
+                .map(ClientFontGlyphAtlasDefinitionCandidate::estimated_glyph_source_count)
+                .sum::<usize>()
+                > 0,
+            "vanilla font glyph atlas source estimate should not be empty"
+        );
     }
 
     #[test]
