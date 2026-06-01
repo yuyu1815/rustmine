@@ -1966,6 +1966,7 @@ impl ResourceReloadManager {
             .with_listener(ModelBakeCandidateReloadListener::default())
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(ParticleManifestReloadListener::default())
+            .with_listener(ParticleSpriteResourceReloadListener::default())
             .with_listener(WaypointStyleManifestReloadListener::default())
             .with_listener(CloudTextureReloadListener::default())
             .with_listener(GpuWarnlistReloadListener::default())
@@ -3087,6 +3088,191 @@ impl ClientParticleDescriptionReloadReport {
 
     pub fn sprites(&self) -> &[String] {
         &self.sprites
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleSpriteResourceSet {
+    particles: Vec<ClientParticleSpriteResourceCandidate>,
+}
+
+impl ClientParticleSpriteResourceSet {
+    pub fn particles(&self) -> &[ClientParticleSpriteResourceCandidate] {
+        &self.particles
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientParticleSpriteResourceReport> + '_ {
+        self.particles
+            .iter()
+            .map(ClientParticleSpriteResourceCandidate::report)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleSpriteResourceCandidate {
+    particle_id: String,
+    resource: String,
+    pack_id: String,
+    sprites: Vec<String>,
+    available_resources: Vec<ClientParticleSpriteResourceAvailability>,
+    blockers: Vec<ClientParticleSpriteResourceBlocker>,
+}
+
+impl ClientParticleSpriteResourceCandidate {
+    pub fn particle_id(&self) -> &str {
+        &self.particle_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn available_resources(&self) -> &[ClientParticleSpriteResourceAvailability] {
+        &self.available_resources
+    }
+
+    pub fn blockers(&self) -> &[ClientParticleSpriteResourceBlocker] {
+        &self.blockers
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprites.len()
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resources.len()
+    }
+
+    pub fn missing_resource_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn report(&self) -> ClientParticleSpriteResourceReport {
+        ClientParticleSpriteResourceReport {
+            particle_id: self.particle_id.clone(),
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            sprite_count: self.sprite_count(),
+            sprites: self.sprites.clone(),
+            available_resource_count: self.available_resource_count(),
+            missing_resource_count: self.missing_resource_count(),
+            available_resources: self.available_resources.clone(),
+            blockers: self.blockers.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleSpriteResourceAvailability {
+    sprite: String,
+    resource: String,
+    pack_id: String,
+}
+
+impl ClientParticleSpriteResourceAvailability {
+    pub fn sprite(&self) -> &str {
+        &self.sprite
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleSpriteResourceBlocker {
+    sprite: String,
+    resource: String,
+    reason: ClientParticleSpriteResourceBlockerReason,
+}
+
+impl ClientParticleSpriteResourceBlocker {
+    pub fn sprite(&self) -> &str {
+        &self.sprite
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn reason(&self) -> ClientParticleSpriteResourceBlockerReason {
+        self.reason
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientParticleSpriteResourceBlockerReason {
+    MissingTextureResource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleSpriteResourceReport {
+    particle_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    sprites: Vec<String>,
+    available_resource_count: usize,
+    missing_resource_count: usize,
+    available_resources: Vec<ClientParticleSpriteResourceAvailability>,
+    blockers: Vec<ClientParticleSpriteResourceBlocker>,
+}
+
+impl ClientParticleSpriteResourceReport {
+    pub fn particle_id(&self) -> &str {
+        &self.particle_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn available_sprite_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn missing_resource_count(&self) -> usize {
+        self.missing_resource_count
+    }
+
+    pub fn available_resources(&self) -> &[ClientParticleSpriteResourceAvailability] {
+        &self.available_resources
+    }
+
+    pub fn blockers(&self) -> &[ClientParticleSpriteResourceBlocker] {
+        &self.blockers
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
     }
 }
 
@@ -4212,19 +4398,9 @@ impl ResourceReloadListener for ParticleManifestReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let resources = if self.ids.is_empty() {
-            manifest_ids_in_directory(stack, PARTICLE_MANIFEST_DIR)?
-                .into_iter()
-                .map(|id| {
-                    manifest_resource_path(PARTICLE_MANIFEST_DIR, &id)
-                        .to_string_lossy()
-                        .into_owned()
-                })
-                .collect::<Vec<_>>()
-        } else {
-            available_manifest_paths(stack, PARTICLE_MANIFEST_DIR, &self.ids)
-        };
-        Ok(ResourceReloadTaskReport::new(resources))
+        Ok(ResourceReloadTaskReport::new(particle_manifest_resources(
+            stack, &self.ids,
+        )?))
     }
 
     fn reload(
@@ -4235,6 +4411,61 @@ impl ResourceReloadListener for ParticleManifestReloadListener {
         Ok(ResourceReloadTaskReport::new(
             particle_description_report_items(&descriptions),
         ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParticleSpriteResourceReloadListener {
+    ids: Vec<String>,
+}
+
+impl ParticleSpriteResourceReloadListener {
+    pub fn new(ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn ids(&self) -> &[String] {
+        &self.ids
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientParticleSpriteResourceSet> {
+        load_client_particle_sprite_resources(stack, &self.ids)
+    }
+}
+
+impl Default for ParticleSpriteResourceReloadListener {
+    fn default() -> Self {
+        Self { ids: Vec::new() }
+    }
+}
+
+impl ResourceReloadListener for ParticleSpriteResourceReloadListener {
+    fn name(&self) -> &str {
+        "particle_sprite_resources"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(particle_manifest_resources(
+            stack, &self.ids,
+        )?))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(resources.reports().map(
+            |report| particle_sprite_resource_report_item(&report),
+        )))
     }
 }
 
@@ -7187,6 +7418,17 @@ pub fn load_client_particle_descriptions(
     Ok(ClientParticleDescriptionSet { descriptions })
 }
 
+pub fn load_client_particle_sprite_resources(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<ClientParticleSpriteResourceSet> {
+    let descriptions = load_client_particle_descriptions(stack, ids)?;
+    Ok(build_client_particle_sprite_resource_set(
+        stack,
+        &descriptions,
+    ))
+}
+
 pub fn load_client_waypoint_styles(
     stack: &ClientResourceStack,
     ids: &[String],
@@ -7617,6 +7859,58 @@ fn invalid_particle_manifest_error(
     }
 }
 
+fn build_client_particle_sprite_resource_set(
+    stack: &ClientResourceStack,
+    descriptions: &ClientParticleDescriptionSet,
+) -> ClientParticleSpriteResourceSet {
+    ClientParticleSpriteResourceSet {
+        particles: descriptions
+            .descriptions()
+            .iter()
+            .map(|description| build_client_particle_sprite_resource_candidate(stack, description))
+            .collect(),
+    }
+}
+
+fn build_client_particle_sprite_resource_candidate(
+    stack: &ClientResourceStack,
+    description: &ClientParticleDescription,
+) -> ClientParticleSpriteResourceCandidate {
+    let mut available_resources = Vec::new();
+    let mut blockers = Vec::new();
+
+    for sprite in description.sprites() {
+        let resource = particle_sprite_resource_path_for_identifier(sprite);
+        if let Some(location) = stack.find_resource(&resource) {
+            available_resources.push(ClientParticleSpriteResourceAvailability {
+                sprite: sprite.clone(),
+                resource,
+                pack_id: location.pack_id,
+            });
+        } else {
+            blockers.push(ClientParticleSpriteResourceBlocker {
+                sprite: sprite.clone(),
+                resource,
+                reason: ClientParticleSpriteResourceBlockerReason::MissingTextureResource,
+            });
+        }
+    }
+
+    ClientParticleSpriteResourceCandidate {
+        particle_id: description.id().to_owned(),
+        resource: description.report().resource().to_owned(),
+        pack_id: description.report().pack_id().to_owned(),
+        sprites: description.sprites().to_vec(),
+        available_resources,
+        blockers,
+    }
+}
+
+fn particle_sprite_resource_path_for_identifier(identifier: &str) -> String {
+    let (namespace, path) = resource_identifier_parts(identifier);
+    format!("assets/{namespace}/textures/particle/{path}.png")
+}
+
 fn invalid_equipment_asset_error(
     report: &ClientJsonResourceReloadReport,
     reason: impl Into<String>,
@@ -7638,6 +7932,24 @@ fn available_manifest_paths(
         .filter(|resource| stack.find_resource(resource).is_some())
         .map(|resource| resource.to_string_lossy().into_owned())
         .collect()
+}
+
+fn particle_manifest_resources(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<Vec<String>> {
+    if ids.is_empty() {
+        Ok(manifest_ids_in_directory(stack, PARTICLE_MANIFEST_DIR)?
+            .into_iter()
+            .map(|id| {
+                manifest_resource_path(PARTICLE_MANIFEST_DIR, &id)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect())
+    } else {
+        Ok(available_manifest_paths(stack, PARTICLE_MANIFEST_DIR, ids))
+    }
 }
 
 fn manifest_ids_in_directory(
@@ -7726,6 +8038,60 @@ fn particle_description_report_item(report: &ClientParticleDescriptionReloadRepo
         report.sprite_count(),
         report.sprites().join(",")
     )
+}
+
+fn particle_sprite_resource_report_item(report: &ClientParticleSpriteResourceReport) -> String {
+    format!(
+        "{} id:{} sprites:{}:{} available:{} missing:{} resources:{} blockers:{}",
+        report.loaded_resource_pack(),
+        report.particle_id(),
+        report.sprite_count(),
+        particle_sprite_ids_fragment(report.sprites()),
+        report.available_resource_count(),
+        report.missing_resource_count(),
+        particle_sprite_resource_availability_fragment(report.available_resources()),
+        particle_sprite_resource_blockers_fragment(report.blockers())
+    )
+}
+
+fn particle_sprite_ids_fragment(sprites: &[String]) -> String {
+    if sprites.is_empty() {
+        return "none".to_owned();
+    }
+    sprites.join(",")
+}
+
+fn particle_sprite_resource_availability_fragment(
+    available_resources: &[ClientParticleSpriteResourceAvailability],
+) -> String {
+    if available_resources.is_empty() {
+        return "none".to_owned();
+    }
+    available_resources
+        .iter()
+        .map(|availability| {
+            format!(
+                "{}={}@{}",
+                availability.sprite(),
+                availability.resource(),
+                availability.pack_id()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn particle_sprite_resource_blockers_fragment(
+    blockers: &[ClientParticleSpriteResourceBlocker],
+) -> String {
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+    blockers
+        .iter()
+        .map(|blocker| format!("missing:{}={}", blocker.sprite(), blocker.resource()))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn waypoint_style_report_item(report: &ClientWaypointStyleReloadReport) -> String {
@@ -16795,6 +17161,86 @@ mod tests {
     }
 
     #[test]
+    fn particle_manifest_particle_sprite_resources_report_available_and_missing_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/particles/sparkle.json",
+            r#"{"textures":["minecraft:spark_0","minecraft:missing"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/particle/spark_0.png",
+            MINIMAL_PNG,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ParticleSpriteResourceReloadListener::new(["sparkle"]))
+            .run()
+            .expect("missing particle sprite resources should be blockers, not reload errors");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "particle_sprite_resources");
+        assert_eq!(
+            listener.reload.items(),
+            ["assets/minecraft/particles/sparkle.json@test id:sparkle sprites:2:minecraft:spark_0,minecraft:missing available:1 missing:1 resources:minecraft:spark_0=assets/minecraft/textures/particle/spark_0.png@test blockers:missing:minecraft:missing=assets/minecraft/textures/particle/missing.png".to_owned()]
+        );
+    }
+
+    #[test]
+    fn particle_manifest_particle_sprite_resources_report_missing_textures_array_without_blockers()
+    {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/particles/rain.json", r#"{"custom":true}"#);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let resources = ParticleSpriteResourceReloadListener::new(["rain"])
+            .load(&stack)
+            .expect("particle sprite resources without textures should load");
+        let particle = &resources.particles()[0];
+
+        assert_eq!(particle.particle_id(), "rain");
+        assert_eq!(particle.sprite_count(), 0);
+        assert_eq!(particle.available_resource_count(), 0);
+        assert_eq!(particle.missing_resource_count(), 0);
+        assert!(particle.blockers().is_empty());
+    }
+
+    #[test]
+    fn particle_manifest_particle_sprite_resources_use_stack_priority() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/particles/sparkle.json",
+            r#"{"textures":["minecraft:spark_0"]}"#,
+        );
+        base.write_bytes(
+            "assets/minecraft/textures/particle/spark_0.png",
+            MINIMAL_PNG,
+        );
+        override_pack.write_bytes(
+            "assets/minecraft/textures/particle/spark_0.png",
+            OVERRIDE_MINIMAL_PNG,
+        );
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let resources = ParticleSpriteResourceReloadListener::new(["sparkle"])
+            .load(&stack)
+            .expect("particle sprite resources should load");
+        let particle = &resources.particles()[0];
+
+        assert_eq!(particle.available_resource_count(), 1);
+        assert_eq!(
+            particle.available_resources()[0].resource(),
+            "assets/minecraft/textures/particle/spark_0.png"
+        );
+        assert_eq!(particle.available_resources()[0].pack_id(), "override");
+        assert!(particle.blockers().is_empty());
+    }
+
+    #[test]
     fn particle_manifest_reload_rejects_invalid_texture_shape() {
         let temp = TempPack::new();
         temp.write(
@@ -16857,6 +17303,36 @@ mod tests {
                 && pack_id == "test"
                 && reason == "textures[0] is not a valid resource id"
         ));
+    }
+
+    #[test]
+    fn committed_vanilla_particle_manifest_particle_sprite_resources_report_nonzero_surface() {
+        let resources = ParticleSpriteResourceReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla particle sprite resources should load");
+        let total_sprites = resources
+            .particles()
+            .iter()
+            .map(ClientParticleSpriteResourceCandidate::sprite_count)
+            .sum::<usize>();
+        let total_available = resources
+            .particles()
+            .iter()
+            .map(ClientParticleSpriteResourceCandidate::available_resource_count)
+            .sum::<usize>();
+
+        assert_eq!(resources.particles().len(), 106);
+        assert!(total_sprites > 0);
+        assert!(total_available > 0);
+        assert!(resources.particles().iter().any(|particle| {
+            particle.particle_id() == "firework"
+                && particle.available_resources().iter().any(|availability| {
+                    availability.sprite() == "minecraft:spark_0"
+                        && availability.resource()
+                            == "assets/minecraft/textures/particle/spark_0.png"
+                        && availability.pack_id() == VANILLA_PACK_ID
+                })
+        }));
     }
 
     #[test]
