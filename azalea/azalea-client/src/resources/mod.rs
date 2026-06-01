@@ -9,9 +9,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use azalea_chat::FormattedText;
 use thiserror::Error;
+use uuid::Uuid;
 
 pub const VANILLA_PACK_ID: &str = "vanilla";
+pub const VANILLA_KNOWN_PACK_NAMESPACE: &str = "minecraft";
+pub const VANILLA_KNOWN_PACK_ID: &str = "core";
+pub const VANILLA_KNOWN_PACK_VERSION: &str = "26.1.2";
 pub const VANILLA_PACK_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/vanilla-pack");
 pub const INITIAL_RELOAD_TASK_NAME: &str = "initial";
 pub const DEFAULT_LANGUAGE_CODE: &str = "en_us";
@@ -70,6 +75,13 @@ impl ClientResourcePack {
 
     pub fn vanilla() -> Self {
         Self::new(VANILLA_PACK_ID, VANILLA_PACK_PATH)
+    }
+
+    pub fn server_placeholder(id: Uuid) -> Self {
+        Self::new(
+            format!("server:{id}"),
+            PathBuf::from(format!("<server-resource-pack:{id}>")),
+        )
     }
 
     pub fn id(&self) -> &str {
@@ -149,14 +161,261 @@ impl Default for ClientResourceStack {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServerResourcePackRequest {
+    id: Uuid,
+    url: String,
+    hash: String,
+    required: bool,
+    prompt: Option<FormattedText>,
+}
+
+impl ServerResourcePackRequest {
+    pub fn new(
+        id: Uuid,
+        url: impl Into<String>,
+        hash: impl Into<String>,
+        required: bool,
+        prompt: Option<FormattedText>,
+    ) -> Self {
+        Self {
+            id,
+            url: url.into(),
+            hash: hash.into(),
+            required,
+            prompt,
+        }
+    }
+
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    pub fn hash(&self) -> &str {
+        &self.hash
+    }
+
+    pub fn required(&self) -> bool {
+        self.required
+    }
+
+    pub fn prompt(&self) -> Option<&FormattedText> {
+        self.prompt.as_ref()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackStatus {
+    Pending,
+    Accepted,
+    Downloading,
+    Downloaded,
+    Applied,
+    Failed(ServerResourcePackFailure),
+    Declined,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackFailure {
+    Download,
+    InvalidUrl,
+    Reload,
+    Discarded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackAckAction {
+    SuccessfullyLoaded,
+    Declined,
+    FailedDownload,
+    Accepted,
+    InvalidUrl,
+    FailedReload,
+    Discarded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackAck {
+    pub id: Uuid,
+    pub action: ServerResourcePackAckAction,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServerResourcePackApplyState {
+    request: ServerResourcePackRequest,
+    status: ServerResourcePackStatus,
+}
+
+impl ServerResourcePackApplyState {
+    pub fn new(request: ServerResourcePackRequest) -> Self {
+        Self {
+            request,
+            status: ServerResourcePackStatus::Pending,
+        }
+    }
+
+    pub fn request(&self) -> &ServerResourcePackRequest {
+        &self.request
+    }
+
+    pub fn status(&self) -> ServerResourcePackStatus {
+        self.status
+    }
+
+    pub fn accept(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Accepted;
+        self.ack(ServerResourcePackAckAction::Accepted)
+    }
+
+    pub fn decline(&mut self) -> Result<ServerResourcePackAck, ServerResourcePackApplyError> {
+        if self.request.required {
+            return Err(ServerResourcePackApplyError::RequiredPackCannotBeDeclined {
+                id: self.request.id,
+            });
+        }
+
+        self.status = ServerResourcePackStatus::Declined;
+        Ok(self.ack(ServerResourcePackAckAction::Declined))
+    }
+
+    pub fn start_download(&mut self) {
+        self.status = ServerResourcePackStatus::Downloading;
+    }
+
+    pub fn download_succeeded(&mut self) {
+        self.status = ServerResourcePackStatus::Downloaded;
+    }
+
+    pub fn apply_downloaded(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Applied;
+        self.ack(ServerResourcePackAckAction::SuccessfullyLoaded)
+    }
+
+    pub fn download_failed(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download);
+        self.ack(ServerResourcePackAckAction::FailedDownload)
+    }
+
+    pub fn invalid_url(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::InvalidUrl);
+        self.ack(ServerResourcePackAckAction::InvalidUrl)
+    }
+
+    pub fn reload_failed(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Reload);
+        self.ack(ServerResourcePackAckAction::FailedReload)
+    }
+
+    pub fn discarded(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Discarded);
+        self.ack(ServerResourcePackAckAction::Discarded)
+    }
+
+    pub fn placeholder_pack(&self) -> ClientResourcePack {
+        ClientResourcePack::server_placeholder(self.request.id)
+    }
+
+    fn ack(&self, action: ServerResourcePackAckAction) -> ServerResourcePackAck {
+        ServerResourcePackAck {
+            id: self.request.id,
+            action,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackApplyError {
+    RequiredPackCannotBeDeclined { id: Uuid },
+}
+
+impl fmt::Display for ServerResourcePackApplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RequiredPackCannotBeDeclined { id } => {
+                write!(f, "required server resource pack `{id}` cannot be declined")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ServerResourcePackApplyError {}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServerResourcePackApplyModel {
+    base_stack: ClientResourceStack,
+    packs: Vec<ServerResourcePackApplyState>,
+}
+
+impl ServerResourcePackApplyModel {
+    pub fn new(base_stack: ClientResourceStack) -> Self {
+        Self {
+            base_stack,
+            packs: Vec::new(),
+        }
+    }
+
+    pub fn with_vanilla() -> Self {
+        Self::new(ClientResourceStack::vanilla())
+    }
+
+    pub fn receive(
+        &mut self,
+        request: ServerResourcePackRequest,
+    ) -> &mut ServerResourcePackApplyState {
+        self.packs.push(ServerResourcePackApplyState::new(request));
+        self.packs
+            .last_mut()
+            .expect("just-pushed server resource pack should exist")
+    }
+
+    pub fn packs(&self) -> &[ServerResourcePackApplyState] {
+        &self.packs
+    }
+
+    pub fn resource_stack(&self) -> ClientResourceStack {
+        let mut packs = self.base_stack.packs().to_vec();
+        packs.extend(
+            self.packs
+                .iter()
+                .filter(|pack| pack.status() == ServerResourcePackStatus::Applied)
+                .map(ServerResourcePackApplyState::placeholder_pack),
+        );
+        ClientResourceStack::new(packs)
+    }
+}
+
+impl Default for ServerResourcePackApplyModel {
+    fn default() -> Self {
+        Self::with_vanilla()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientResourceRepository {
     vanilla_pack: ClientResourcePack,
+    available_packs: BTreeMap<String, AvailableClientResourcePack>,
+    selected_pack_ids: Vec<String>,
 }
 
 impl ClientResourceRepository {
     pub fn new(vanilla_pack: ClientResourcePack) -> Self {
-        Self { vanilla_pack }
+        let vanilla_id = vanilla_pack.id().to_owned();
+        let mut available_packs = BTreeMap::new();
+        available_packs.insert(
+            vanilla_id,
+            AvailableClientResourcePack::new(vanilla_pack.clone())
+                .with_known_pack_id(KnownPackId::vanilla()),
+        );
+
+        Self {
+            vanilla_pack,
+            available_packs,
+            selected_pack_ids: Vec::new(),
+        }
     }
 
     pub fn committed_vanilla() -> Self {
@@ -167,14 +426,195 @@ impl ClientResourceRepository {
         &self.vanilla_pack
     }
 
+    pub fn available_packs(&self) -> impl Iterator<Item = &AvailableClientResourcePack> {
+        self.available_packs.values()
+    }
+
+    pub fn available_pack(&self, id: &str) -> Option<&AvailableClientResourcePack> {
+        self.available_packs.get(id)
+    }
+
+    pub fn selected_pack_ids(&self) -> &[String] {
+        &self.selected_pack_ids
+    }
+
+    pub fn with_available_pack(mut self, pack: AvailableClientResourcePack) -> Self {
+        self.add_available_pack(pack);
+        self
+    }
+
+    pub fn add_available_pack(&mut self, pack: AvailableClientResourcePack) {
+        if pack.id() == self.vanilla_pack.id() {
+            return;
+        }
+
+        self.available_packs.insert(pack.id().to_owned(), pack);
+    }
+
+    pub fn with_selected_pack_ids(
+        mut self,
+        selected_pack_ids: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.set_selected_pack_ids(selected_pack_ids);
+        self
+    }
+
+    pub fn set_selected_pack_ids(
+        &mut self,
+        selected_pack_ids: impl IntoIterator<Item = impl Into<String>>,
+    ) {
+        self.selected_pack_ids = selected_pack_ids.into_iter().map(Into::into).collect();
+    }
+
     pub fn stack(&self) -> ClientResourceStack {
-        ClientResourceStack::new(vec![self.vanilla_pack.clone()])
+        self.rebuild_stack().stack
+    }
+
+    pub fn rebuild_stack(&self) -> ClientResourcePackSelectionReport {
+        let mut packs = vec![self.vanilla_pack.clone()];
+        let mut selected_pack_ids = Vec::new();
+        let mut missing_selected_pack_ids = Vec::new();
+        let mut seen = BTreeSet::new();
+
+        for id in &self.selected_pack_ids {
+            if id == self.vanilla_pack.id() {
+                continue;
+            }
+
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+
+            match self.available_packs.get(id) {
+                Some(available) => {
+                    selected_pack_ids.push(id.clone());
+                    packs.push(available.pack().clone());
+                }
+                None => missing_selected_pack_ids.push(id.clone()),
+            }
+        }
+
+        ClientResourcePackSelectionReport {
+            stack: ClientResourceStack::new(packs),
+            selected_pack_ids,
+            missing_selected_pack_ids,
+        }
+    }
+
+    pub fn known_pack_ids(&self) -> Vec<KnownPackId> {
+        let mut known_pack_ids = Vec::new();
+
+        if let Some(vanilla) = self
+            .available_packs
+            .get(self.vanilla_pack.id())
+            .and_then(AvailableClientResourcePack::known_pack_id)
+        {
+            known_pack_ids.push(vanilla.clone());
+        }
+
+        for id in &self.rebuild_stack().selected_pack_ids {
+            if let Some(known_pack_id) = self
+                .available_packs
+                .get(id)
+                .and_then(AvailableClientResourcePack::known_pack_id)
+            {
+                known_pack_ids.push(known_pack_id.clone());
+            }
+        }
+
+        known_pack_ids
     }
 }
 
 impl Default for ClientResourceRepository {
     fn default() -> Self {
         Self::committed_vanilla()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AvailableClientResourcePack {
+    pack: ClientResourcePack,
+    known_pack_id: Option<KnownPackId>,
+}
+
+impl AvailableClientResourcePack {
+    pub fn new(pack: ClientResourcePack) -> Self {
+        Self {
+            pack,
+            known_pack_id: None,
+        }
+    }
+
+    pub fn with_known_pack_id(mut self, known_pack_id: KnownPackId) -> Self {
+        self.known_pack_id = Some(known_pack_id);
+        self
+    }
+
+    pub fn id(&self) -> &str {
+        self.pack.id()
+    }
+
+    pub fn pack(&self) -> &ClientResourcePack {
+        &self.pack
+    }
+
+    pub fn known_pack_id(&self) -> Option<&KnownPackId> {
+        self.known_pack_id.as_ref()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KnownPackId {
+    pub namespace: String,
+    pub id: String,
+    pub version: String,
+}
+
+impl KnownPackId {
+    pub fn new(
+        namespace: impl Into<String>,
+        id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        Self {
+            namespace: namespace.into(),
+            id: id.into(),
+            version: version.into(),
+        }
+    }
+
+    pub fn vanilla() -> Self {
+        Self::new(
+            VANILLA_KNOWN_PACK_NAMESPACE,
+            VANILLA_KNOWN_PACK_ID,
+            VANILLA_KNOWN_PACK_VERSION,
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientResourcePackSelectionReport {
+    stack: ClientResourceStack,
+    selected_pack_ids: Vec<String>,
+    missing_selected_pack_ids: Vec<String>,
+}
+
+impl ClientResourcePackSelectionReport {
+    pub fn stack(&self) -> &ClientResourceStack {
+        &self.stack
+    }
+
+    pub fn into_stack(self) -> ClientResourceStack {
+        self.stack
+    }
+
+    pub fn selected_pack_ids(&self) -> &[String] {
+        &self.selected_pack_ids
+    }
+
+    pub fn missing_selected_pack_ids(&self) -> &[String] {
+        &self.missing_selected_pack_ids
     }
 }
 
@@ -1567,6 +2007,138 @@ mod tests {
     }
 
     #[test]
+    fn repository_stack_always_keeps_vanilla_at_bottom() {
+        let custom = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "custom",
+                custom.path(),
+            )))
+            .with_selected_pack_ids(["custom"]);
+
+        assert_eq!(
+            repository
+                .stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "custom"]
+        );
+    }
+
+    #[test]
+    fn repository_preserves_selected_pack_order_above_vanilla() {
+        let low = TempPack::new();
+        let high = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "low",
+                low.path(),
+            )))
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "high",
+                high.path(),
+            )))
+            .with_selected_pack_ids(["high", "low"]);
+
+        let report = repository.rebuild_stack();
+
+        assert_eq!(
+            report
+                .stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "high", "low"]
+        );
+        assert_eq!(
+            report.selected_pack_ids(),
+            ["high".to_owned(), "low".to_owned()]
+        );
+    }
+
+    #[test]
+    fn repository_reports_missing_selected_pack_ids_without_loading_them() {
+        let present = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "present",
+                present.path(),
+            )))
+            .with_selected_pack_ids(["missing", "present"]);
+
+        let report = repository.rebuild_stack();
+
+        assert_eq!(report.missing_selected_pack_ids(), ["missing".to_owned()]);
+        assert_eq!(
+            report
+                .stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "present"]
+        );
+    }
+
+    #[test]
+    fn repository_higher_selected_pack_overrides_lower_pack() {
+        let low = TempPack::new();
+        let high = TempPack::new();
+        low.write("assets/minecraft/lang/en_us.json", r#"{"menu.play":"Low"}"#);
+        high.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"High"}"#,
+        );
+
+        let stack = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "low",
+                low.path(),
+            )))
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "high",
+                high.path(),
+            )))
+            .with_selected_pack_ids(["low", "high"])
+            .stack();
+
+        let location = stack
+            .find_resource("assets/minecraft/lang/en_us.json")
+            .expect("selected language resource should resolve");
+        let contents =
+            fs::read_to_string(location.path).expect("selected language resource should read");
+
+        assert_eq!(location.pack_id, "high");
+        assert_eq!(contents, r#"{"menu.play":"High"}"#);
+    }
+
+    #[test]
+    fn repository_known_pack_ids_include_vanilla() {
+        let custom = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new("custom", custom.path()))
+                    .with_known_pack_id(KnownPackId::new("example", "custom", "1")),
+            )
+            .with_selected_pack_ids(["custom"]);
+
+        assert_eq!(
+            repository.known_pack_ids(),
+            [
+                KnownPackId::vanilla(),
+                KnownPackId::new("example", "custom", "1")
+            ]
+        );
+    }
+
+    #[test]
     fn reload_plan_uses_simple_reload_weights() {
         let plan = ResourceReloadPlan::new(["a", "b"]);
 
@@ -1599,6 +2171,139 @@ mod tests {
                 ResourceReloadStep::InitialPreparation,
                 2
             )]
+        );
+    }
+
+    #[test]
+    fn optional_server_pack_can_decline_but_required_pack_cannot() {
+        let optional_id = resource_pack_id(1);
+        let required_id = resource_pack_id(2);
+        let mut optional =
+            ServerResourcePackApplyState::new(server_pack_request(optional_id, false));
+        let mut required =
+            ServerResourcePackApplyState::new(server_pack_request(required_id, true));
+
+        assert_eq!(
+            optional.decline().expect("optional pack can be declined"),
+            ServerResourcePackAck {
+                id: optional_id,
+                action: ServerResourcePackAckAction::Declined,
+            }
+        );
+        assert_eq!(optional.status(), ServerResourcePackStatus::Declined);
+
+        assert_eq!(
+            required.decline(),
+            Err(ServerResourcePackApplyError::RequiredPackCannotBeDeclined { id: required_id })
+        );
+        assert_eq!(required.status(), ServerResourcePackStatus::Pending);
+    }
+
+    #[test]
+    fn accepted_server_pack_reports_downloaded_then_applied_ack_sequence() {
+        let id = resource_pack_id(3);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        let accepted = pack.accept();
+        pack.start_download();
+        pack.download_succeeded();
+        let loaded = pack.apply_downloaded();
+
+        assert_eq!(
+            [accepted, loaded],
+            [
+                ServerResourcePackAck {
+                    id,
+                    action: ServerResourcePackAckAction::Accepted,
+                },
+                ServerResourcePackAck {
+                    id,
+                    action: ServerResourcePackAckAction::SuccessfullyLoaded,
+                },
+            ]
+        );
+        assert_eq!(pack.status(), ServerResourcePackStatus::Applied);
+    }
+
+    #[test]
+    fn failed_server_pack_reports_failure_ack_sequence() {
+        let download_id = resource_pack_id(4);
+        let reload_id = resource_pack_id(5);
+        let mut download_failure =
+            ServerResourcePackApplyState::new(server_pack_request(download_id, true));
+        let mut reload_failure =
+            ServerResourcePackApplyState::new(server_pack_request(reload_id, true));
+
+        let download_acks = [
+            download_failure.accept(),
+            download_failure.download_failed(),
+        ];
+        let reload_acks = {
+            let accepted = reload_failure.accept();
+            reload_failure.start_download();
+            reload_failure.download_succeeded();
+            [accepted, reload_failure.reload_failed()]
+        };
+
+        assert_eq!(
+            download_acks,
+            [
+                ServerResourcePackAck {
+                    id: download_id,
+                    action: ServerResourcePackAckAction::Accepted,
+                },
+                ServerResourcePackAck {
+                    id: download_id,
+                    action: ServerResourcePackAckAction::FailedDownload,
+                },
+            ]
+        );
+        assert_eq!(
+            reload_acks,
+            [
+                ServerResourcePackAck {
+                    id: reload_id,
+                    action: ServerResourcePackAckAction::Accepted,
+                },
+                ServerResourcePackAck {
+                    id: reload_id,
+                    action: ServerResourcePackAckAction::FailedReload,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn applied_server_packs_stay_above_vanilla_in_priority_order() {
+        let first_id = resource_pack_id(6);
+        let second_id = resource_pack_id(7);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model
+            .receive(server_pack_request(first_id, true))
+            .apply_downloaded();
+        model
+            .receive(server_pack_request(resource_pack_id(8), false))
+            .decline()
+            .expect("optional middle pack can be declined");
+        model
+            .receive(server_pack_request(second_id, true))
+            .apply_downloaded();
+
+        let stack = model.resource_stack();
+        let pack_ids = stack
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            pack_ids,
+            [
+                VANILLA_PACK_ID.to_owned(),
+                format!("server:{first_id}"),
+                format!("server:{second_id}"),
+            ]
         );
     }
 
@@ -2484,6 +3189,20 @@ mod tests {
         0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
         31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ];
+
+    fn resource_pack_id(seed: u128) -> Uuid {
+        Uuid::from_u128(seed)
+    }
+
+    fn server_pack_request(id: Uuid, required: bool) -> ServerResourcePackRequest {
+        ServerResourcePackRequest::new(
+            id,
+            format!("https://example.test/{id}.zip"),
+            id.simple().to_string(),
+            required,
+            None,
+        )
+    }
 
     impl TempPack {
         fn new() -> Self {
