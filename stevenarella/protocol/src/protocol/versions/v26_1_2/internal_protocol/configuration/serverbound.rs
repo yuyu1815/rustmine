@@ -8,6 +8,7 @@ use crate::protocol::{
 use super::super::super::translate_internal_packet_id;
 
 mod accept_code_of_conduct;
+mod cookie_response;
 mod custom_click_action;
 mod custom_payload;
 mod keep_alive;
@@ -82,6 +83,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        cookie_response::read_cookie_response_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
@@ -98,25 +107,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                 packet::play::serverbound::PluginMessageServerbound {
                     channel: "ClientInformation".to_owned(),
                     data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationCookieResponseServerbound => {
-            let packet = packet::configuration::serverbound::ConfigurationCookieResponseServerbound {
-                key: Serializable::read_from(buf)?,
-                payload: if bool::read_from(buf)? {
-                    Some(Serializable::read_from(buf)?)
-                } else {
-                    None
-                },
-            };
-            return Ok(Some(Packet::PluginMessageServerbound(
-                packet::play::serverbound::PluginMessageServerbound {
-                    channel: "CookieResponse".to_owned(),
-                    data: packet
-                        .payload
-                        .map(|payload| payload.data)
-                        .unwrap_or_else(Vec::new),
                 },
             )));
         }
