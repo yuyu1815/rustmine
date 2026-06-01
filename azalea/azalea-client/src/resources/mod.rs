@@ -99,7 +99,7 @@ const DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS: &[&str] =
 const DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS: &[&str] = &["assets/minecraft/models/item/stick.json"];
 #[cfg(test)]
 const DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS: &[&str] = &["assets/minecraft/items/stone.json"];
-const FONT_DEFINITION_ROOT_DIR: &str = "assets/minecraft/font";
+const FONT_DEFINITION_RESOURCE_GLOB: &str = "assets/*/font/**/*.json";
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
 const DEFAULT_WAYPOINT_STYLE_NEAR_DISTANCE: u32 = 128;
 const DEFAULT_WAYPOINT_STYLE_FAR_DISTANCE: u32 = 332;
@@ -6756,11 +6756,16 @@ impl ClientFontDefinition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientFontProviderDefinition {
     provider_type: String,
+    referenced_assets: Vec<String>,
 }
 
 impl ClientFontProviderDefinition {
     pub fn provider_type(&self) -> &str {
         &self.provider_type
+    }
+
+    pub fn referenced_assets(&self) -> &[String] {
+        &self.referenced_assets
     }
 }
 
@@ -6796,6 +6801,13 @@ impl ClientFontDefinitionReloadReport<'_> {
         self.providers
             .iter()
             .map(ClientFontProviderDefinition::provider_type)
+    }
+
+    pub fn referenced_assets(&self) -> impl Iterator<Item = &str> {
+        self.providers
+            .iter()
+            .flat_map(|provider| provider.referenced_assets())
+            .map(String::as_str)
     }
 }
 
@@ -6910,67 +6922,138 @@ fn discover_font_definition_resources(
     let mut resources = BTreeSet::new();
 
     for pack in stack.packs() {
-        let font_directory = pack.resource_path(FONT_DEFINITION_ROOT_DIR);
-        if !font_directory.exists() {
-            continue;
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_font_definition_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::RootZip(root) => {
+                discover_zip_font_definition_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::Unavailable(_) => {}
         }
-        collect_font_definition_resources(
-            FONT_DEFINITION_ROOT_DIR,
-            &font_directory,
-            &font_directory,
-            &mut resources,
-        )?;
     }
 
     if resources.is_empty() {
-        return Err(ResourceReloadError::MissingResource(format!(
-            "{FONT_DEFINITION_ROOT_DIR}/**/*.json"
-        )));
+        return Err(ResourceReloadError::MissingResource(
+            FONT_DEFINITION_RESOURCE_GLOB.to_owned(),
+        ));
     }
 
     Ok(resources.into_iter().collect())
 }
 
-fn collect_font_definition_resources(
-    resource_root: &str,
+fn discover_directory_font_definition_resources(
+    root: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+
+    let namespaces = fs::read_dir(&assets).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets".to_owned(),
+        path: assets.clone(),
+        source,
+    })?;
+    for namespace in namespaces {
+        let namespace = namespace.map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets".to_owned(),
+            path: assets.clone(),
+            source,
+        })?;
+        let namespace_path = namespace.path();
+        if !namespace_path.is_dir() {
+            continue;
+        }
+        let fonts = namespace_path.join("font");
+        if fonts.exists() {
+            discover_directory_font_definition_resources_inner(root, &fonts, resources)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn discover_directory_font_definition_resources_inner(
     root: &Path,
     directory: &Path,
     resources: &mut BTreeSet<String>,
 ) -> ResourceReloadResult<()> {
     let entries = fs::read_dir(directory).map_err(|source| ResourceReloadError::ReadResource {
-        resource: resource_root.to_owned(),
+        resource: directory_resource_name(root, directory),
         path: directory.to_owned(),
         source,
     })?;
 
     for entry in entries {
         let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
-            resource: resource_root.to_owned(),
+            resource: directory_resource_name(root, directory),
             path: directory.to_owned(),
             source,
         })?;
         let path = entry.path();
         if path.is_dir() {
-            collect_font_definition_resources(resource_root, root, &path, resources)?;
+            discover_directory_font_definition_resources_inner(root, &path, resources)?;
             continue;
         }
-        if !path.is_file()
-            || path.extension().and_then(|extension| extension.to_str()) != Some("json")
-        {
+        if !path.is_file() {
             continue;
         }
 
         let Ok(relative) = path.strip_prefix(root) else {
             continue;
         };
-        let resource = Path::new(resource_root)
-            .join(relative)
-            .to_string_lossy()
-            .replace('\\', "/");
-        resources.insert(resource);
+        if let Some(resource) = relative.to_str() {
+            collect_font_definition_resource_path(resource, resources);
+        }
     }
 
     Ok(())
+}
+
+fn discover_zip_font_definition_resources(
+    root: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: FONT_DEFINITION_RESOURCE_GLOB.to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: FONT_DEFINITION_RESOURCE_GLOB.to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: FONT_DEFINITION_RESOURCE_GLOB.to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        if !entry.is_dir() {
+            collect_font_definition_resource_path(entry.name(), resources);
+        }
+    }
+    Ok(())
+}
+
+fn collect_font_definition_resource_path(resource: &str, resources: &mut BTreeSet<String>) {
+    let Some((_namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once('/')?;
+        Some((namespace, rest))
+    }) else {
+        return;
+    };
+    if rest.starts_with("font/") && resource.ends_with(".json") {
+        resources.insert(resource.to_owned());
+    }
 }
 
 fn parse_font_definition_providers(
@@ -7000,8 +7083,10 @@ fn parse_font_definition_providers(
         .enumerate()
         .map(|(index, provider)| {
             validate_font_provider_definition(resource, index, &provider)?;
+            let referenced_assets = font_provider_referenced_assets(resource, index, &provider)?;
             Ok(ClientFontProviderDefinition {
                 provider_type: provider.provider_type,
+                referenced_assets,
             })
         })
         .collect()
@@ -7015,10 +7100,21 @@ fn validate_font_provider_definition(
     validate_font_provider_filter(resource, index, provider)?;
 
     match provider.provider_type.as_str() {
-        "reference" => require_font_provider_string_field(resource, index, provider, "id"),
+        "reference" => {
+            require_font_provider_identifier_field(resource, index, provider, "id").map(|_| ())
+        }
         "bitmap" => {
-            require_font_provider_string_field(resource, index, provider, "file")?;
+            require_font_provider_identifier_field(resource, index, provider, "file")?;
             require_font_provider_i64_field(resource, index, provider, "ascent")?;
+            if let Some(height) = provider.fields.get("height") {
+                if !height.is_i64() {
+                    return Err(invalid_font_definition(
+                        resource,
+                        format!("provider {index} `height` must be an integer"),
+                    ));
+                }
+            }
+            validate_bitmap_font_provider_height(resource, index, provider)?;
             validate_bitmap_font_provider_chars(resource, index, provider)
         }
         "space" => require_font_provider_object_field(resource, index, provider, "advances")
@@ -7033,24 +7129,31 @@ fn validate_font_provider_definition(
                 }
             }),
         "ttf" => {
-            require_font_provider_string_field(resource, index, provider, "file")?;
-            if let Some(shift) = provider.fields.get("shift") {
-                let Some(shift) = shift.as_array() else {
+            require_font_provider_identifier_field(resource, index, provider, "file")?;
+            if let Some(size) = provider.fields.get("size") {
+                if !size.is_number() {
                     return Err(invalid_font_definition(
                         resource,
-                        format!("provider {index} ttf shift must be an array"),
-                    ));
-                };
-                if shift.len() != 2 || !shift.iter().all(serde_json::Value::is_number) {
-                    return Err(invalid_font_definition(
-                        resource,
-                        format!("provider {index} ttf shift must contain 2 numbers"),
+                        format!("provider {index} ttf size must be a number"),
                     ));
                 }
             }
+            if let Some(oversample) = provider.fields.get("oversample") {
+                if !oversample.is_number() {
+                    return Err(invalid_font_definition(
+                        resource,
+                        format!("provider {index} ttf oversample must be a number"),
+                    ));
+                }
+            }
+            validate_font_provider_shift(resource, index, provider)?;
+            validate_font_provider_skip(resource, index, provider)?;
             Ok(())
         }
-        "unihex" => require_font_provider_string_field(resource, index, provider, "hex_file"),
+        "unihex" => {
+            require_font_provider_identifier_field(resource, index, provider, "hex_file")?;
+            validate_unihex_size_overrides(resource, index, provider)
+        }
         other => Err(invalid_font_definition(
             resource,
             format!("provider {index} has unsupported type `{other}`"),
@@ -7085,6 +7188,26 @@ fn validate_font_provider_filter(
                 format!("provider {index} filter `{key}` must be a boolean"),
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_bitmap_font_provider_height(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<()> {
+    let ascent = require_font_provider_i64_field(resource, index, provider, "ascent")?;
+    let height = provider
+        .fields
+        .get("height")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(8);
+    if ascent > height {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} bitmap ascent must not exceed height"),
+        ));
     }
     Ok(())
 }
@@ -7141,23 +7264,143 @@ fn validate_bitmap_font_provider_chars(
     Ok(())
 }
 
-fn require_font_provider_string_field(
+fn validate_font_provider_shift(
     resource: &ClientJsonResource,
     index: usize,
     provider: &RawClientFontProviderDefinition,
-    field: &str,
 ) -> ResourceReloadResult<()> {
-    provider
+    let Some(shift) = provider.fields.get("shift") else {
+        return Ok(());
+    };
+    let Some(shift) = shift.as_array() else {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} ttf shift must be an array"),
+        ));
+    };
+    if shift.len() != 2 || !shift.iter().all(serde_json::Value::is_number) {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} ttf shift must contain 2 numbers"),
+        ));
+    }
+    if shift.iter().any(|value| {
+        value
+            .as_f64()
+            .is_some_and(|number| !(-512.0..=512.0).contains(&number))
+    }) {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} ttf shift values must be between -512 and 512"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_font_provider_skip(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<()> {
+    let Some(skip) = provider.fields.get("skip") else {
+        return Ok(());
+    };
+    if skip.is_string() {
+        return Ok(());
+    }
+    if skip
+        .as_array()
+        .is_some_and(|items| items.iter().all(serde_json::Value::is_string))
+    {
+        return Ok(());
+    }
+    Err(invalid_font_definition(
+        resource,
+        format!("provider {index} ttf skip must be a string or string array"),
+    ))
+}
+
+fn validate_unihex_size_overrides(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<()> {
+    let Some(size_overrides) = provider.fields.get("size_overrides") else {
+        return Ok(());
+    };
+    let Some(size_overrides) = size_overrides.as_array() else {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} unihex size_overrides must be an array"),
+        ));
+    };
+
+    for (override_index, size_override) in size_overrides.iter().enumerate() {
+        let Some(size_override) = size_override.as_object() else {
+            return Err(invalid_font_definition(
+                resource,
+                format!(
+                    "provider {index} unihex size_overrides {override_index} must be an object"
+                ),
+            ));
+        };
+        for field in ["from", "to", "left", "right"] {
+            if !size_override
+                .get(field)
+                .is_some_and(serde_json::Value::is_i64)
+            {
+                return Err(invalid_font_definition(
+                    resource,
+                    format!(
+                        "provider {index} unihex size_overrides {override_index} `{field}` must be an integer"
+                    ),
+                ));
+            }
+        }
+        let from = size_override
+            .get("from")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or_default();
+        let to = size_override
+            .get("to")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or_default();
+        if from >= to {
+            return Err(invalid_font_definition(
+                resource,
+                format!(
+                    "provider {index} unihex size_overrides {override_index} range must have from below to"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn require_font_provider_identifier_field<'a>(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &'a RawClientFontProviderDefinition,
+    field: &str,
+) -> ResourceReloadResult<&'a str> {
+    let value = provider
         .fields
         .get(field)
         .and_then(serde_json::Value::as_str)
-        .map(|_| ())
         .ok_or_else(|| {
             invalid_font_definition(
                 resource,
                 format!("provider {index} `{field}` must be a string"),
             )
-        })
+        })?;
+    if !is_valid_vanilla_resource_identifier(value) {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} `{field}` must be a resource identifier"),
+        ));
+    }
+    Ok(value)
 }
 
 fn require_font_provider_i64_field(
@@ -7165,12 +7408,11 @@ fn require_font_provider_i64_field(
     index: usize,
     provider: &RawClientFontProviderDefinition,
     field: &str,
-) -> ResourceReloadResult<()> {
+) -> ResourceReloadResult<i64> {
     provider
         .fields
         .get(field)
         .and_then(serde_json::Value::as_i64)
-        .map(|_| ())
         .ok_or_else(|| {
             invalid_font_definition(
                 resource,
@@ -7208,14 +7450,68 @@ fn invalid_font_definition(
     }
 }
 
+fn font_provider_referenced_assets(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<Vec<String>> {
+    match provider.provider_type.as_str() {
+        "reference" => {
+            let id = require_font_provider_identifier_field(resource, index, provider, "id")?;
+            Ok(vec![font_definition_resource_path_for_identifier(id)])
+        }
+        "bitmap" => {
+            let file = require_font_provider_identifier_field(resource, index, provider, "file")?;
+            Ok(vec![font_bitmap_resource_path_for_identifier(file)])
+        }
+        "ttf" => {
+            let file = require_font_provider_identifier_field(resource, index, provider, "file")?;
+            Ok(vec![font_file_resource_path_for_identifier(file)])
+        }
+        "unihex" => {
+            let hex_file =
+                require_font_provider_identifier_field(resource, index, provider, "hex_file")?;
+            Ok(vec![resource_path_for_identifier(hex_file)])
+        }
+        "space" => Ok(Vec::new()),
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn font_definition_resource_path_for_identifier(identifier: &str) -> String {
+    let (namespace, path) = resource_identifier_parts(identifier);
+    format!("assets/{namespace}/font/{path}.json")
+}
+
+fn font_bitmap_resource_path_for_identifier(identifier: &str) -> String {
+    let (namespace, path) = resource_identifier_parts(identifier);
+    format!("assets/{namespace}/textures/{path}")
+}
+
+fn font_file_resource_path_for_identifier(identifier: &str) -> String {
+    let (namespace, path) = resource_identifier_parts(identifier);
+    format!("assets/{namespace}/font/{path}")
+}
+
+fn resource_path_for_identifier(identifier: &str) -> String {
+    let (namespace, path) = resource_identifier_parts(identifier);
+    format!("assets/{namespace}/{path}")
+}
+
 fn font_definition_report_item(report: ClientFontDefinitionReloadReport<'_>) -> String {
     let provider_types = report.provider_types().collect::<Vec<_>>().join(",");
-    format!(
+    let mut item = format!(
         "{}:providers:{}:types:{}",
         report.resource().loaded_resource_pack(),
         report.provider_count(),
         provider_types
-    )
+    );
+    let referenced_assets = report.referenced_assets().collect::<Vec<_>>();
+    if !referenced_assets.is_empty() {
+        item.push_str(":refs:");
+        item.push_str(&referenced_assets.join(","));
+    }
+    item
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -11956,12 +12252,117 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/font/alt.json@base:providers:1:types:reference".to_owned(),
-                "assets/minecraft/font/default.json@base:providers:1:types:reference".to_owned(),
-                "assets/minecraft/font/default.json@override:providers:2:types:reference,bitmap"
+                "assets/minecraft/font/alt.json@base:providers:1:types:reference:refs:assets/minecraft/font/include/alt.json".to_owned(),
+                "assets/minecraft/font/default.json@base:providers:1:types:reference:refs:assets/minecraft/font/include/default.json".to_owned(),
+                "assets/minecraft/font/default.json@override:providers:2:types:reference,bitmap:refs:assets/minecraft/font/include/space.json,assets/minecraft/textures/font/ascii.png"
                     .to_owned(),
-                "assets/minecraft/font/uniform.json@base:providers:1:types:reference".to_owned(),
+                "assets/minecraft/font/uniform.json@base:providers:1:types:reference:refs:assets/minecraft/font/include/unifont.json".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn font_definition_listener_discovers_directory_and_zip_namespaces() {
+        let directory_pack = TempPack::new();
+        let zip_pack = TempPack::new();
+        directory_pack.write(
+            "assets/example/font/custom/nested.json",
+            r#"{"providers":[{"type":"reference","id":"example:include/base"}]}"#,
+        );
+        let zip_path = zip_pack.path().join("pack.zip");
+        fs::write(
+            &zip_path,
+            server_pack_zip_bytes_with_entries(
+                r#"{"pack":{"pack_format":84,"description":"test"}}"#,
+                [(
+                    "assets/ziptest/font/inside.json",
+                    r#"{"providers":[{"type":"space","advances":{" ":4}}]}"#,
+                )],
+            ),
+        )
+        .expect("zip pack should be written");
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("dir", directory_pack.path()),
+            ClientResourcePack::new("zip", zip_path),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(FontDefinitionsReloadListener::default())
+            .run()
+            .expect("discovered font definitions should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/example/font/custom/nested.json".to_owned(),
+                "assets/ziptest/font/inside.json".to_owned(),
+            ]
+        );
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/example/font/custom/nested.json@dir:providers:1:types:reference:refs:assets/example/font/include/base.json".to_owned(),
+                "assets/ziptest/font/inside.json@zip:providers:1:types:space".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn font_definition_provider_validation_reports_headless_asset_references() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/all.json",
+            r#"{"providers":[
+                {"type":"reference","id":"example:include/base","filter":{"uniform":false,"jp":true}},
+                {"type":"bitmap","file":"example:font/custom.png","height":8,"ascent":7,"chars":["ab","cd"]},
+                {"type":"space","advances":{" ":4,"\u200c":0}},
+                {"type":"ttf","file":"example:custom.ttf","size":11.0,"oversample":1.0,"shift":[0.0,1.0],"skip":["x","y"]},
+                {"type":"unihex","hex_file":"example:font/unifont.zip","size_overrides":[{"from":65,"to":67,"left":0,"right":8}]}
+            ]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let definitions = FontDefinitionsReloadListener::default()
+            .load(&stack)
+            .expect("font definitions should load");
+        let definition = &definitions.definitions()[0];
+
+        assert_eq!(
+            definition.provider_types().collect::<Vec<_>>(),
+            ["reference", "bitmap", "space", "ttf", "unihex"]
+        );
+        assert_eq!(
+            definition
+                .providers()
+                .iter()
+                .flat_map(ClientFontProviderDefinition::referenced_assets)
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [
+                "assets/example/font/include/base.json",
+                "assets/example/textures/font/custom.png",
+                "assets/example/font/custom.ttf",
+                "assets/example/font/unifont.zip",
+            ]
+        );
+    }
+
+    #[test]
+    fn font_definition_reload_rejects_invalid_unihex_size_override_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/font/default.json",
+            r#"{"providers":[{"type":"unihex","hex_file":"minecraft:font/unifont.zip","size_overrides":[{"from":65,"to":65,"left":0,"right":8}]}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = FontDefinitionsReloadListener::new(["assets/minecraft/font/default.json"])
+            .load(&stack)
+            .expect_err("invalid unihex size override should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidFontDefinition { resource, reason, .. } if resource == "assets/minecraft/font/default.json" && reason == "provider 0 unihex size_overrides 0 range must have from below to")
         );
     }
 
@@ -11989,19 +12390,19 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/font/alt.json@vanilla:providers:2:types:reference,bitmap"
+                "assets/minecraft/font/alt.json@vanilla:providers:2:types:reference,bitmap:refs:assets/minecraft/font/include/space.json,assets/minecraft/textures/font/ascii_sga.png"
                     .to_owned(),
-                "assets/minecraft/font/default.json@vanilla:providers:3:types:reference,reference,reference"
+                "assets/minecraft/font/default.json@vanilla:providers:3:types:reference,reference,reference:refs:assets/minecraft/font/include/space.json,assets/minecraft/font/include/default.json,assets/minecraft/font/include/unifont.json"
                     .to_owned(),
-                "assets/minecraft/font/illageralt.json@vanilla:providers:2:types:reference,bitmap"
+                "assets/minecraft/font/illageralt.json@vanilla:providers:2:types:reference,bitmap:refs:assets/minecraft/font/include/space.json,assets/minecraft/textures/font/asciillager.png"
                     .to_owned(),
-                "assets/minecraft/font/include/default.json@vanilla:providers:3:types:bitmap,bitmap,bitmap"
+                "assets/minecraft/font/include/default.json@vanilla:providers:3:types:bitmap,bitmap,bitmap:refs:assets/minecraft/textures/font/nonlatin_european.png,assets/minecraft/textures/font/accented.png,assets/minecraft/textures/font/ascii.png"
                     .to_owned(),
                 "assets/minecraft/font/include/space.json@vanilla:providers:1:types:space"
                     .to_owned(),
                 "assets/minecraft/font/include/unifont.json@vanilla:providers:0:types:"
                     .to_owned(),
-                "assets/minecraft/font/uniform.json@vanilla:providers:2:types:reference,reference"
+                "assets/minecraft/font/uniform.json@vanilla:providers:2:types:reference,reference:refs:assets/minecraft/font/include/space.json,assets/minecraft/font/include/unifont.json"
                     .to_owned(),
             ]
         );
