@@ -6,7 +6,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
-    io::{self, Read},
+    io::{self, Cursor, Read},
     path::{Path, PathBuf},
 };
 
@@ -4517,6 +4517,13 @@ impl ColormapReloadListener {
     pub fn colormaps(&self) -> &[String] {
         &self.colormaps
     }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<Vec<ClientColormapResource>> {
+        load_client_colormap_resources(stack, &self.colormaps)
+    }
 }
 
 impl Default for ColormapReloadListener {
@@ -4545,29 +4552,128 @@ impl ResourceReloadListener for ColormapReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let mut loaded = Vec::with_capacity(self.colormaps.len());
-        for colormap in &self.colormaps {
-            let location = stack.require_resource(colormap)?;
-            let bytes =
-                location
-                    .read_bytes()
-                    .map_err(|source| ResourceReloadError::ReadResource {
-                        resource: colormap.clone(),
-                        path: location.path.clone(),
-                        source,
-                    })?;
-
-            validate_png_signature(colormap, &location, &bytes)?;
-
-            loaded.push(format!(
-                "{colormap}@{}:{} bytes:png-signature-ok",
-                location.pack_id,
-                bytes.len()
-            ));
-        }
-
-        Ok(ResourceReloadTaskReport::new(loaded))
+        Ok(ResourceReloadTaskReport::new(
+            self.load(stack)?
+                .iter()
+                .map(colormap_report_item)
+                .collect::<Vec<_>>(),
+        ))
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientColormapResource {
+    report: ClientColormapReloadReport,
+    pixels: Vec<u32>,
+}
+
+impl ClientColormapResource {
+    pub fn report(&self) -> &ClientColormapReloadReport {
+        &self.report
+    }
+
+    pub fn pixels(&self) -> &[u32] {
+        &self.pixels
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientColormapReloadReport {
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+    pixel_count: u64,
+}
+
+impl ClientColormapReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        byte_count: usize,
+        image: &DecodedPngImage,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            byte_count,
+            width: image.width,
+            height: image.height,
+            pixel_count: image.pixel_count(),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn pixel_count(&self) -> u64 {
+        self.pixel_count
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+pub fn load_client_colormap_resources(
+    stack: &ClientResourceStack,
+    colormaps: &[String],
+) -> ResourceReloadResult<Vec<ClientColormapResource>> {
+    let mut loaded = Vec::with_capacity(colormaps.len());
+
+    for colormap in colormaps {
+        let location = stack.require_resource(colormap)?;
+        let bytes = location
+            .read_bytes()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: colormap.clone(),
+                path: location.path.clone(),
+                source,
+            })?;
+        let image = decode_png_rgba_image(colormap, &location, &bytes)?;
+
+        loaded.push(ClientColormapResource {
+            report: ClientColormapReloadReport::new(
+                colormap.clone(),
+                location.pack_id,
+                bytes.len(),
+                &image,
+            ),
+            pixels: image.pixels,
+        });
+    }
+
+    Ok(loaded)
+}
+
+fn colormap_report_item(colormap: &ClientColormapResource) -> String {
+    let report = colormap.report();
+    format!(
+        "{}:{} bytes:rgba8:{}x{}:{} pixels",
+        report.loaded_resource_pack(),
+        report.byte_count(),
+        report.width(),
+        report.height(),
+        report.pixel_count()
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4824,6 +4930,80 @@ fn validate_png_signature(
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DecodedPngImage {
+    width: u32,
+    height: u32,
+    pixels: Vec<u32>,
+}
+
+impl DecodedPngImage {
+    fn pixel_count(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height)
+    }
+}
+
+fn decode_png_rgba_image(
+    resource: &str,
+    location: &ResourceLocation,
+    bytes: &[u8],
+) -> ResourceReloadResult<DecodedPngImage> {
+    validate_png_signature(resource, location, bytes)?;
+
+    let mut decoder = png::Decoder::new(Cursor::new(bytes));
+    decoder.set_transformations(
+        png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
+    );
+    let mut reader = decoder
+        .read_info()
+        .map_err(|source| invalid_png_metadata(resource, location, source.to_string()))?;
+    let output_buffer_size = reader.output_buffer_size().ok_or_else(|| {
+        invalid_png_metadata(resource, location, "decoded png output buffer is too large")
+    })?;
+    let mut rgba = vec![0; output_buffer_size];
+    let output = reader
+        .next_frame(&mut rgba)
+        .map_err(|source| invalid_png_metadata(resource, location, source.to_string()))?;
+
+    if output.color_type != png::ColorType::Rgba || output.bit_depth != png::BitDepth::Eight {
+        return Err(invalid_png_metadata(
+            resource,
+            location,
+            format!(
+                "expected RGBA8 output, got {:?} {:?}",
+                output.color_type, output.bit_depth
+            ),
+        ));
+    }
+
+    let rgba = &rgba[..output.buffer_size()];
+    let pixels = rgba
+        .chunks_exact(4)
+        .map(|pixel| {
+            let [red, green, blue, alpha] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+            u32::from(alpha) << 24 | u32::from(red) << 16 | u32::from(green) << 8 | u32::from(blue)
+        })
+        .collect::<Vec<_>>();
+
+    Ok(DecodedPngImage {
+        width: output.width,
+        height: output.height,
+        pixels,
+    })
+}
+
+fn invalid_png_metadata(
+    resource: &str,
+    location: &ResourceLocation,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidPngMetadata {
+        resource: resource.to_owned(),
+        path: location.path.clone(),
+        reason: reason.into(),
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ResourceReloadError {
     #[error("missing client resource `{0}`")]
@@ -4847,6 +5027,12 @@ pub enum ResourceReloadError {
         resource: String,
         path: PathBuf,
         byte_count: usize,
+    },
+    #[error("invalid png metadata for client resource `{resource}` at `{path}`: {reason}")]
+    InvalidPngMetadata {
+        resource: String,
+        path: PathBuf,
+        reason: String,
     },
     #[error("invalid font definition `{resource}` from pack `{pack_id}`: {reason}")]
     InvalidFontDefinition {
@@ -7851,22 +8037,46 @@ mod tests {
     }
 
     #[test]
-    fn colormap_listener_reports_highest_priority_pack_bytes_and_png_signature() {
+    fn colormap_listener_reports_highest_priority_pack_pixels() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
-        base.write_bytes(GRASS_COLORMAP_RESOURCE, MINIMAL_PNG);
-        override_pack.write_bytes(GRASS_COLORMAP_RESOURCE, OVERRIDE_MINIMAL_PNG);
+        let base_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let override_png = encode_test_rgba_png(
+            2,
+            2,
+            &[
+                255, 0, 0, 255, //
+                0, 255, 0, 255, //
+                0, 0, 255, 128, //
+                0, 0, 0, 0,
+            ],
+        );
+        base.write_bytes(GRASS_COLORMAP_RESOURCE, &base_png);
+        override_pack.write_bytes(GRASS_COLORMAP_RESOURCE, &override_png);
 
         let stack = ClientResourceStack::new(vec![
             ClientResourcePack::new("base", base.path()),
             ClientResourcePack::new("override", override_pack.path()),
         ]);
-        let manager = ResourceReloadManager::new(stack)
-            .with_listener(ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE]));
+        let listener = ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE]);
 
-        let report = manager.run().expect("colormap reload should succeed");
+        let colormaps = listener.load(&stack).expect("colormap load should succeed");
+        let report = colormaps[0].report();
+        assert_eq!(report.resource(), GRASS_COLORMAP_RESOURCE);
+        assert_eq!(report.pack_id(), "override");
+        assert_eq!(report.byte_count(), override_png.len());
+        assert_eq!(report.width(), 2);
+        assert_eq!(report.height(), 2);
+        assert_eq!(report.pixel_count(), 4);
+        assert_eq!(
+            colormaps[0].pixels(),
+            [0xffff0000, 0xff00ff00, 0x800000ff, 0x00000000]
+        );
 
-        let listener = &report.listener_reports()[0];
+        let manager = ResourceReloadManager::new(stack).with_listener(listener);
+        let reload_report = manager.run().expect("colormap reload should succeed");
+
+        let listener = &reload_report.listener_reports()[0];
         assert_eq!(listener.name, "colormaps");
         assert_eq!(
             listener.preparation.items(),
@@ -7875,8 +8085,8 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [format!(
-                "{GRASS_COLORMAP_RESOURCE}@override:{} bytes:png-signature-ok",
-                OVERRIDE_MINIMAL_PNG.len()
+                "{GRASS_COLORMAP_RESOURCE}@override:{} bytes:rgba8:2x2:4 pixels",
+                override_png.len()
             )]
         );
     }
@@ -7983,12 +8193,29 @@ mod tests {
 
     #[test]
     fn committed_vanilla_colormap_listener_loads_default_colormap_set() {
-        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
-            .with_listener(ColormapReloadListener::default());
+        let stack = ClientResourceStack::vanilla();
+        let colormaps = ColormapReloadListener::default()
+            .load(&stack)
+            .expect("committed vanilla colormaps should load");
+
+        assert_eq!(colormaps.len(), 3);
+        for colormap in &colormaps {
+            let report = colormap.report();
+            assert!(DEFAULT_COLORMAPS.contains(&report.resource()));
+            assert_eq!(report.pack_id(), VANILLA_PACK_ID);
+            assert!(report.byte_count() > PNG_SIGNATURE.len());
+            assert_eq!(report.width(), 256);
+            assert_eq!(report.height(), 256);
+            assert_eq!(report.pixel_count(), 65_536);
+            assert_eq!(colormap.pixels().len(), 65_536);
+        }
+
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(ColormapReloadListener::default());
 
         let report = manager
             .run()
-            .expect("committed vanilla colormaps should load");
+            .expect("committed vanilla colormaps should reload");
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "colormaps");
@@ -8005,8 +8232,8 @@ mod tests {
                 .unwrap_or_else(|| panic!("reload report should include {resource}"));
             let byte_count = item
                 .strip_prefix(&prefix)
-                .and_then(|value| value.strip_suffix(" bytes:png-signature-ok"))
-                .expect("report should include byte count and signature status")
+                .and_then(|value| value.strip_suffix(" bytes:rgba8:256x256:65536 pixels"))
+                .expect("report should include byte count and decoded dimensions")
                 .parse::<usize>()
                 .expect("byte count should be numeric");
             assert!(byte_count > PNG_SIGNATURE.len());
@@ -8288,6 +8515,21 @@ mod tests {
         0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
         31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ];
+
+    fn encode_test_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+        assert_eq!(rgba.len(), width as usize * height as usize * 4);
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("png header should write");
+            writer
+                .write_image_data(rgba)
+                .expect("png image data should write");
+        }
+        bytes
+    }
 
     fn resource_pack_id(seed: u128) -> Uuid {
         Uuid::from_u128(seed)

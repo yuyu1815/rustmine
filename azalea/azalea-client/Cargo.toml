@@ -30,6 +30,7 @@ derive_more = { workspace = true, features = ["deref", "deref_mut"] }
 indexmap.workspace = true
 minecraft_folder_path.workspace = true
 parking_lot.workspace = true
+png.workspace = true
 rand.workspace = true
 regex.workspace = true
 reqwest = { workspace = true, optional = true, features = ["socks"] }
@@ -48,7 +49,6 @@ bevy_utils = { workspace = true, features = ["debug"] }
 [dev-dependencies]
 eyre.workspace = true
 minifb = "0.28.0"
-png.workspace = true
 
 [features]
 default = ["log", "packet-event", "online-mode"]
