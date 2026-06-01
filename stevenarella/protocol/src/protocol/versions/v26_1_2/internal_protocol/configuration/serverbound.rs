@@ -7,6 +7,7 @@ use crate::protocol::{
 
 use super::super::super::translate_internal_packet_id;
 
+mod accept_code_of_conduct;
 mod custom_click_action;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
@@ -25,6 +26,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         super::finish_configuration::read_finish_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        accept_code_of_conduct::read_accept_code_of_conduct_configuration_serverbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
@@ -110,16 +119,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                 },
             )));
         }
-        packet::configuration::serverbound::internal_ids::ConfigurationAcceptCodeOfConductServerbound => {
-            let _: () = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::PluginMessageServerbound(
-                packet::play::serverbound::PluginMessageServerbound {
-                    channel: "AcceptCodeOfConduct".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-
         _ => Ok(None),
     }
 }
