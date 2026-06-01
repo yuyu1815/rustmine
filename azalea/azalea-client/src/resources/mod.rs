@@ -1255,26 +1255,33 @@ impl ResourceReloadManager {
     }
 
     pub fn run(&self) -> ResourceReloadResult<ResourceReloadReport> {
+        self.run_with_events(|_| {})
+    }
+
+    pub fn run_with_events(
+        &self,
+        mut on_event: impl FnMut(&ResourceReloadEvent),
+    ) -> ResourceReloadResult<ResourceReloadReport> {
         let mut state = ResourceReloadState::new(self.plan());
         let mut events = Vec::new();
         let mut listener_reports = Vec::new();
 
         state.finish_initial_task();
-        events.push(ResourceReloadEvent::from_state(&state));
+        push_resource_reload_event(&state, &mut events, &mut on_event);
 
         for listener in &self.listeners {
             let name = listener.name();
 
             let preparation = listener.prepare(&self.stack)?;
             state.finish_step(name, ResourceReloadStep::Preparation);
-            events.push(ResourceReloadEvent::from_state(&state));
+            push_resource_reload_event(&state, &mut events, &mut on_event);
 
             let reload = listener.reload(&self.stack)?;
             state.finish_step(name, ResourceReloadStep::Reload);
-            events.push(ResourceReloadEvent::from_state(&state));
+            push_resource_reload_event(&state, &mut events, &mut on_event);
 
             state.finish_step(name, ResourceReloadStep::ListenerComplete);
-            events.push(ResourceReloadEvent::from_state(&state));
+            push_resource_reload_event(&state, &mut events, &mut on_event);
 
             listener_reports.push(CompletedResourceReloadListener {
                 name: name.to_owned(),
@@ -1289,6 +1296,16 @@ impl ResourceReloadManager {
             listener_reports,
         })
     }
+}
+
+fn push_resource_reload_event(
+    state: &ResourceReloadState,
+    events: &mut Vec<ResourceReloadEvent>,
+    on_event: &mut impl FnMut(&ResourceReloadEvent),
+) {
+    let event = ResourceReloadEvent::from_state(state);
+    on_event(&event);
+    events.push(event);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -6579,6 +6596,47 @@ mod tests {
             resources.report().loaded_files(),
             ["assets/minecraft/lang/en_us.json@vanilla".to_owned()]
         );
+    }
+
+    #[test]
+    fn manager_event_callback_reports_events_as_reload_runs() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let manager = ResourceReloadManager::new(stack)
+            .with_listener(ListingResourceReloadListener::new(
+                "first",
+                std::iter::empty::<&str>(),
+            ))
+            .with_listener(ListingResourceReloadListener::new(
+                "second",
+                std::iter::empty::<&str>(),
+            ));
+        let mut callback_events = Vec::new();
+
+        let report = manager
+            .run_with_events(|event| {
+                callback_events.push((
+                    event.listener.clone(),
+                    event.step,
+                    event.progress_snapshot.actual_progress(),
+                ));
+            })
+            .expect("reload should complete");
+
+        assert_eq!(callback_events.len(), report.events().len());
+        assert_eq!(
+            callback_events,
+            report
+                .events()
+                .iter()
+                .map(|event| (
+                    event.listener.clone(),
+                    event.step,
+                    event.progress_snapshot.actual_progress()
+                ))
+                .collect::<Vec<_>>()
+        );
+        assert!(callback_events[0].2 < 1.0);
+        assert_eq!(callback_events.last().map(|event| event.2), Some(1.0));
     }
 
     #[test]

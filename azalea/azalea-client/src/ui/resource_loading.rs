@@ -11,7 +11,8 @@ use super::{
     },
 };
 use crate::resources::{
-    ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadProgressSnapshot,
+    ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
+    ResourceReloadProgressSnapshot, ResourceReloadReport, ResourceReloadResult,
 };
 
 #[derive(Clone, Debug)]
@@ -85,6 +86,19 @@ impl ResourceLoadingTracker {
         self.resource_reload_progress = Some(weighted_progress_from_resource_reload(snapshot));
     }
 
+    pub fn run_resource_reload(
+        &mut self,
+        manager: &ResourceReloadManager,
+    ) -> ResourceReloadResult<ResourceReloadReport> {
+        let report = manager.run_with_events(|event| self.apply_resource_reload_event(event));
+
+        if report.is_ok() {
+            self.mark_complete();
+        }
+
+        report
+    }
+
     pub fn advance_presentation(&mut self) {
         self.flow.advance_loading_presentation();
     }
@@ -145,8 +159,8 @@ mod tests {
     use super::*;
     use crate::{
         resources::{
-            ClientResourceStack, ResourceReloadListener, ResourceReloadManager,
-            ResourceReloadResult, ResourceReloadTaskReport,
+            ClientResourceStack, ResourceReloadError, ResourceReloadListener,
+            ResourceReloadManager, ResourceReloadResult, ResourceReloadTaskReport,
         },
         ui::startup_flow::{
             LoadingTask, LoadingTaskPresentationState, StartupLoadingPhase, loading_task_names,
@@ -289,6 +303,65 @@ mod tests {
     }
 
     #[test]
+    fn tracker_receives_intermediate_reload_progress_as_manager_runs() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(TestReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+        let mut observed_progress = Vec::new();
+
+        manager
+            .run_with_events(|event| {
+                tracker.apply_resource_reload_event(event);
+                observed_progress.push(tracker.weighted_progress().actual_progress());
+            })
+            .expect("reload should complete");
+
+        assert!(observed_progress.len() > 1);
+        assert!(observed_progress[0] < 1.0);
+        assert_eq!(observed_progress.last().copied(), Some(1.0));
+    }
+
+    #[test]
+    fn tracker_run_resource_reload_marks_complete_on_success() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let report = tracker
+            .run_resource_reload(&manager)
+            .expect("reload should complete");
+
+        assert_eq!(report.events().len(), 4);
+        assert_eq!(
+            tracker.flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+        assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
+    }
+
+    #[test]
+    fn tracker_run_resource_reload_propagates_error_and_keeps_last_progress() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(FailingReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let error = tracker
+            .run_resource_reload(&manager)
+            .expect_err("reload failure should propagate");
+
+        assert!(
+            matches!(error, ResourceReloadError::MissingResource(resource) if resource == "test:sounds")
+        );
+        assert_ne!(
+            tracker.flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+        assert!((tracker.weighted_progress().actual_progress() - (5.0 / 8.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn tracker_bridges_lifecycle_events_into_flow_state() {
         let mut tracker = ResourceLoadingTracker::new(Vec::new());
 
@@ -350,6 +423,41 @@ mod tests {
             _stack: &ClientResourceStack,
         ) -> ResourceReloadResult<ResourceReloadTaskReport> {
             Ok(ResourceReloadTaskReport::empty())
+        }
+
+        fn reload(
+            &self,
+            _stack: &ClientResourceStack,
+        ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+            Ok(ResourceReloadTaskReport::empty())
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct FailingReloadListener(&'static str);
+
+    impl fmt::Debug for FailingReloadListener {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_tuple("FailingReloadListener")
+                .field(&self.0)
+                .finish()
+        }
+    }
+
+    impl ResourceReloadListener for FailingReloadListener {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        fn prepare(
+            &self,
+            _stack: &ClientResourceStack,
+        ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+            Err(ResourceReloadError::MissingResource(format!(
+                "test:{}",
+                self.0
+            )))
         }
 
         fn reload(
