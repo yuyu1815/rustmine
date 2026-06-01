@@ -7,7 +7,10 @@ use std::{
 
 use azalea_client::ui::{
     resource_loading::ResourceLoadingTracker,
-    startup_flow::{ResourceLoadingUpdate, StartupLoadingPhase, loading_task_names},
+    startup_flow::{
+        ResourceLoadingUpdate, StartupLoadingPhase, VanillaLoadingOverlay, WeightedReloadProgress,
+        loading_task_names,
+    },
 };
 use minifb::{Key, Window, WindowOptions};
 
@@ -16,8 +19,6 @@ const HEIGHT: usize = 520;
 const MOJANG_RED: u32 = 0xef323d;
 const BLACK: u32 = 0x000000;
 const WHITE: u32 = 0xffffff;
-const FADE_IN_MS: u128 = 500;
-const FADE_OUT_MS: u128 = 400;
 const MIN_FADE_OUT_DELAY_MS: u128 = 500;
 const DEMO_END_MS: u128 = 1_200;
 const MOJANG_STUDIOS_ASSET_PATH: &str = "assets/minecraft/textures/gui/title/mojangstudios.png";
@@ -52,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut buffer = vec![0; WIDTH * HEIGHT];
     let mut tracker = ResourceLoadingTracker::new(Vec::new());
-    let mut reload_progress = WeightedReloadProgress::default();
+    let mut reload_progress = DemoReloadProgress::default();
     let mut overlay = VanillaLoadingOverlay::new();
     let start = Instant::now();
     let mut next_step = 0;
@@ -61,24 +62,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let elapsed = start.elapsed();
         apply_demo_step(&mut tracker, &mut reload_progress, elapsed, &mut next_step);
-        overlay.tick(reload_progress.actual_progress());
-        overlay.update_fade_out(
+        let actual_progress = reload_progress.actual_progress();
+        overlay.tick(actual_progress);
+        overlay.update_fade_out_when_ready(
             tracker.screen().loading_phase,
             elapsed,
-            demo_timing.min_fade_out_delay,
+            elapsed >= demo_timing.min_fade_out_delay,
         );
         render(
             &mut buffer,
             &overlay,
+            actual_progress,
             elapsed,
-            demo_timing.fade_out,
             mojang_studios_logo.as_ref(),
         );
 
         window.update_with_buffer(&buffer, WIDTH, HEIGHT)?;
 
         if elapsed.as_millis() >= demo_timing.demo_end.as_millis()
-            || !overlay.should_render(elapsed, demo_timing.fade_out)
+            || !overlay.should_render(elapsed)
         {
             break;
         }
@@ -90,7 +92,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DemoTiming {
     min_fade_out_delay: Duration,
-    fade_out: Duration,
     demo_end: Duration,
 }
 
@@ -98,7 +99,6 @@ impl DemoTiming {
     fn default() -> Self {
         Self {
             min_fade_out_delay: Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64),
-            fade_out: Duration::from_millis(FADE_OUT_MS as u64),
             demo_end: Duration::from_millis(DEMO_END_MS as u64),
         }
     }
@@ -117,11 +117,6 @@ fn demo_timing_from(args: impl IntoIterator<Item = String>) -> DemoTiming {
             .and_then(|value| value.parse::<u64>().ok())
         {
             timing.min_fade_out_delay = Duration::from_millis(value);
-        } else if let Some(value) = arg
-            .strip_prefix("--fade-out-ms=")
-            .and_then(|value| value.parse::<u64>().ok())
-        {
-            timing.fade_out = Duration::from_millis(value);
         } else if let Some(value) = arg
             .strip_prefix("--demo-end-ms=")
             .and_then(|value| value.parse::<u64>().ok())
@@ -296,7 +291,7 @@ fn invalid_data(message: impl Into<String>) -> std::io::Error {
 
 fn apply_demo_step(
     tracker: &mut ResourceLoadingTracker,
-    reload_progress: &mut WeightedReloadProgress,
+    reload_progress: &mut DemoReloadProgress,
     elapsed: Duration,
     next_step: &mut usize,
 ) {
@@ -447,13 +442,13 @@ enum WeightedReloadStage {
 }
 
 #[derive(Default)]
-struct WeightedReloadProgress {
+struct DemoReloadProgress {
     prepare: f32,
     reload: f32,
     listener: f32,
 }
 
-impl WeightedReloadProgress {
+impl DemoReloadProgress {
     fn set_stage(&mut self, stage: WeightedReloadStage, progress: f32) {
         let progress = progress.clamp(0.0, 1.0);
         match stage {
@@ -470,54 +465,8 @@ impl WeightedReloadProgress {
     }
 
     fn actual_progress(&self) -> f32 {
-        ((self.prepare * 2.0) + (self.reload * 2.0) + self.listener) / 5.0
-    }
-}
-
-struct VanillaLoadingOverlay {
-    current_progress: f32,
-    fade_out_start: Option<Duration>,
-}
-
-impl VanillaLoadingOverlay {
-    fn new() -> Self {
-        Self {
-            current_progress: 0.0,
-            fade_out_start: None,
-        }
-    }
-
-    fn tick(&mut self, actual_progress: f32) {
-        self.current_progress =
-            (self.current_progress * 0.95 + actual_progress.clamp(0.0, 1.0) * 0.05).clamp(0.0, 1.0);
-    }
-
-    fn update_fade_out(
-        &mut self,
-        loading_phase: StartupLoadingPhase,
-        elapsed: Duration,
-        min_fade_out_delay: Duration,
-    ) {
-        if loading_phase == StartupLoadingPhase::Complete
-            && elapsed >= min_fade_out_delay
-            && self.fade_out_start.is_none()
-        {
-            self.fade_out_start = Some(elapsed);
-        }
-    }
-
-    fn fade(&self, elapsed: Duration, fade_out: Duration) -> f32 {
-        if let Some(start) = self.fade_out_start {
-            let fade_out = elapsed.saturating_sub(start).as_secs_f32() / fade_out.as_secs_f32();
-            return (1.0 - fade_out).clamp(0.0, 1.0);
-        }
-
-        (elapsed.as_millis() as f32 / FADE_IN_MS as f32).clamp(0.0, 1.0)
-    }
-
-    fn should_render(&self, elapsed: Duration, fade_out: Duration) -> bool {
-        self.fade_out_start
-            .is_none_or(|start| elapsed.saturating_sub(start) < fade_out * 2)
+        WeightedReloadProgress::simple_reload_instance(self.prepare, self.reload, self.listener)
+            .actual_progress()
     }
 }
 
@@ -576,12 +525,13 @@ impl ProgressBarGeometry {
 fn render(
     buffer: &mut [u32],
     overlay: &VanillaLoadingOverlay,
+    actual_progress: f32,
     elapsed: Duration,
-    fade_out: Duration,
     mojang_studios_logo: Option<&MojangStudiosLogo>,
 ) {
     buffer.fill(BLACK);
-    let fade = overlay.fade(elapsed, fade_out);
+    let view = overlay.view(actual_progress, elapsed);
+    let fade = view.fade_alpha;
     draw_rect_alpha(buffer, 0, 0, WIDTH as i32, HEIGHT as i32, MOJANG_RED, 255);
     let geometry = LoadingOverlayGeometry::extract(WIDTH, HEIGHT);
     if let Some(logo) = mojang_studios_logo {
@@ -591,7 +541,7 @@ fn render(
     }
     draw_progress_bar(
         buffer,
-        &ProgressBarGeometry::extract(WIDTH, HEIGHT, overlay.current_progress),
+        &ProgressBarGeometry::extract(WIDTH, HEIGHT, view.displayed_progress),
         fade,
     );
 }
@@ -858,7 +808,7 @@ mod tests {
 
     #[test]
     fn weighted_reload_progress_uses_prepare_reload_listener_weights() {
-        let mut progress = WeightedReloadProgress::default();
+        let mut progress = DemoReloadProgress::default();
 
         progress.set_stage(WeightedReloadStage::Prepare, 1.0);
         progress.set_stage(WeightedReloadStage::Reload, 0.5);
@@ -874,43 +824,44 @@ mod tests {
         overlay.tick(1.0);
         overlay.tick(1.0);
 
-        assert!((overlay.current_progress - 0.0975).abs() < f32::EPSILON);
+        assert!((overlay.displayed_progress() - 0.0975).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn fade_out_waits_for_completion_and_keeps_rendering_until_animation_reaches_two() {
+    fn fade_out_waits_for_demo_delay_and_uses_vanilla_duration() {
         let mut overlay = VanillaLoadingOverlay::new();
-        overlay.update_fade_out(
-            StartupLoadingPhase::Complete,
-            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64 - 1),
-            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64),
-        );
-        assert_eq!(overlay.fade_out_start, None);
+        let before_delay = Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64 - 1);
+        overlay.update_fade_out_when_ready(StartupLoadingPhase::Complete, before_delay, false);
+        assert_eq!(overlay.fade_out_start(), None);
 
-        overlay.update_fade_out(
+        overlay.update_fade_out_when_ready(
             StartupLoadingPhase::Complete,
             Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64),
-            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64),
+            true,
         );
         assert_eq!(
-            overlay.fade_out_start,
+            overlay.fade_out_start(),
             Some(Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64))
         );
         assert!(
-            (overlay.fade(
-                Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64 + FADE_OUT_MS as u64 / 2),
-                Duration::from_millis(FADE_OUT_MS as u64)
+            (overlay.fade_alpha(
+                Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64)
+                    + VanillaLoadingOverlay::FADE_OUT / 2
             ) - 0.5)
                 .abs()
                 < f32::EPSILON
         );
         assert!(overlay.should_render(
-            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64 + FADE_OUT_MS as u64 * 2 - 1),
-            Duration::from_millis(FADE_OUT_MS as u64)
+            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64)
+                + VanillaLoadingOverlay::FADE_OUT * 2
+                - Duration::from_millis(1)
+        ));
+        assert!(overlay.should_render(
+            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64) + VanillaLoadingOverlay::FADE_OUT
         ));
         assert!(!overlay.should_render(
-            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64 + FADE_OUT_MS as u64 * 2),
-            Duration::from_millis(FADE_OUT_MS as u64)
+            Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64)
+                + VanillaLoadingOverlay::FADE_OUT * 2
         ));
     }
 
@@ -976,7 +927,6 @@ mod tests {
             defaults,
             DemoTiming {
                 min_fade_out_delay: Duration::from_millis(MIN_FADE_OUT_DELAY_MS as u64),
-                fade_out: Duration::from_millis(FADE_OUT_MS as u64),
                 demo_end: Duration::from_millis(DEMO_END_MS as u64),
             }
         );
@@ -984,7 +934,6 @@ mod tests {
         let overridden = demo_timing_from([
             "startup_loading_ui".to_owned(),
             "--min-fade-out-delay-ms=250".to_owned(),
-            "--fade-out-ms=300".to_owned(),
             "--demo-end-ms=700".to_owned(),
         ]);
 
@@ -992,7 +941,6 @@ mod tests {
             overridden,
             DemoTiming {
                 min_fade_out_delay: Duration::from_millis(250),
-                fade_out: Duration::from_millis(300),
                 demo_end: Duration::from_millis(700),
             }
         );

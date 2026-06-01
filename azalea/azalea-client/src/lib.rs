@@ -7,6 +7,7 @@ pub mod local_player;
 pub mod ping;
 pub mod player;
 mod plugins;
+pub mod resources;
 pub mod ui;
 
 #[cfg(feature = "log")]

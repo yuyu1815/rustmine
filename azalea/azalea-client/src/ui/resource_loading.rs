@@ -5,7 +5,10 @@
 
 use super::{
     account_flow::StoredLauncherAccount,
-    startup_flow::{ResourceLoadingEvent, ResourceLoadingUpdate, StartupFlow, StartupScreen},
+    startup_flow::{
+        ResourceLoadingEvent, ResourceLoadingUpdate, StartupFlow, StartupLoadingPhase,
+        StartupScreen, WeightedReloadProgress,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -34,6 +37,14 @@ impl ResourceLoadingTracker {
 
     pub fn screen(&self) -> StartupScreen<'_> {
         self.flow.screen()
+    }
+
+    pub fn weighted_progress(&self) -> WeightedReloadProgress {
+        if self.flow.loading_phase() == StartupLoadingPhase::Complete {
+            return WeightedReloadProgress::complete_simple_reload_instance();
+        }
+
+        WeightedReloadProgress::from_loading_tasks(self.flow.loading_overlay().unwrap_or_default())
     }
 
     pub fn apply_update(&mut self, update: ResourceLoadingUpdate) {
@@ -146,6 +157,30 @@ mod tests {
             )
         );
         assert!(tracker.into_flow().is_loading());
+    }
+
+    #[test]
+    fn tracker_exposes_weighted_aggregate_progress_for_vanilla_overlay() {
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker.apply_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_ASSET_INDEX,
+            "1.21.6.json",
+            1,
+            4,
+        ));
+        tracker.apply_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            3,
+            4,
+        ));
+
+        assert_eq!(tracker.weighted_progress().actual_progress(), 0.5);
+
+        tracker.apply_update(ResourceLoadingUpdate::Complete);
+
+        assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
     }
 
     #[test]

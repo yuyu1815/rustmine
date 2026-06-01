@@ -4,6 +4,8 @@
 //! background and launcher are available immediately, while resource loading
 //! appears as an overlay instead of a blocking screen.
 
+use std::time::Duration;
+
 use bevy_ecs::prelude::Message;
 
 use super::account_flow::{AccountFlow, AccountFlowScreen, StoredLauncherAccount};
@@ -198,6 +200,240 @@ pub enum StartupLoadingPhase {
     WaitingForTasks,
     Loading,
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VanillaLoadingOverlay {
+    displayed_progress: f32,
+    fade_out_start: Option<Duration>,
+    background: VanillaLoadingBackground,
+}
+
+impl VanillaLoadingOverlay {
+    pub const SMOOTHED_DISPLAYED_PROGRESS_WEIGHT: f32 = 0.95;
+    pub const NEW_ACTUAL_PROGRESS_WEIGHT: f32 = 0.05;
+    pub const FADE_IN: Duration = Duration::from_millis(500);
+    pub const FADE_OUT: Duration = Duration::from_millis(1_000);
+
+    pub fn new() -> Self {
+        Self {
+            displayed_progress: 0.0,
+            fade_out_start: None,
+            background: VanillaLoadingBackground::Red,
+        }
+    }
+
+    pub fn with_background(mut self, background: VanillaLoadingBackground) -> Self {
+        self.background = background;
+        self
+    }
+
+    pub fn displayed_progress(&self) -> f32 {
+        self.displayed_progress
+    }
+
+    pub fn fade_out_start(&self) -> Option<Duration> {
+        self.fade_out_start
+    }
+
+    pub fn tick(&mut self, actual_progress: f32) {
+        self.displayed_progress = (self.displayed_progress
+            * Self::SMOOTHED_DISPLAYED_PROGRESS_WEIGHT
+            + actual_progress.clamp(0.0, 1.0) * Self::NEW_ACTUAL_PROGRESS_WEIGHT)
+            .clamp(0.0, 1.0);
+    }
+
+    pub fn update_fade_out(&mut self, loading_phase: StartupLoadingPhase, elapsed: Duration) {
+        self.update_fade_out_when_ready(loading_phase, elapsed, true);
+    }
+
+    pub fn update_fade_out_when_ready(
+        &mut self,
+        loading_phase: StartupLoadingPhase,
+        elapsed: Duration,
+        fade_in_ready: bool,
+    ) {
+        if loading_phase == StartupLoadingPhase::Complete
+            && fade_in_ready
+            && self.fade_out_start.is_none()
+        {
+            self.fade_out_start = Some(elapsed);
+        }
+    }
+
+    pub fn view(&self, actual_progress: f32, elapsed: Duration) -> VanillaLoadingOverlayView {
+        let actual_progress = actual_progress.clamp(0.0, 1.0);
+        VanillaLoadingOverlayView {
+            background: self.background,
+            logo: VanillaLoadingLogoView::centered_mojang_studios(),
+            text: VanillaLoadingTextView::fallback_loading_minecraft(),
+            displayed_progress: self.displayed_progress,
+            actual_progress,
+            fade_alpha: self.fade_alpha(elapsed),
+            should_render: self.should_render(elapsed),
+        }
+    }
+
+    pub fn fade_alpha(&self, elapsed: Duration) -> f32 {
+        if let Some(start) = self.fade_out_start {
+            let fade_out =
+                elapsed.saturating_sub(start).as_secs_f32() / Self::FADE_OUT.as_secs_f32();
+            return (1.0 - fade_out).clamp(0.0, 1.0);
+        }
+
+        (elapsed.as_secs_f32() / Self::FADE_IN.as_secs_f32()).clamp(0.0, 1.0)
+    }
+
+    pub fn should_render(&self, elapsed: Duration) -> bool {
+        self.fade_out_start
+            .is_none_or(|start| elapsed.saturating_sub(start) < Self::FADE_OUT * 2)
+    }
+}
+
+impl Default for VanillaLoadingOverlay {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VanillaLoadingBackground {
+    Red,
+    Black,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VanillaLoadingLogoKind {
+    MojangStudios,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VanillaLoadingLogoPlacement {
+    Centered,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VanillaLoadingLogoView {
+    pub kind: VanillaLoadingLogoKind,
+    pub placement: VanillaLoadingLogoPlacement,
+    pub split_texture_halves: bool,
+}
+
+impl VanillaLoadingLogoView {
+    pub fn centered_mojang_studios() -> Self {
+        Self {
+            kind: VanillaLoadingLogoKind::MojangStudios,
+            placement: VanillaLoadingLogoPlacement::Centered,
+            split_texture_halves: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VanillaLoadingTextView {
+    pub text: &'static str,
+}
+
+impl VanillaLoadingTextView {
+    pub const FALLBACK_LOADING_MINECRAFT: &'static str = "Loading Minecraft";
+
+    pub fn fallback_loading_minecraft() -> Self {
+        Self {
+            text: Self::FALLBACK_LOADING_MINECRAFT,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VanillaLoadingOverlayView {
+    pub background: VanillaLoadingBackground,
+    pub logo: VanillaLoadingLogoView,
+    pub text: VanillaLoadingTextView,
+    pub displayed_progress: f32,
+    pub actual_progress: f32,
+    pub fade_alpha: f32,
+    pub should_render: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeightedReloadProgress {
+    stages: Vec<WeightedReloadStageProgress>,
+}
+
+impl WeightedReloadProgress {
+    pub fn new(stages: impl IntoIterator<Item = WeightedReloadStageProgress>) -> Self {
+        Self {
+            stages: stages.into_iter().collect(),
+        }
+    }
+
+    pub fn simple_reload_instance(
+        prepare_progress: f32,
+        reload_progress: f32,
+        listener_progress: f32,
+    ) -> Self {
+        Self::new([
+            WeightedReloadStageProgress::new("prepare", prepare_progress, 2.0),
+            WeightedReloadStageProgress::new("reload", reload_progress, 2.0),
+            WeightedReloadStageProgress::new("listener", listener_progress, 1.0),
+        ])
+    }
+
+    pub fn from_loading_tasks(tasks: &[LoadingTask]) -> Self {
+        if tasks.is_empty() {
+            return Self::new([]);
+        }
+
+        Self::new(
+            tasks
+                .iter()
+                .map(|task| WeightedReloadStageProgress::new(&task.name, task.progress, 1.0)),
+        )
+    }
+
+    pub fn complete_simple_reload_instance() -> Self {
+        Self::simple_reload_instance(1.0, 1.0, 1.0)
+    }
+
+    pub fn actual_progress(&self) -> f32 {
+        let total_weight = self
+            .stages
+            .iter()
+            .map(|stage| stage.weight.max(0.0))
+            .sum::<f32>();
+        if total_weight == 0.0 {
+            return 0.0;
+        }
+
+        self.stages
+            .iter()
+            .map(|stage| stage.progress.clamp(0.0, 1.0) * stage.weight.max(0.0))
+            .sum::<f32>()
+            / total_weight
+    }
+}
+
+impl Default for WeightedReloadProgress {
+    fn default() -> Self {
+        Self::simple_reload_instance(0.0, 0.0, 0.0)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeightedReloadStageProgress {
+    pub name: String,
+    pub progress: f32,
+    pub weight: f32,
+}
+
+impl WeightedReloadStageProgress {
+    pub fn new(name: impl Into<String>, progress: f32, weight: f32) -> Self {
+        Self {
+            name: name.into(),
+            progress,
+            weight,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -770,6 +1006,112 @@ mod tests {
             panels[1].task.presentation_state,
             LoadingTaskPresentationState::Finishing
         );
+    }
+
+    #[test]
+    fn vanilla_overlay_view_exposes_centered_mojang_loading_minecraft_concepts() {
+        let overlay = VanillaLoadingOverlay::new();
+
+        assert_eq!(VanillaLoadingOverlay::FADE_IN, Duration::from_millis(500));
+        assert_eq!(
+            VanillaLoadingOverlay::FADE_OUT,
+            Duration::from_millis(1_000)
+        );
+
+        let view = overlay.view(0.25, Duration::from_millis(250));
+        assert_eq!(view.background, VanillaLoadingBackground::Red);
+        assert_eq!(
+            view.logo,
+            VanillaLoadingLogoView {
+                kind: VanillaLoadingLogoKind::MojangStudios,
+                placement: VanillaLoadingLogoPlacement::Centered,
+                split_texture_halves: true,
+            }
+        );
+        assert_eq!(view.text.text, "Loading Minecraft");
+        assert_eq!(view.actual_progress, 0.25);
+        assert_eq!(view.displayed_progress, 0.0);
+        assert_eq!(view.fade_alpha, 0.5);
+        assert!(view.should_render);
+    }
+
+    #[test]
+    fn vanilla_overlay_supports_black_background_option() {
+        let overlay = VanillaLoadingOverlay::new().with_background(VanillaLoadingBackground::Black);
+
+        assert_eq!(
+            overlay.view(0.0, Duration::ZERO).background,
+            VanillaLoadingBackground::Black
+        );
+    }
+
+    #[test]
+    fn vanilla_overlay_smooths_displayed_progress_like_loading_overlay() {
+        let mut overlay = VanillaLoadingOverlay::new();
+
+        overlay.tick(1.0);
+        overlay.tick(1.0);
+
+        assert!((overlay.displayed_progress() - 0.0975).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn vanilla_overlay_fades_in_and_fades_out_after_completion() {
+        let mut overlay = VanillaLoadingOverlay::new();
+
+        assert_eq!(overlay.fade_alpha(Duration::ZERO), 0.0);
+        assert_eq!(overlay.fade_alpha(VanillaLoadingOverlay::FADE_IN / 2), 0.5);
+        assert_eq!(overlay.fade_alpha(VanillaLoadingOverlay::FADE_IN), 1.0);
+
+        overlay.update_fade_out(StartupLoadingPhase::Loading, Duration::from_millis(900));
+        assert_eq!(overlay.fade_out_start(), None);
+
+        overlay.update_fade_out_when_ready(
+            StartupLoadingPhase::Complete,
+            Duration::from_millis(1_000),
+            false,
+        );
+        assert_eq!(overlay.fade_out_start(), None);
+
+        overlay.update_fade_out_when_ready(
+            StartupLoadingPhase::Complete,
+            Duration::from_millis(1_200),
+            true,
+        );
+        assert_eq!(overlay.fade_out_start(), Some(Duration::from_millis(1_200)));
+        assert_eq!(
+            overlay.fade_alpha(Duration::from_millis(1_200) + VanillaLoadingOverlay::FADE_OUT / 2),
+            0.5
+        );
+        assert!(overlay.should_render(
+            Duration::from_millis(1_200) + VanillaLoadingOverlay::FADE_OUT * 2
+                - Duration::from_millis(1)
+        ));
+        assert!(
+            overlay.should_render(Duration::from_millis(1_200) + VanillaLoadingOverlay::FADE_OUT)
+        );
+        assert!(
+            !overlay
+                .should_render(Duration::from_millis(1_200) + VanillaLoadingOverlay::FADE_OUT * 2)
+        );
+    }
+
+    #[test]
+    fn weighted_reload_progress_uses_simple_reload_instance_weights() {
+        let progress = WeightedReloadProgress::simple_reload_instance(1.0, 0.5, 0.25);
+
+        assert!((progress.actual_progress() - 0.65).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn weighted_reload_progress_clamps_progress_and_ignores_negative_weights() {
+        let progress = WeightedReloadProgress::new([
+            WeightedReloadStageProgress::new("over", 2.0, 2.0),
+            WeightedReloadStageProgress::new("negative", 1.0, -10.0),
+            WeightedReloadStageProgress::new("under", -1.0, 2.0),
+        ]);
+
+        assert_eq!(progress.actual_progress(), 0.5);
     }
 
     #[test]
