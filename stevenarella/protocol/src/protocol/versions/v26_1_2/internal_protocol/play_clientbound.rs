@@ -10,6 +10,7 @@ use crate::shared::Position;
 
 use super::super::translate_internal_packet_id;
 
+mod dialog;
 mod entity;
 mod scoreboard;
 mod sound;
@@ -36,6 +37,11 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
         return Ok(Some(packet));
     }
     if let Some(packet) = text::read_text_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        dialog::read_dialog_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
         return Ok(Some(packet));
     }
 
@@ -133,23 +139,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
             }
             return Ok(Some(Packet::PlayServerLinksClientbound(
                 packet::play::clientbound::PlayServerLinksClientbound { link_count },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlayClearDialogClientbound => {
-            return Ok(Some(Packet::PlayClearDialogClientbound(
-                packet::play::clientbound::PlayClearDialogClientbound {
-                    empty: Serializable::read_from(buf)?,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlayShowDialogClientbound => {
-            let mut dialog_data = Vec::new();
-            buf.read_to_end(&mut dialog_data)?;
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "ShowDialog".to_owned(),
-                    data: dialog_data,
-                },
             )));
         }
         packet::play::clientbound::internal_ids::PlayTagQueryClientbound => {
