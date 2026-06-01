@@ -2,7 +2,7 @@ use std::io;
 
 use crate::protocol::{
     packet::{self, Packet},
-    read_nbt_string_component, Direction, Error, Serializable, State, VarInt,
+    read_nbt_string_component, Direction, Error, Serializable, State,
 };
 
 use super::super::super::translate_internal_packet_id;
@@ -16,6 +16,7 @@ mod keep_alive_ping;
 mod resource_pack;
 mod select_known_packs;
 mod server_links;
+mod transfer;
 mod update;
 
 pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
@@ -103,6 +104,11 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        transfer::read_transfer_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
@@ -133,18 +139,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "RegistryData".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationTransferClientbound => {
-            let _packet = packet::configuration::clientbound::ConfigurationTransferClientbound {
-                host: Serializable::read_from(buf)?,
-                port: VarInt::read_from(buf)?.0,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "Transfer".to_owned(),
                     data: Vec::new(),
                 },
             )));
