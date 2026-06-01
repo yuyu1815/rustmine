@@ -3701,6 +3701,75 @@ impl ClientSoundFileResource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSoundPreloadBufferCandidate {
+    event_id: String,
+    sound_name: String,
+    file_resource: String,
+    pack_id: Option<String>,
+    byte_count: Option<usize>,
+    missing_blockers: Vec<String>,
+}
+
+impl ClientSoundPreloadBufferCandidate {
+    fn available(
+        event_id: impl Into<String>,
+        sound_name: impl Into<String>,
+        file_resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        byte_count: usize,
+    ) -> Self {
+        Self {
+            event_id: event_id.into(),
+            sound_name: sound_name.into(),
+            file_resource: file_resource.into(),
+            pack_id: Some(pack_id.into()),
+            byte_count: Some(byte_count),
+            missing_blockers: Vec::new(),
+        }
+    }
+
+    fn blocked(
+        event_id: impl Into<String>,
+        sound_name: impl Into<String>,
+        file_resource: impl Into<String>,
+        missing_blocker: impl Into<String>,
+    ) -> Self {
+        Self {
+            event_id: event_id.into(),
+            sound_name: sound_name.into(),
+            file_resource: file_resource.into(),
+            pack_id: None,
+            byte_count: None,
+            missing_blockers: vec![missing_blocker.into()],
+        }
+    }
+
+    pub fn event_id(&self) -> &str {
+        &self.event_id
+    }
+
+    pub fn sound_name(&self) -> &str {
+        &self.sound_name
+    }
+
+    pub fn file_resource(&self) -> &str {
+        &self.file_resource
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn missing_blockers(&self) -> &[String] {
+        &self.missing_blockers
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSoundEventsReloadReport {
     namespace_count: usize,
     sounds_json_resource_count: usize,
@@ -3714,6 +3783,7 @@ pub struct ClientSoundEventsReloadReport {
     available_file_resources: Vec<ClientSoundFileResource>,
     referenced_file_resources: Vec<ClientSoundFileResource>,
     preload_file_resources: Vec<ClientSoundFileResource>,
+    preload_buffer_candidates: Vec<ClientSoundPreloadBufferCandidate>,
     missing_file_resources: Vec<String>,
 }
 
@@ -3731,6 +3801,7 @@ impl ClientSoundEventsReloadReport {
         available_file_resources: Vec<ClientSoundFileResource>,
         referenced_file_resources: Vec<ClientSoundFileResource>,
         preload_file_resources: Vec<ClientSoundFileResource>,
+        preload_buffer_candidates: Vec<ClientSoundPreloadBufferCandidate>,
         missing_file_resources: Vec<String>,
     ) -> Self {
         Self {
@@ -3746,6 +3817,7 @@ impl ClientSoundEventsReloadReport {
             available_file_resources,
             referenced_file_resources,
             preload_file_resources,
+            preload_buffer_candidates,
             missing_file_resources,
         }
     }
@@ -3798,6 +3870,10 @@ impl ClientSoundEventsReloadReport {
         &self.preload_file_resources
     }
 
+    pub fn preload_buffer_candidates(&self) -> &[ClientSoundPreloadBufferCandidate] {
+        &self.preload_buffer_candidates
+    }
+
     pub fn missing_file_resources(&self) -> &[String] {
         &self.missing_file_resources
     }
@@ -3815,8 +3891,13 @@ impl ClientSoundEventsReloadReport {
             .map(ClientSoundFileResource::loaded_resource_pack)
             .collect::<Vec<_>>()
             .join(",");
+        let preload_buffer_blocker_count = self
+            .preload_buffer_candidates
+            .iter()
+            .map(|candidate| candidate.missing_blockers.len())
+            .sum::<usize>();
         format!(
-            "namespaces:{} sounds_json:{} events:{} entries:{} files:{} event_refs:{} missing_files:{} preloads:{} resources:{} file_resources:{} preload_resources:{} missing_resources:{}",
+            "namespaces:{} sounds_json:{} events:{} entries:{} files:{} event_refs:{} missing_files:{} preloads:{} preload_candidates:{} preload_blockers:{} resources:{} file_resources:{} preload_resources:{} missing_resources:{}",
             self.namespace_count,
             self.sounds_json_resource_count,
             self.event_count,
@@ -3825,6 +3906,8 @@ impl ClientSoundEventsReloadReport {
             self.event_reference_count,
             self.missing_file_sound_count,
             self.preload_file_sound_count,
+            self.preload_buffer_candidates.len(),
+            preload_buffer_blocker_count,
             self.loaded_resources.join(","),
             referenced_file_resources,
             preload_file_resources,
@@ -3943,6 +4026,7 @@ fn load_client_sound_events_from_resources(
     let mut preload_file_sound_count = 0;
     let mut referenced_file_resources = BTreeMap::<String, ClientSoundFileResource>::new();
     let mut preload_file_resources = BTreeMap::<String, ClientSoundFileResource>::new();
+    let mut preload_buffer_candidates = Vec::<ClientSoundPreloadBufferCandidate>::new();
     let mut missing_file_resources = BTreeSet::<String>::new();
 
     for resource in resources {
@@ -3971,10 +4055,12 @@ fn load_client_sound_events_from_resources(
                 let definition =
                     parse_client_sound_event_definition(&resource, &location, event_key, value)?;
                 let event_id = format!("{namespace}:{event_key}");
-                let event = events.entry(event_id).or_insert_with(|| ClientSoundEvent {
-                    subtitle: definition.subtitle.clone(),
-                    sounds: Vec::new(),
-                });
+                let event = events
+                    .entry(event_id.clone())
+                    .or_insert_with(|| ClientSoundEvent {
+                        subtitle: definition.subtitle.clone(),
+                        sounds: Vec::new(),
+                    });
 
                 if definition.replace {
                     event.subtitle = definition.subtitle.clone();
@@ -4002,10 +4088,25 @@ fn load_client_sound_events_from_resources(
                                     preload_file_resources
                                         .entry(file_resource.clone())
                                         .or_insert(file);
+                                    preload_buffer_candidates.push(preload_buffer_candidate(
+                                        &event_id,
+                                        &entry,
+                                        file_resource,
+                                        location,
+                                    )?);
                                 }
                                 event.sounds.push(entry);
                             } else {
                                 missing_file_sound_count += 1;
+                                if entry.preload {
+                                    preload_buffer_candidates.push(
+                                        missing_preload_buffer_candidate(
+                                            &event_id,
+                                            &entry,
+                                            file_resource,
+                                        ),
+                                    );
+                                }
                                 missing_file_resources.insert(file_resource.clone());
                             }
                         }
@@ -4033,10 +4134,48 @@ fn load_client_sound_events_from_resources(
             available_file_resources,
             referenced_file_resources.into_values().collect(),
             preload_file_resources.into_values().collect(),
+            preload_buffer_candidates,
             missing_file_resources.into_iter().collect(),
         ),
         events,
     })
+}
+
+fn preload_buffer_candidate(
+    event_id: &str,
+    entry: &ClientSoundEntry,
+    file_resource: &str,
+    location: &ResourceLocation,
+) -> ResourceReloadResult<ClientSoundPreloadBufferCandidate> {
+    let byte_count = location
+        .read_bytes()
+        .map_err(|source| ResourceReloadError::ReadResource {
+            resource: file_resource.to_owned(),
+            path: location.path.clone(),
+            source,
+        })?
+        .len();
+
+    Ok(ClientSoundPreloadBufferCandidate::available(
+        event_id,
+        &entry.name,
+        file_resource,
+        &location.pack_id,
+        byte_count,
+    ))
+}
+
+fn missing_preload_buffer_candidate(
+    event_id: &str,
+    entry: &ClientSoundEntry,
+    file_resource: &str,
+) -> ClientSoundPreloadBufferCandidate {
+    ClientSoundPreloadBufferCandidate::blocked(
+        event_id,
+        &entry.name,
+        file_resource,
+        format!("missing top-priority resource `{file_resource}`"),
+    )
 }
 
 struct ClientSoundEventDefinition {
@@ -16797,6 +16936,142 @@ mod tests {
             )]
         );
         assert!(sounds.report().summary_fragment().contains("preloads:1"));
+    }
+
+    #[test]
+    fn sound_preload_reports_available_file_candidate_with_bytes() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu","preload":true},{"name":"music.extra"}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+        temp.write_bytes("assets/minecraft/sounds/music.extra.ogg", b"extra");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("preload sound events should load");
+        let candidates = sounds.report().preload_buffer_candidates();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].event_id(), "minecraft:music.menu");
+        assert_eq!(candidates[0].sound_name(), "music.menu");
+        assert_eq!(
+            candidates[0].file_resource(),
+            "assets/minecraft/sounds/music.menu.ogg"
+        );
+        assert_eq!(candidates[0].pack_id(), Some("test"));
+        assert_eq!(candidates[0].byte_count(), Some(4));
+        assert!(candidates[0].missing_blockers().is_empty());
+        assert!(
+            sounds
+                .report()
+                .summary_fragment()
+                .contains("preload_candidates:1 preload_blockers:0")
+        );
+    }
+
+    #[test]
+    fn sound_preload_excludes_non_preload_file_candidates() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu"},{"name":"music.extra","preload":false}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+        temp.write_bytes("assets/minecraft/sounds/music.extra.ogg", b"extra");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("non-preload sound events should load");
+
+        assert_eq!(sounds.report().file_sound_count(), 2);
+        assert!(sounds.report().preload_buffer_candidates().is_empty());
+    }
+
+    #[test]
+    fn sound_preload_excludes_event_reference_candidates() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"ui.parent":{"sounds":[{"name":"ui.child","type":"event","preload":true}]},"ui.child":{"sounds":["ui.child_file"]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/ui.child_file.ogg", b"child");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("event reference sound events should load");
+
+        assert_eq!(sounds.report().event_reference_count(), 1);
+        assert!(sounds.report().preload_buffer_candidates().is_empty());
+    }
+
+    #[test]
+    fn sound_preload_reports_missing_file_blocker() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"missing.music","preload":true}]}}"#,
+        );
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("missing preload files should be reported, not panic");
+        let candidates = sounds.report().preload_buffer_candidates();
+
+        assert_eq!(sounds.report().missing_file_sound_count(), 1);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].event_id(), "minecraft:music.menu");
+        assert_eq!(candidates[0].sound_name(), "missing.music");
+        assert_eq!(
+            candidates[0].file_resource(),
+            "assets/minecraft/sounds/missing.music.ogg"
+        );
+        assert_eq!(candidates[0].pack_id(), None);
+        assert_eq!(candidates[0].byte_count(), None);
+        assert_eq!(
+            candidates[0].missing_blockers(),
+            &[
+                "missing top-priority resource `assets/minecraft/sounds/missing.music.ogg`"
+                    .to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn sound_preload_uses_top_priority_resource_for_pack_and_byte_count() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"test.priority":{"sounds":[{"name":"priority.sound","preload":true}]}}"#,
+        );
+        base.write_bytes("assets/minecraft/sounds/priority.sound.ogg", b"base");
+        override_pack.write_bytes("assets/minecraft/sounds/priority.sound.ogg", b"override");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("base", base.path()),
+                ClientResourcePack::new("override", override_pack.path()),
+            ]))
+            .expect("priority preload sound events should load");
+        let candidates = sounds.report().preload_buffer_candidates();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].pack_id(), Some("override"));
+        assert_eq!(candidates[0].byte_count(), Some("override".len()));
     }
 
     #[test]
