@@ -33,6 +33,7 @@ pub const EQUIPMENT_MANIFEST_DIR: &str = "assets/minecraft/equipment";
 pub const PARTICLE_MANIFEST_DIR: &str = "assets/minecraft/particles";
 pub const WAYPOINT_STYLE_MANIFEST_DIR: &str = "assets/minecraft/waypoint_style";
 pub const FONT_DEFINITION_DIR: &str = "assets/minecraft/font";
+pub const SHADER_SOURCE_DIR: &str = "assets/minecraft/shaders";
 
 const DEFAULT_REQUIRED_VANILLA_ASSETS: &[&str] = &[
     "assets/minecraft/lang/en_us.json",
@@ -60,6 +61,22 @@ const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
     "assets/minecraft/models/item/stick.json",
     "assets/minecraft/blockstates/stone.json",
     "assets/minecraft/items/stone.json",
+];
+const DEFAULT_REPRESENTATIVE_SHADER_SOURCES: &[&str] = &[
+    "assets/minecraft/shaders/core/position_tex.vsh",
+    "assets/minecraft/shaders/core/gui.fsh",
+    "assets/minecraft/shaders/post/blit.fsh",
+];
+const DEFAULT_SHADER_INCLUDE_SOURCES: &[&str] = &[
+    "assets/minecraft/shaders/include/animation_sprite.glsl",
+    "assets/minecraft/shaders/include/chunksection.glsl",
+    "assets/minecraft/shaders/include/dynamictransforms.glsl",
+    "assets/minecraft/shaders/include/fog.glsl",
+    "assets/minecraft/shaders/include/globals.glsl",
+    "assets/minecraft/shaders/include/light.glsl",
+    "assets/minecraft/shaders/include/matrix.glsl",
+    "assets/minecraft/shaders/include/projection.glsl",
+    "assets/minecraft/shaders/include/sample_lightmap.glsl",
 ];
 const DEFAULT_FONT_DEFINITIONS: &[&str] = &[
     "assets/minecraft/font/default.json",
@@ -1674,6 +1691,172 @@ impl ResourceReloadListener for ModelEntrySmokeReloadListener {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderSourceReloadListener {
+    sources: Vec<String>,
+    includes: Vec<String>,
+}
+
+impl HeadlessShaderSourceReloadListener {
+    pub fn new(
+        sources: impl IntoIterator<Item = impl Into<String>>,
+        includes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            sources: sources.into_iter().map(Into::into).collect(),
+            includes: includes.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn sources(&self) -> &[String] {
+        &self.sources
+    }
+
+    pub fn includes(&self) -> &[String] {
+        &self.includes
+    }
+
+    fn resources(&self) -> impl Iterator<Item = &String> {
+        self.sources.iter().chain(self.includes.iter())
+    }
+}
+
+impl Default for HeadlessShaderSourceReloadListener {
+    fn default() -> Self {
+        Self::new(
+            DEFAULT_REPRESENTATIVE_SHADER_SOURCES.iter().copied(),
+            DEFAULT_SHADER_INCLUDE_SOURCES.iter().copied(),
+        )
+    }
+}
+
+impl ResourceReloadListener for HeadlessShaderSourceReloadListener {
+    fn name(&self) -> &str {
+        "headless_shader_sources"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let mut resources = Vec::with_capacity(self.sources.len() + self.includes.len());
+        for resource in self.resources() {
+            stack.require_resource(resource)?;
+            resources.push(resource.clone());
+        }
+
+        Ok(ResourceReloadTaskReport::new(resources))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let mut loaded = Vec::with_capacity(self.sources.len() + self.includes.len());
+        for resource in self.resources() {
+            let report = load_headless_shader_source(stack, resource)?;
+            loaded.push(shader_source_report_item(&report));
+        }
+
+        Ok(ResourceReloadTaskReport::new(loaded))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadlessShaderSourceReloadReport {
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+}
+
+impl HeadlessShaderSourceReloadReport {
+    fn new(resource: impl Into<String>, pack_id: impl Into<String>, byte_count: usize) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            byte_count,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+pub fn load_headless_shader_source(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<HeadlessShaderSourceReloadReport> {
+    let resource = resource.as_ref();
+    let location = stack.require_resource(resource)?;
+    let bytes = fs::read(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+        resource: resource.to_string_lossy().into_owned(),
+        path: location.path.clone(),
+        source,
+    })?;
+
+    let resource_name = resource.to_string_lossy().into_owned();
+    validate_headless_shader_source(&resource_name, &location, &bytes)?;
+
+    Ok(HeadlessShaderSourceReloadReport::new(
+        resource_name,
+        location.pack_id,
+        bytes.len(),
+    ))
+}
+
+fn validate_headless_shader_source(
+    resource: &str,
+    location: &ResourceLocation,
+    bytes: &[u8],
+) -> ResourceReloadResult<()> {
+    if bytes.is_empty() {
+        return Err(ResourceReloadError::InvalidShaderSource {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            reason: "empty shader source".to_owned(),
+        });
+    }
+
+    let source =
+        std::str::from_utf8(bytes).map_err(|error| ResourceReloadError::InvalidShaderSource {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            reason: format!("shader source is not utf-8: {error}"),
+        })?;
+
+    if source.trim().is_empty() {
+        return Err(ResourceReloadError::InvalidShaderSource {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            reason: "blank shader source".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn shader_source_report_item(report: &HeadlessShaderSourceReloadReport) -> String {
+    format!(
+        "{}@{}:{} bytes",
+        report.resource(),
+        report.pack_id(),
+        report.byte_count()
+    )
+}
+
 pub fn load_client_json_manifest_set(
     stack: &ClientResourceStack,
     directory: &str,
@@ -2344,6 +2527,229 @@ impl ResourceReloadListener for AtlasManifestReloadListener {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtlasSourceCollection {
+    atlases: Vec<AtlasSourceManifest>,
+}
+
+impl AtlasSourceCollection {
+    pub fn atlases(&self) -> &[AtlasSourceManifest] {
+        &self.atlases
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = AtlasSourceManifestReport> + '_ {
+        self.atlases.iter().map(AtlasSourceManifest::report)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtlasSourceManifest {
+    resource: ClientJsonResource,
+    source_count: usize,
+}
+
+impl AtlasSourceManifest {
+    pub fn resource(&self) -> &ClientJsonResource {
+        &self.resource
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn report(&self) -> AtlasSourceManifestReport {
+        AtlasSourceManifestReport {
+            resource: self.resource.report().resource().to_owned(),
+            pack_id: self.resource.report().pack_id().to_owned(),
+            source_count: self.source_count,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasSourceManifestReport {
+    resource: String,
+    pack_id: String,
+    source_count: usize,
+}
+
+impl AtlasSourceManifestReport {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasSourceReloadListener {
+    name: String,
+    manifests: Vec<String>,
+}
+
+impl AtlasSourceReloadListener {
+    pub fn new(manifests: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "atlas_sources".to_owned(),
+            manifests: manifests.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn manifests(&self) -> &[String] {
+        &self.manifests
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<AtlasSourceCollection> {
+        load_client_atlas_sources(stack, &self.manifests)
+    }
+}
+
+impl Default for AtlasSourceReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_ATLAS_MANIFESTS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for AtlasSourceReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for manifest in &self.manifests {
+            stack.require_resource(manifest)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(self.manifests.clone()))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let sources = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            sources
+                .reports()
+                .map(|report| atlas_source_report_item(&report)),
+        ))
+    }
+}
+
+pub fn load_client_atlas_sources(
+    stack: &ClientResourceStack,
+    manifests: &[String],
+) -> ResourceReloadResult<AtlasSourceCollection> {
+    let mut loaded = Vec::new();
+
+    for manifest in manifests {
+        let locations = stack.resource_stack(manifest);
+        if locations.is_empty() {
+            return Err(ResourceReloadError::MissingResource(manifest.clone()));
+        }
+
+        for location in locations {
+            let resource = load_client_json_resource_at_location(manifest, location)?;
+            let source_count = validate_atlas_sources(&resource)?;
+            loaded.push(AtlasSourceManifest {
+                resource,
+                source_count,
+            });
+        }
+    }
+
+    Ok(AtlasSourceCollection { atlases: loaded })
+}
+
+fn load_client_json_resource_at_location(
+    resource: &str,
+    location: ResourceLocation,
+) -> ResourceReloadResult<ClientJsonResource> {
+    let contents =
+        fs::read_to_string(&location.path).map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            source,
+        })?;
+    let value = serde_json::from_str::<serde_json::Value>(&contents).map_err(|source| {
+        ResourceReloadError::ParseResourceJson {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            source,
+        }
+    })?;
+    let report = ClientJsonResourceReloadReport::new(
+        resource,
+        location.pack_id,
+        ClientJsonTopLevelShape::from_value(&value),
+    );
+
+    Ok(ClientJsonResource { value, report })
+}
+
+fn validate_atlas_sources(resource: &ClientJsonResource) -> ResourceReloadResult<usize> {
+    let sources = resource
+        .value()
+        .get("sources")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| invalid_atlas_sources(resource, "missing sources array"))?;
+
+    for (index, source) in sources.iter().enumerate() {
+        let Some(source) = source.as_object() else {
+            return Err(invalid_atlas_sources(
+                resource,
+                format!("source {index} is not an object"),
+            ));
+        };
+        let Some(source_type) = source.get("type") else {
+            return Err(invalid_atlas_sources(
+                resource,
+                format!("source {index} is missing a type field"),
+            ));
+        };
+        if !source_type.is_string() {
+            return Err(invalid_atlas_sources(
+                resource,
+                format!("source {index} type field is not a string"),
+            ));
+        }
+    }
+
+    Ok(sources.len())
+}
+
+fn invalid_atlas_sources(
+    resource: &ClientJsonResource,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidAtlasSources {
+        resource: resource.report().resource().to_owned(),
+        pack_id: resource.report().pack_id().to_owned(),
+        reason: reason.into(),
+    }
+}
+
+fn atlas_source_report_item(report: &AtlasSourceManifestReport) -> String {
+    format!(
+        "{}:{} sources",
+        report.loaded_resource_pack(),
+        report.source_count()
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ColormapReloadListener {
     name: String,
@@ -2694,8 +3100,20 @@ pub enum ResourceReloadError {
         pack_id: String,
         reason: String,
     },
+    #[error("invalid atlas sources `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidAtlasSources {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
     #[error("invalid sound events resource `{resource}` at `{path}`: {reason}")]
     InvalidSoundEvents {
+        resource: String,
+        path: PathBuf,
+        reason: String,
+    },
+    #[error("invalid shader source `{resource}` at `{path}`: {reason}")]
+    InvalidShaderSource {
         resource: String,
         path: PathBuf,
         reason: String,
@@ -3410,6 +3828,132 @@ mod tests {
     }
 
     #[test]
+    fn atlas_source_listener_reports_source_counts_from_stack_order() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/atlases/blocks.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+        base.write(
+            "assets/minecraft/atlases/items.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+        base.write(
+            "assets/minecraft/atlases/particles.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/atlases/items.json",
+            r#"{"sources":[{"type":"minecraft:directory"},{"type":"minecraft:single"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(AtlasSourceReloadListener::default());
+
+        let report = manager.run().expect("atlas source reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "atlas_sources");
+        assert_eq!(listener.preparation.items(), DEFAULT_ATLAS_MANIFESTS);
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/atlases/blocks.json@base:1 sources".to_owned(),
+                "assets/minecraft/atlases/items.json@base:1 sources".to_owned(),
+                "assets/minecraft/atlases/items.json@override:2 sources".to_owned(),
+                "assets/minecraft/atlases/particles.json@base:1 sources".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_source_listener_reports_default_source_counts() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(AtlasSourceReloadListener::default());
+
+        let report = manager
+            .run()
+            .expect("committed vanilla atlas sources should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "atlas_sources");
+        assert_eq!(
+            listener.reload.items(),
+            [
+                "assets/minecraft/atlases/blocks.json@vanilla:4 sources".to_owned(),
+                "assets/minecraft/atlases/items.json@vanilla:2 sources".to_owned(),
+                "assets/minecraft/atlases/particles.json@vanilla:1 sources".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn atlas_source_listener_rejects_invalid_sources_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/blocks.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+        temp.write(
+            "assets/minecraft/atlases/items.json",
+            r#"{"sources":["not an object"]}"#,
+        );
+        temp.write(
+            "assets/minecraft/atlases/particles.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(AtlasSourceReloadListener::default());
+
+        assert!(matches!(
+            manager.run(),
+            Err(ResourceReloadError::InvalidAtlasSources {
+                resource,
+                pack_id,
+                reason,
+            }) if resource == "assets/minecraft/atlases/items.json"
+                && pack_id == "test"
+                && reason == "source 0 is not an object"
+        ));
+    }
+
+    #[test]
+    fn atlas_source_listener_rejects_missing_source_type_field() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/blocks.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+        temp.write("assets/minecraft/atlases/items.json", r#"{"sources":[{}]}"#);
+        temp.write(
+            "assets/minecraft/atlases/particles.json",
+            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(AtlasSourceReloadListener::default());
+
+        assert!(matches!(
+            manager.run(),
+            Err(ResourceReloadError::InvalidAtlasSources {
+                resource,
+                pack_id,
+                reason,
+            }) if resource == "assets/minecraft/atlases/items.json"
+                && pack_id == "test"
+                && reason == "source 0 is missing a type field"
+        ));
+    }
+
+    #[test]
     fn font_definition_listener_reports_priority_pack_and_provider_count() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
@@ -3499,6 +4043,123 @@ mod tests {
 
         assert!(
             matches!(error, ResourceReloadError::InvalidFontDefinition { resource, reason, .. } if resource == "assets/minecraft/font/default.json" && reason == "missing providers array")
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_headless_shader_source_listener_loads_representative_sources() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(HeadlessShaderSourceReloadListener::default())
+            .run()
+            .expect("committed vanilla shader sources should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "headless_shader_sources");
+        assert_eq!(
+            listener.preparation.items().len(),
+            DEFAULT_REPRESENTATIVE_SHADER_SOURCES.len() + DEFAULT_SHADER_INCLUDE_SOURCES.len()
+        );
+        assert_eq!(
+            listener.preparation.items(),
+            DEFAULT_REPRESENTATIVE_SHADER_SOURCES
+                .iter()
+                .chain(DEFAULT_SHADER_INCLUDE_SOURCES.iter())
+                .map(|resource| (*resource).to_owned())
+                .collect::<Vec<_>>()
+        );
+
+        for resource in DEFAULT_REPRESENTATIVE_SHADER_SOURCES
+            .iter()
+            .chain(DEFAULT_SHADER_INCLUDE_SOURCES.iter())
+        {
+            let item = listener
+                .reload
+                .items()
+                .iter()
+                .find(|item| item.starts_with(&format!("{resource}@{VANILLA_PACK_ID}:")))
+                .unwrap_or_else(|| panic!("reload report should include {resource}"));
+            let byte_count = item
+                .strip_prefix(&format!("{resource}@{VANILLA_PACK_ID}:"))
+                .and_then(|suffix| suffix.strip_suffix(" bytes"))
+                .and_then(|bytes| bytes.parse::<usize>().ok())
+                .expect("shader reload report should include a byte count");
+            assert!(byte_count > 0, "shader report should count bytes");
+        }
+    }
+
+    #[test]
+    fn shader_source_reload_uses_highest_priority_pack_and_reports_bytes() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let source = "assets/minecraft/shaders/core/position_tex.vsh";
+        let include = "assets/minecraft/shaders/include/dynamictransforms.glsl";
+        base.write(source, "#version 150\nvoid main() {}\n");
+        base.write(include, "#define BASE 1\n");
+        override_pack.write(source, "#version 150\n// override\nvoid main() {}\n");
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(HeadlessShaderSourceReloadListener::new([source], [include]))
+            .run()
+            .expect("shader source reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(
+            listener.reload.items(),
+            [
+                format!(
+                    "{source}@override:{} bytes",
+                    "#version 150\n// override\nvoid main() {}\n".len()
+                ),
+                format!("{include}@base:{} bytes", "#define BASE 1\n".len()),
+            ]
+        );
+    }
+
+    #[test]
+    fn shader_source_reload_fails_when_representative_source_is_missing() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/include/dynamictransforms.glsl",
+            "#define PRESENT 1\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(HeadlessShaderSourceReloadListener::new(
+                ["assets/minecraft/shaders/core/position_tex.vsh"],
+                ["assets/minecraft/shaders/include/dynamictransforms.glsl"],
+            ))
+            .run()
+            .expect_err("missing representative shader source should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::MissingResource(resource) if resource == "assets/minecraft/shaders/core/position_tex.vsh")
+        );
+    }
+
+    #[test]
+    fn shader_source_reload_fails_when_include_source_is_missing() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/position_tex.vsh",
+            "#version 150\nvoid main() {}\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ResourceReloadManager::new(stack)
+            .with_listener(HeadlessShaderSourceReloadListener::new(
+                ["assets/minecraft/shaders/core/position_tex.vsh"],
+                ["assets/minecraft/shaders/include/dynamictransforms.glsl"],
+            ))
+            .run()
+            .expect_err("missing shader include source should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::MissingResource(resource) if resource == "assets/minecraft/shaders/include/dynamictransforms.glsl")
         );
     }
 
