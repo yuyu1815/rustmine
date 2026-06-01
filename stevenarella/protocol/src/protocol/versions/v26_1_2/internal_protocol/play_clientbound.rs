@@ -1,12 +1,9 @@
 use std::io;
 
-use byteorder::{BigEndian, ReadBytesExt};
-
 use crate::protocol::{
     packet::{self, Packet},
     read_nbt_string_component, Direction, Error, Serializable, State, VarInt,
 };
-use crate::shared::Position;
 
 use super::super::translate_internal_packet_id;
 
@@ -15,6 +12,7 @@ mod dialog;
 mod entity;
 mod scoreboard;
 mod server_links;
+mod set_default_spawn_position;
 mod set_time;
 mod sound;
 mod text;
@@ -71,6 +69,14 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        set_default_spawn_position::read_set_default_spawn_position_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::Disconnect => {
@@ -84,23 +90,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
             read_empty_play_item_stack_marker(buf, "set_cursor_item")?;
             return Ok(Some(Packet::PlaySetCursorItemClientbound(
                 packet::play::clientbound::PlaySetCursorItemClientbound { item: None },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetDefaultSpawnPositionClientbound => {
-            let dimension = String::read_from(buf)?;
-            if dimension != "minecraft:overworld" {
-                return Err(Error::Err(format!(
-                    "unsupported Play set_default_spawn_position dimension {:?}",
-                    dimension
-                )));
-            }
-            return Ok(Some(Packet::PlaySetDefaultSpawnPositionClientbound(
-                packet::play::clientbound::PlaySetDefaultSpawnPositionClientbound {
-                    dimension,
-                    location: Position::read_from(buf)?,
-                    yaw: buf.read_f32::<BigEndian>()?,
-                    pitch: buf.read_f32::<BigEndian>()?,
-                },
             )));
         }
         packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
