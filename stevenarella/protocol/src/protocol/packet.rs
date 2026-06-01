@@ -2761,25 +2761,6 @@ impl Serializable for MapIcon {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct Tags {
-    pub tag_name: String,
-    pub entries: LenPrefixed<VarInt, VarInt>,
-}
-
-impl Serializable for Tags {
-    fn read_from<R: io::Read>(buf: &mut R) -> Result<Self, Error> {
-        Ok(Tags {
-            tag_name: Serializable::read_from(buf)?,
-            entries: Serializable::read_from(buf)?,
-        })
-    }
-
-    fn write_to<W: io::Write>(&self, _: &mut W) -> Result<(), Error> {
-        unimplemented!()
-    }
-}
-
 pub mod advancement;
 pub use advancement::{Advancement, AdvancementDisplay, AdvancementProgress, CriterionProgress};
 pub mod client_settings;
@@ -2809,5 +2790,7 @@ pub mod player_info;
 pub use player_info::{PlayerDetail, PlayerInfoData, PlayerProperty};
 pub mod recipe;
 pub use recipe::{Recipe, RecipeData};
+pub mod registry_tags;
+pub use registry_tags::Tags;
 pub mod trade;
 pub use trade::Trade;
