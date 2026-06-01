@@ -2,7 +2,7 @@ use std::io;
 
 use crate::protocol::{
     packet::{self, Packet},
-    read_nbt_string_component, Direction, Error, LenPrefixed, Serializable, State, VarInt,
+    read_nbt_string_component, Direction, Error, Serializable, State, VarInt,
 };
 
 use super::super::super::translate_internal_packet_id;
@@ -14,6 +14,7 @@ mod custom_report_details;
 mod dialog;
 mod keep_alive_ping;
 mod resource_pack;
+mod select_known_packs;
 mod server_links;
 mod update;
 
@@ -94,6 +95,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        select_known_packs::read_select_known_packs_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
@@ -116,10 +125,11 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             )));
         }
         packet::configuration::clientbound::internal_ids::ConfigurationRegistryDataClientbound => {
-            let _packet = packet::configuration::clientbound::ConfigurationRegistryDataClientbound {
-                registry: Serializable::read_from(buf)?,
-                data: Serializable::read_from(buf)?,
-            };
+            let _packet =
+                packet::configuration::clientbound::ConfigurationRegistryDataClientbound {
+                    registry: Serializable::read_from(buf)?,
+                    data: Serializable::read_from(buf)?,
+                };
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "RegistryData".to_owned(),
@@ -135,28 +145,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "Transfer".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationSelectKnownPacksClientbound => {
-            let known_pack_count = VarInt::read_from(buf)?.0;
-            if known_pack_count < 0 {
-                return Err(Error::Err(format!(
-                    "negative clientbound select_known_packs known-pack count {}",
-                    known_pack_count
-                )));
-            }
-            let mut known_packs = Vec::with_capacity(known_pack_count as usize);
-            for _ in 0..known_pack_count {
-                known_packs.push(Serializable::read_from(buf)?);
-            }
-            let _packet = packet::configuration::clientbound::ConfigurationSelectKnownPacksClientbound {
-                known_packs: LenPrefixed::new(known_packs),
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "SelectKnownPacks".to_owned(),
                     data: Vec::new(),
                 },
             )));
