@@ -13,6 +13,9 @@ pub(crate) fn read_internal_protocol_packet_by_id<R: std::io::Read>(
         crate::protocol::State::Login => {
             internal_protocol::login::read_login_packet_by_id(dir, id, buf)
         }
+        crate::protocol::State::Configuration => {
+            internal_protocol::configuration::read_configuration_packet_by_id(dir, id, buf)
+        }
         _ => Ok(None),
     }
 }
