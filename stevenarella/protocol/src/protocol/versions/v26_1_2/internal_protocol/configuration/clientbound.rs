@@ -7,6 +7,7 @@ use crate::protocol::{
 
 use super::super::super::translate_internal_packet_id;
 
+mod cookie;
 mod dialog;
 mod resource_pack;
 mod update;
@@ -17,6 +18,11 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
 ) -> Result<Option<Packet>, Error> {
     let internal_id =
         translate_internal_packet_id(State::Configuration, Direction::Clientbound, id, true);
+    if let Some(packet) =
+        cookie::read_cookie_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
     if let Some(packet) =
         update::read_update_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
     {
@@ -37,17 +43,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     }
 
     match internal_id {
-        packet::configuration::clientbound::internal_ids::ConfigurationCookieRequestClientbound => {
-            let _packet = packet::configuration::clientbound::ConfigurationCookieRequestClientbound {
-                key: Serializable::read_from(buf)?,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "CookieRequest".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
         packet::configuration::clientbound::internal_ids::ConfigurationCustomPayloadClientbound => {
             let packet = packet::configuration::clientbound::ConfigurationCustomPayloadClientbound {
                 channel: Serializable::read_from(buf)?,
@@ -88,28 +83,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "RegistryData".to_owned(),
                     data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationStoreCookieClientbound => {
-            let key: String = Serializable::read_from(buf)?;
-            let payload_len = VarInt::read_from(buf)?.0;
-            if payload_len < 0 {
-                return Err(Error::Err(format!(
-                    "negative store_cookie payload length {}",
-                    payload_len
-                )));
-            }
-            let mut payload = vec![0; payload_len as usize];
-            buf.read_exact(&mut payload)?;
-            let packet = packet::configuration::clientbound::ConfigurationStoreCookieClientbound {
-                key,
-                payload,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "StoreCookie".to_owned(),
-                    data: packet.payload,
                 },
             )));
         }
