@@ -7,6 +7,7 @@ use crate::protocol::{
 
 use super::read_empty_play_item_stack_marker;
 
+mod set_entity_link;
 mod teleport_entity;
 
 pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
@@ -18,6 +19,11 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
             internal_id,
             buf,
         )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        set_entity_link::read_set_entity_link_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
     }
@@ -41,22 +47,6 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
                 packet::play::clientbound::PlaySetEntityDataClientbound {
                     entity_id,
                     packed_item_count: VarInt(0),
-                },
-            )))
-        }
-        packet::play::clientbound::internal_ids::PlaySetEntityLinkClientbound => {
-            let source_entity_id = i32::read_from(buf)?;
-            let destination_entity_id = i32::read_from(buf)?;
-            if source_entity_id != 1 || destination_entity_id != 2 {
-                return Err(Error::Err(format!(
-                    "unsupported Play set_entity_link fixture source {} destination {}",
-                    source_entity_id, destination_entity_id
-                )));
-            }
-            Ok(Some(Packet::PlaySetEntityLinkClientbound(
-                packet::play::clientbound::PlaySetEntityLinkClientbound {
-                    source_entity_id,
-                    destination_entity_id,
                 },
             )))
         }
