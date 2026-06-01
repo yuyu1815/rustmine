@@ -15,6 +15,7 @@ mod scoreboard;
 mod server_links;
 mod set_cursor_item;
 mod set_default_spawn_position;
+mod set_player_inventory;
 mod set_time;
 mod sound;
 mod text;
@@ -92,15 +93,16 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        set_player_inventory::read_set_player_inventory_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
-        packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
-            let slot = VarInt::read_from(buf)?;
-            read_empty_play_item_stack_marker(buf, "set_player_inventory")?;
-            return Ok(Some(Packet::PlaySetPlayerInventoryClientbound(
-                packet::play::clientbound::PlaySetPlayerInventoryClientbound { slot, item: None },
-            )));
-        }
         packet::play::clientbound::internal_ids::PlayTagQueryClientbound => {
             let transaction_id = VarInt::read_from(buf)?;
             let nbt_tag_type = u8::read_from(buf)?;
