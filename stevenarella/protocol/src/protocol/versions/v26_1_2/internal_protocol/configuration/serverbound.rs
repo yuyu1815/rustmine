@@ -9,6 +9,7 @@ use super::super::super::translate_internal_packet_id;
 
 mod accept_code_of_conduct;
 mod custom_click_action;
+mod keep_alive;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     id: i32,
@@ -34,6 +35,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         accept_code_of_conduct::read_accept_code_of_conduct_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        keep_alive::read_keep_alive_configuration_serverbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
@@ -89,11 +98,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                     data: packet.data,
                 },
             )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationKeepAliveServerbound_i64 => {
-            let mut packet = packet::play::serverbound::KeepAliveServerbound_i64::default();
-            packet.id = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::KeepAliveServerbound_i64(packet)));
         }
         packet::configuration::serverbound::internal_ids::ConfigurationPongServerbound_i32 => {
             let id: i32 = Serializable::read_from(buf)?;
