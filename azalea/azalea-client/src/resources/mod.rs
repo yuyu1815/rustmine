@@ -88,7 +88,6 @@ const DEFAULT_SHADER_INCLUDE_SOURCES: &[&str] = &[
     "assets/minecraft/shaders/include/sample_lightmap.glsl",
 ];
 const FONT_DEFINITION_ROOT_DIR: &str = "assets/minecraft/font";
-const DEFAULT_PARTICLE_MANIFEST_IDS: &[&str] = &["rain", "firework", "splash"];
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
 const VANILLA_EXCLUDED_SPLASH_JAVA_HASH: i32 = 125_780_783;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
@@ -2239,6 +2238,84 @@ impl ClientJsonManifest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleDescriptionSet {
+    descriptions: Vec<ClientParticleDescription>,
+}
+
+impl ClientParticleDescriptionSet {
+    pub fn descriptions(&self) -> &[ClientParticleDescription] {
+        &self.descriptions
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = &ClientParticleDescriptionReloadReport> {
+        self.descriptions
+            .iter()
+            .map(ClientParticleDescription::report)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleDescription {
+    id: String,
+    sprites: Vec<String>,
+    report: ClientParticleDescriptionReloadReport,
+}
+
+impl ClientParticleDescription {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn report(&self) -> &ClientParticleDescriptionReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleDescriptionReloadReport {
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    sprites: Vec<String>,
+}
+
+impl ClientParticleDescriptionReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        sprites: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let sprites: Vec<String> = sprites.into_iter().map(Into::into).collect();
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            sprite_count: sprites.len(),
+            sprites,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSoundEvents {
     report: ClientSoundEventsReloadReport,
 }
@@ -2402,14 +2479,17 @@ impl ParticleManifestReloadListener {
         &self.ids
     }
 
-    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonManifestSet> {
-        load_client_json_manifest_set(stack, PARTICLE_MANIFEST_DIR, &self.ids)
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientParticleDescriptionSet> {
+        load_client_particle_descriptions(stack, &self.ids)
     }
 }
 
 impl Default for ParticleManifestReloadListener {
     fn default() -> Self {
-        Self::new(DEFAULT_PARTICLE_MANIFEST_IDS.iter().copied())
+        Self { ids: Vec::new() }
     }
 }
 
@@ -2422,21 +2502,29 @@ impl ResourceReloadListener for ParticleManifestReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(available_manifest_paths(
-            stack,
-            PARTICLE_MANIFEST_DIR,
-            &self.ids,
-        )))
+        let resources = if self.ids.is_empty() {
+            manifest_ids_in_directory(stack, PARTICLE_MANIFEST_DIR)?
+                .into_iter()
+                .map(|id| {
+                    manifest_resource_path(PARTICLE_MANIFEST_DIR, &id)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect::<Vec<_>>()
+        } else {
+            available_manifest_paths(stack, PARTICLE_MANIFEST_DIR, &self.ids)
+        };
+        Ok(ResourceReloadTaskReport::new(resources))
     }
 
     fn reload(
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let manifests = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(manifest_report_items(
-            &manifests,
-        )))
+        let descriptions = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            particle_description_report_items(&descriptions),
+        ))
     }
 }
 
@@ -3539,6 +3627,111 @@ pub fn load_client_json_manifest_directory(
     load_client_json_manifest_set(stack, directory, &ids)
 }
 
+pub fn load_client_particle_descriptions(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<ClientParticleDescriptionSet> {
+    let manifests = if ids.is_empty() {
+        load_client_json_manifest_directory(stack, PARTICLE_MANIFEST_DIR)?
+    } else {
+        load_client_json_manifest_set(stack, PARTICLE_MANIFEST_DIR, ids)?
+    };
+    let descriptions = manifests
+        .manifests()
+        .iter()
+        .map(parse_client_particle_description)
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+
+    Ok(ClientParticleDescriptionSet { descriptions })
+}
+
+fn parse_client_particle_description(
+    manifest: &ClientJsonManifest,
+) -> ResourceReloadResult<ClientParticleDescription> {
+    let report = manifest.resource().report();
+    let value = manifest.resource().value();
+    let object = value.as_object().ok_or_else(|| {
+        invalid_particle_manifest_error(report, "top-level value must be an object")
+    })?;
+    let sprites = match object.get("textures") {
+        Some(textures) => {
+            let textures = textures.as_array().ok_or_else(|| {
+                invalid_particle_manifest_error(report, "textures must be an array of resource ids")
+            })?;
+            textures
+                .iter()
+                .enumerate()
+                .map(|(index, texture)| {
+                    let Some(texture) = texture.as_str() else {
+                        return Err(invalid_particle_manifest_error(
+                            report,
+                            format!("textures[{index}] must be a resource id string"),
+                        ));
+                    };
+                    if !is_valid_vanilla_resource_identifier(texture) {
+                        return Err(invalid_particle_manifest_error(
+                            report,
+                            format!("textures[{index}] is not a valid resource id"),
+                        ));
+                    }
+                    Ok(texture.to_owned())
+                })
+                .collect::<ResourceReloadResult<Vec<_>>>()?
+        }
+        None => Vec::new(),
+    };
+
+    Ok(ClientParticleDescription {
+        id: manifest.id().to_owned(),
+        report: ClientParticleDescriptionReloadReport::new(
+            report.resource(),
+            report.pack_id(),
+            sprites.iter().cloned(),
+        ),
+        sprites,
+    })
+}
+
+fn is_valid_vanilla_resource_identifier(value: &str) -> bool {
+    let (namespace, path) = value
+        .split_once(':')
+        .map(|(namespace, path)| (Some(namespace), path))
+        .unwrap_or((None, value));
+    if path.is_empty() || value.matches(':').count() > 1 {
+        return false;
+    }
+    namespace
+        .map(is_valid_vanilla_resource_namespace)
+        .unwrap_or(true)
+        && is_valid_vanilla_resource_path(path)
+}
+
+fn is_valid_vanilla_resource_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-' | b'.')
+        })
+}
+
+fn is_valid_vanilla_resource_path(path: &str) -> bool {
+    path.bytes().all(|byte| {
+        byte.is_ascii_lowercase()
+            || byte.is_ascii_digit()
+            || matches!(byte, b'_' | b'-' | b'.' | b'/')
+    })
+}
+
+fn invalid_particle_manifest_error(
+    report: &ClientJsonResourceReloadReport,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidParticleManifest {
+        resource: report.resource().to_owned(),
+        pack_id: report.pack_id().to_owned(),
+        reason: reason.into(),
+    }
+}
+
 fn available_manifest_paths(
     stack: &ClientResourceStack,
     directory: &str,
@@ -3601,6 +3794,23 @@ fn manifest_ids_in_directory(
 
 fn manifest_report_items(manifests: &ClientJsonManifestSet) -> Vec<String> {
     manifests.reports().map(json_resource_report_item).collect()
+}
+
+fn particle_description_report_items(descriptions: &ClientParticleDescriptionSet) -> Vec<String> {
+    descriptions
+        .reports()
+        .map(particle_description_report_item)
+        .collect()
+}
+
+fn particle_description_report_item(report: &ClientParticleDescriptionReloadReport) -> String {
+    format!(
+        "{}@{}:{} sprites:{}",
+        report.resource(),
+        report.pack_id(),
+        report.sprite_count(),
+        report.sprites().join(",")
+    )
 }
 
 fn json_resource_report_item(report: &ClientJsonResourceReloadReport) -> String {
@@ -5392,6 +5602,12 @@ pub enum ResourceReloadError {
     InvalidSoundEvents {
         resource: String,
         path: PathBuf,
+        reason: String,
+    },
+    #[error("invalid particle manifest `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidParticleManifest {
+        resource: String,
+        pack_id: String,
         reason: String,
     },
     #[error("invalid shader source `{resource}` at `{path}`: {reason}")]
@@ -7676,12 +7892,12 @@ mod tests {
     }
 
     #[test]
-    fn particle_manifest_listener_reports_priority_pack_and_shape() {
+    fn particle_manifest_listener_reports_highest_priority_override_textures() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(
             "assets/minecraft/particles/rain.json",
-            r#"{"textures":["minecraft:base_rain"]}"#,
+            r#"{"textures":["minecraft:base_rain_0","minecraft:base_rain_1"]}"#,
         );
         base.write(
             "assets/minecraft/particles/splash.json",
@@ -7689,7 +7905,7 @@ mod tests {
         );
         override_pack.write(
             "assets/minecraft/particles/rain.json",
-            r#"{"textures":["minecraft:override_rain"],"override":true}"#,
+            r#"{"textures":["minecraft:override_rain_0","minecraft:override_rain_1"],"override":true}"#,
         );
 
         let stack = ClientResourceStack::new(vec![
@@ -7713,9 +7929,10 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/particles/rain.json@override:object keys:override,textures"
+                "assets/minecraft/particles/rain.json@override:2 sprites:minecraft:override_rain_0,minecraft:override_rain_1"
                     .to_owned(),
-                "assets/minecraft/particles/splash.json@base:object keys:textures".to_owned(),
+                "assets/minecraft/particles/splash.json@base:1 sprites:minecraft:base_splash"
+                    .to_owned(),
             ]
         );
     }
@@ -8129,7 +8346,7 @@ mod tests {
     }
 
     #[test]
-    fn json_manifest_reload_skips_requested_ids_that_are_not_present() {
+    fn particle_manifest_reload_skips_requested_ids_that_are_not_present() {
         let temp = TempPack::new();
         temp.write(
             "assets/minecraft/particles/rain.json",
@@ -8138,31 +8355,79 @@ mod tests {
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
         let listener = ParticleManifestReloadListener::new(["rain", "missing"]);
-        let manifests = listener
+        let descriptions = listener
             .load(&stack)
             .expect("present particle manifests should load");
 
-        assert_eq!(manifests.manifests().len(), 1);
-        assert_eq!(manifests.manifests()[0].id(), "rain");
-        assert_eq!(
-            manifests.manifests()[0].resource().report().pack_id(),
-            "test"
-        );
+        assert_eq!(descriptions.descriptions().len(), 1);
+        assert_eq!(descriptions.descriptions()[0].id(), "rain");
+        assert_eq!(descriptions.descriptions()[0].sprites(), ["minecraft:rain"]);
+        assert_eq!(descriptions.descriptions()[0].report().pack_id(), "test");
     }
 
     #[test]
-    fn json_manifest_reload_rejects_invalid_present_manifest() {
+    fn particle_manifest_reload_rejects_invalid_texture_shape() {
         let temp = TempPack::new();
-        temp.write("assets/minecraft/particles/rain.json", "{not json");
+        temp.write(
+            "assets/minecraft/particles/rain.json",
+            r#"{"textures":"minecraft:rain"}"#,
+        );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
         let error = ParticleManifestReloadListener::new(["rain"])
             .load(&stack)
-            .expect_err("invalid particle manifest json should fail");
+            .expect_err("invalid particle manifest texture shape should fail");
 
-        assert!(
-            matches!(error, ResourceReloadError::ParseResourceJson { resource, .. } if resource == "assets/minecraft/particles/rain.json")
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidParticleManifest {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/particles/rain.json"
+                && pack_id == "test"
+                && reason == "textures must be an array of resource ids"
+        ));
+    }
+
+    #[test]
+    fn particle_manifest_reload_allows_missing_textures_array() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/particles/rain.json", r#"{"custom":true}"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let descriptions = ParticleManifestReloadListener::new(["rain"])
+            .load(&stack)
+            .expect("particle description without textures should load");
+
+        assert_eq!(descriptions.descriptions().len(), 1);
+        assert!(descriptions.descriptions()[0].sprites().is_empty());
+        assert_eq!(descriptions.descriptions()[0].report().sprite_count(), 0);
+    }
+
+    #[test]
+    fn particle_manifest_reload_rejects_invalid_texture_identifier() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/particles/rain.json",
+            r#"{"textures":["Minecraft:Uppercase"]}"#,
         );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = ParticleManifestReloadListener::new(["rain"])
+            .load(&stack)
+            .expect_err("invalid texture identifier should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidParticleManifest {
+                resource,
+                pack_id,
+                reason
+            } if resource == "assets/minecraft/particles/rain.json"
+                && pack_id == "test"
+                && reason == "textures[0] is not a valid resource id"
+        ));
     }
 
     #[test]
@@ -8337,6 +8602,28 @@ mod tests {
 
     #[test]
     fn committed_vanilla_particle_manifest_listener_loads_default_manifest_set() {
+        let stack = ClientResourceStack::vanilla();
+        let descriptions = ParticleManifestReloadListener::default()
+            .load(&stack)
+            .expect("committed vanilla particle descriptions should load");
+        let total_sprites = descriptions
+            .descriptions()
+            .iter()
+            .map(|description| description.sprites().len())
+            .sum::<usize>();
+
+        assert_eq!(descriptions.descriptions().len(), 106);
+        assert_eq!(total_sprites, 460);
+        assert!(descriptions.descriptions().iter().any(|description| {
+            description.report().resource() == "assets/minecraft/particles/rain.json"
+                && description.sprites().iter().map(String::as_str).eq([
+                    "minecraft:splash_0",
+                    "minecraft:splash_1",
+                    "minecraft:splash_2",
+                    "minecraft:splash_3",
+                ])
+        }));
+
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(ParticleManifestReloadListener::default())
             .run()
@@ -8344,22 +8631,17 @@ mod tests {
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "particle_manifests");
-        assert_eq!(
-            listener.preparation.items(),
-            [
-                "assets/minecraft/particles/rain.json".to_owned(),
-                "assets/minecraft/particles/firework.json".to_owned(),
-                "assets/minecraft/particles/splash.json".to_owned(),
-            ]
+        assert_eq!(listener.preparation.items().len(), 106);
+        assert_eq!(listener.reload.items().len(), 106);
+        assert!(
+            listener
+                .preparation
+                .items()
+                .contains(&"assets/minecraft/particles/firework.json".to_owned())
         );
-        assert_eq!(
-            listener.reload.items(),
-            [
-                "assets/minecraft/particles/rain.json@vanilla:object keys:textures".to_owned(),
-                "assets/minecraft/particles/firework.json@vanilla:object keys:textures".to_owned(),
-                "assets/minecraft/particles/splash.json@vanilla:object keys:textures".to_owned(),
-            ]
-        );
+        assert!(listener.reload.items().contains(
+            &"assets/minecraft/particles/firework.json@vanilla:8 sprites:minecraft:spark_7,minecraft:spark_6,minecraft:spark_5,minecraft:spark_4,minecraft:spark_3,minecraft:spark_2,minecraft:spark_1,minecraft:spark_0".to_owned()
+        ));
     }
 
     #[test]
