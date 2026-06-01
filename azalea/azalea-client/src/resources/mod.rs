@@ -1949,6 +1949,7 @@ impl ResourceReloadManager {
             .with_listener(TextureMetadataReloadListener::default())
             .with_listener(InitialTextureReloadListener::default())
             .with_listener(TextureManagerReloadListener::default())
+            .with_listener(TextureManagerUploadCandidateReloadListener::default())
             .with_listener(HeadlessShaderSourceReloadListener::default())
             .with_listener(HeadlessShaderManagerReloadListener::default());
 
@@ -13279,6 +13280,57 @@ impl ResourceReloadListener for TextureManagerReloadListener {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureManagerUploadCandidateReloadListener {
+    name: String,
+    registrations: Vec<TextureManagerTextureRegistration>,
+}
+
+impl TextureManagerUploadCandidateReloadListener {
+    pub fn new(registrations: impl IntoIterator<Item = TextureManagerTextureRegistration>) -> Self {
+        Self {
+            name: "texture_manager_upload_candidates".to_owned(),
+            registrations: registrations.into_iter().collect(),
+        }
+    }
+
+    pub fn registrations(&self) -> &[TextureManagerTextureRegistration] {
+        &self.registrations
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> TextureManagerUploadCandidateReloadReport {
+        load_texture_manager_upload_candidates(stack, &self.registrations)
+    }
+}
+
+impl Default for TextureManagerUploadCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(initial_texture_manager_registrations())
+    }
+}
+
+impl ResourceReloadListener for TextureManagerUploadCandidateReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            self.registrations.iter().map(texture_manager_prepare_item),
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack).items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextureManagerReloadReport {
     registered_textures: Vec<InitialTextureReportItem>,
 }
@@ -13286,6 +13338,240 @@ pub struct TextureManagerReloadReport {
 impl TextureManagerReloadReport {
     pub fn registered_textures(&self) -> &[InitialTextureReportItem] {
         &self.registered_textures
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureManagerUploadCandidateReloadReport {
+    candidates: Vec<TextureUploadCandidateReport>,
+    blockers: Vec<TextureUploadCandidateBlocker>,
+}
+
+impl TextureManagerUploadCandidateReloadReport {
+    pub fn candidates(&self) -> &[TextureUploadCandidateReport] {
+        &self.candidates
+    }
+
+    pub fn blockers(&self) -> &[TextureUploadCandidateBlocker] {
+        &self.blockers
+    }
+
+    pub fn ready_candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn blocked_candidate_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(|candidate| candidate.sources.len())
+            .sum()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .flat_map(|candidate| candidate.sources.iter())
+            .map(|source| source.byte_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "texture_upload_candidates:candidates:{} ready:{} blocked:{} sources:{} bytes:{}",
+            self.candidates.len() + self.blockers.len(),
+            self.ready_candidate_count(),
+            self.blocked_candidate_count(),
+            self.source_count(),
+            self.byte_count()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(TextureUploadCandidateReport::item_string),
+        );
+        items.extend(
+            self.blockers
+                .iter()
+                .map(TextureUploadCandidateBlocker::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureUploadCandidateReport {
+    registered_id: String,
+    loader_kind: InitialTextureLoaderKind,
+    source_resource: String,
+    sources: Vec<TextureUploadCandidateSource>,
+    width: u32,
+    height: u32,
+    depth: u32,
+    metadata: InitialTextureMetadata,
+}
+
+impl TextureUploadCandidateReport {
+    pub fn registered_id(&self) -> &str {
+        &self.registered_id
+    }
+
+    pub fn loader_kind(&self) -> InitialTextureLoaderKind {
+        self.loader_kind
+    }
+
+    pub fn source_resource(&self) -> &str {
+        &self.source_resource
+    }
+
+    pub fn sources(&self) -> &[TextureUploadCandidateSource] {
+        &self.sources
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    pub fn metadata(&self) -> &InitialTextureMetadata {
+        &self.metadata
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "upload_candidate:{} kind:{} source_resource:{} sources:{} upload_size:{}x{}x{} metadata:{} blur:{} clamp:{} mipmap_strategy:{} alpha_cutoff_bias:{} boundary:decode_complete_upload_pending",
+            self.registered_id,
+            self.loader_kind.report_fragment(),
+            self.source_resource,
+            self.sources
+                .iter()
+                .map(TextureUploadCandidateSource::item_fragment)
+                .collect::<Vec<_>>()
+                .join("|"),
+            self.width,
+            self.height,
+            self.depth,
+            self.metadata.source.report_fragment(),
+            self.metadata.blur,
+            self.metadata.clamp,
+            self.metadata.mipmap_strategy.report_fragment(),
+            self.metadata.alpha_cutoff_bias,
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureUploadCandidateSource {
+    resource: String,
+    role: TextureUploadCandidateSourceRole,
+    pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+}
+
+impl TextureUploadCandidateSource {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn role(&self) -> &TextureUploadCandidateSourceRole {
+        &self.role
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    fn item_fragment(&self) -> String {
+        format!(
+            "{}:{}@{}:{} bytes:png:{}x{}",
+            self.role.report_fragment(),
+            self.resource,
+            self.pack_id,
+            self.byte_count,
+            self.width,
+            self.height
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TextureUploadCandidateSourceRole {
+    SimpleTextureResource,
+    LoadingOverlayMojangLogo,
+    CubemapFace { index: usize, suffix: String },
+}
+
+impl TextureUploadCandidateSourceRole {
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::SimpleTextureResource => "simple_texture_resource".to_owned(),
+            Self::LoadingOverlayMojangLogo => "loading_overlay_mojang_logo".to_owned(),
+            Self::CubemapFace { index, suffix } => format!("cubemap_face:{index}:{suffix}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureUploadCandidateBlocker {
+    registered_id: String,
+    loader_kind: InitialTextureLoaderKind,
+    source_resource: String,
+    reason: String,
+}
+
+impl TextureUploadCandidateBlocker {
+    pub fn registered_id(&self) -> &str {
+        &self.registered_id
+    }
+
+    pub fn loader_kind(&self) -> InitialTextureLoaderKind {
+        self.loader_kind
+    }
+
+    pub fn source_resource(&self) -> &str {
+        &self.source_resource
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "upload_blocker:{} kind:{} source_resource:{} reason:{}",
+            self.registered_id,
+            self.loader_kind.report_fragment(),
+            self.source_resource,
+            self.reason
+        )
     }
 }
 
@@ -13617,6 +13903,137 @@ fn load_texture_manager_registration(
         InitialTextureLoaderKind::Cubemap => {
             load_cubemap_texture(stack, &registration.registered_id, &registration.resource)
         }
+    }
+}
+
+fn load_texture_manager_upload_candidates(
+    stack: &ClientResourceStack,
+    registrations: &[TextureManagerTextureRegistration],
+) -> TextureManagerUploadCandidateReloadReport {
+    let mut candidates = Vec::with_capacity(registrations.len());
+    let mut blockers = Vec::new();
+
+    for registration in registrations {
+        match load_texture_manager_registration(stack, registration) {
+            Ok(item) => candidates.push(texture_upload_candidate_from_initial_item(
+                registration,
+                &item,
+            )),
+            Err(error) => blockers.push(texture_upload_candidate_blocker(registration, error)),
+        }
+    }
+
+    TextureManagerUploadCandidateReloadReport {
+        candidates,
+        blockers,
+    }
+}
+
+fn texture_upload_candidate_from_initial_item(
+    registration: &TextureManagerTextureRegistration,
+    item: &InitialTextureReportItem,
+) -> TextureUploadCandidateReport {
+    TextureUploadCandidateReport {
+        registered_id: item.registered_id.clone(),
+        loader_kind: item.loader_kind,
+        source_resource: registration.resource.clone(),
+        sources: texture_upload_candidate_sources(item),
+        width: item.width,
+        height: item.height,
+        depth: item.depth,
+        metadata: item.metadata.clone(),
+    }
+}
+
+fn texture_upload_candidate_sources(
+    item: &InitialTextureReportItem,
+) -> Vec<TextureUploadCandidateSource> {
+    item.loaded_resource_paths
+        .iter()
+        .enumerate()
+        .map(|(index, resource)| TextureUploadCandidateSource {
+            resource: resource.clone(),
+            role: texture_upload_candidate_source_role(item.loader_kind, index),
+            pack_id: item.pack_ids[index].clone(),
+            byte_count: item.byte_counts[index],
+            width: item.width,
+            height: item.height,
+        })
+        .collect()
+}
+
+fn texture_upload_candidate_source_role(
+    loader_kind: InitialTextureLoaderKind,
+    index: usize,
+) -> TextureUploadCandidateSourceRole {
+    match loader_kind {
+        InitialTextureLoaderKind::SimpleTexture => {
+            TextureUploadCandidateSourceRole::SimpleTextureResource
+        }
+        InitialTextureLoaderKind::MojangLogo => {
+            TextureUploadCandidateSourceRole::LoadingOverlayMojangLogo
+        }
+        InitialTextureLoaderKind::Cubemap => TextureUploadCandidateSourceRole::CubemapFace {
+            index,
+            suffix: INITIAL_CUBEMAP_SUFFIXES
+                .get(index)
+                .copied()
+                .unwrap_or("")
+                .to_owned(),
+        },
+    }
+}
+
+fn texture_upload_candidate_blocker(
+    registration: &TextureManagerTextureRegistration,
+    error: ResourceReloadError,
+) -> TextureUploadCandidateBlocker {
+    TextureUploadCandidateBlocker {
+        registered_id: registration.registered_id.clone(),
+        loader_kind: registration.loader_kind,
+        source_resource: registration.resource.clone(),
+        reason: texture_upload_candidate_blocker_reason(error),
+    }
+}
+
+fn texture_upload_candidate_blocker_reason(error: ResourceReloadError) -> String {
+    match error {
+        ResourceReloadError::MissingResource(resource) => {
+            format!("missing_resource:{resource}")
+        }
+        ResourceReloadError::ReadResource { resource, .. } => {
+            format!("read_resource:{resource}")
+        }
+        ResourceReloadError::ParseResourceJson { resource, .. } => {
+            format!("parse_resource_json:{resource}")
+        }
+        ResourceReloadError::InvalidPngSignature {
+            resource,
+            byte_count,
+            ..
+        } => {
+            format!("invalid_png_signature:{resource}:bytes:{byte_count}")
+        }
+        ResourceReloadError::InvalidPngMetadata {
+            resource, reason, ..
+        } => {
+            format!("invalid_png_metadata:{resource}:{reason}")
+        }
+        ResourceReloadError::InvalidInitialTexture {
+            registered_id,
+            resource,
+            reason,
+        } => {
+            format!("invalid_initial_texture:{registered_id}:{resource}:{reason}")
+        }
+        ResourceReloadError::InvalidInitialTextureMetadata {
+            resource,
+            pack_id,
+            reason,
+        } => {
+            format!("invalid_initial_texture_metadata:{resource}@{pack_id}:{reason}")
+        }
+        other => other.to_string(),
     }
 }
 
@@ -15851,6 +16268,7 @@ mod tests {
                 "texture_metadata",
                 "initial_textures",
                 "texture_manager_registered_textures",
+                "texture_manager_upload_candidates",
                 "headless_shader_sources",
                 "splashes",
                 "atlas_sources",
@@ -20115,6 +20533,198 @@ mod tests {
             item.starts_with(
                 "registered:minecraft:textures/gui/title/background/panorama kind:cubemap",
             ) && item.contains("x6 metadata:synthetic blur:true clamp:false mipmap_strategy:mean")
+        }));
+    }
+
+    #[test]
+    fn texture_upload_candidate_listener_reports_simple_logo_and_cubemap_sources() {
+        let temp = TempPack::new();
+        let simple_resource = INITIAL_SIMPLE_TEXTURES[0].1;
+        let simple_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let png_2x2 = encode_test_rgba_png(2, 2, &[0, 0, 0, 255].repeat(4));
+        temp.write_bytes(simple_resource, &simple_png);
+        temp.write(
+            &format!("{simple_resource}.mcmeta"),
+            r#"{"texture":{"blur":true,"clamp":false,"mipmap_strategy":"strict_cutout","alpha_cutoff_bias":0.5}}"#,
+        );
+        temp.write_bytes(INITIAL_MOJANG_LOGO_RESOURCE, OVERRIDE_MINIMAL_PNG);
+        for resource in initial_cubemap_resources() {
+            temp.write_bytes(&resource, &png_2x2);
+        }
+
+        let stack =
+            ClientResourceStack::new(vec![ClientResourcePack::new(VANILLA_PACK_ID, temp.path())]);
+        let listener = TextureManagerUploadCandidateReloadListener::new([
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/simple",
+                simple_resource,
+            ),
+            TextureManagerTextureRegistration::loading_overlay_logo(),
+            TextureManagerTextureRegistration::cubemap(
+                "minecraft:test/cubemap",
+                INITIAL_CUBEMAP_RESOURCE_PREFIX,
+            ),
+        ]);
+        let report = listener.load(&stack);
+
+        assert_eq!(report.candidates().len(), 3);
+        assert!(report.blockers().is_empty());
+        assert_eq!(report.source_count(), 8);
+        assert_eq!(
+            report.byte_count(),
+            simple_png.len() + OVERRIDE_MINIMAL_PNG.len() + png_2x2.len() * 6
+        );
+        assert_eq!(
+            report.summary_fragment(),
+            format!(
+                "texture_upload_candidates:candidates:3 ready:3 blocked:0 sources:8 bytes:{}",
+                report.byte_count()
+            )
+        );
+
+        let simple = &report.candidates()[0];
+        assert_eq!(simple.registered_id(), "minecraft:test/simple");
+        assert_eq!(
+            simple.loader_kind(),
+            InitialTextureLoaderKind::SimpleTexture
+        );
+        assert_eq!(simple.source_resource(), simple_resource);
+        assert_eq!(simple.width(), 1);
+        assert_eq!(simple.height(), 1);
+        assert_eq!(simple.depth(), 1);
+        assert_eq!(
+            simple.sources()[0].role(),
+            &TextureUploadCandidateSourceRole::SimpleTextureResource
+        );
+        assert_eq!(simple.sources()[0].pack_id(), VANILLA_PACK_ID);
+        assert!(simple.metadata().blur());
+        assert_eq!(
+            simple.metadata().mipmap_strategy(),
+            InitialTextureMipmapStrategy::StrictCutout
+        );
+
+        let logo = &report.candidates()[1];
+        assert_eq!(logo.loader_kind(), InitialTextureLoaderKind::MojangLogo);
+        assert_eq!(
+            logo.sources()[0].role(),
+            &TextureUploadCandidateSourceRole::LoadingOverlayMojangLogo
+        );
+        assert!(logo.metadata().blur());
+        assert!(logo.metadata().clamp());
+
+        let cubemap = &report.candidates()[2];
+        assert_eq!(cubemap.loader_kind(), InitialTextureLoaderKind::Cubemap);
+        assert_eq!(cubemap.width(), 2);
+        assert_eq!(cubemap.height(), 2);
+        assert_eq!(cubemap.depth(), 6);
+        assert_eq!(cubemap.sources().len(), 6);
+        assert_eq!(
+            cubemap.sources()[0].role(),
+            &TextureUploadCandidateSourceRole::CubemapFace {
+                index: 0,
+                suffix: "_1.png".to_owned()
+            }
+        );
+        assert_eq!(
+            cubemap.sources()[5].role(),
+            &TextureUploadCandidateSourceRole::CubemapFace {
+                index: 5,
+                suffix: "_2.png".to_owned()
+            }
+        );
+
+        let items = report.items();
+        assert_eq!(items[0], report.summary_fragment());
+        assert!(items.iter().any(|item| {
+            item.contains("loading_overlay_mojang_logo:")
+                && item.contains("boundary:decode_complete_upload_pending")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("cubemap_face:0:_1.png:")
+                && item.contains("upload_size:2x2x6 metadata:synthetic")
+        }));
+    }
+
+    #[test]
+    fn texture_upload_candidate_listener_reports_missing_and_invalid_blockers() {
+        let temp = TempPack::new();
+        let corrupt_resource = "assets/minecraft/textures/gui/title/corrupt.png";
+        let missing_resource = "assets/minecraft/textures/gui/title/missing.png";
+        temp.write_bytes(corrupt_resource, b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = TextureManagerUploadCandidateReloadListener::new([
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/missing",
+                missing_resource,
+            ),
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/corrupt",
+                corrupt_resource,
+            ),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(listener)
+            .run()
+            .expect("upload candidate blockers should be reported without GPU upload");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "texture_manager_upload_candidates");
+        assert_eq!(listener.reload.items().len(), 3);
+        assert_eq!(
+            listener.reload.items()[0],
+            "texture_upload_candidates:candidates:2 ready:0 blocked:2 sources:0 bytes:0"
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item == &format!(
+                "upload_blocker:minecraft:test/missing kind:simple_texture source_resource:{missing_resource} reason:missing_resource:{missing_resource}"
+            )
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item == &format!(
+                "upload_blocker:minecraft:test/corrupt kind:simple_texture source_resource:{corrupt_resource} reason:invalid_png_signature:{corrupt_resource}:bytes:9"
+            )
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_texture_upload_candidate_listener_loads_startup_candidates() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(TextureManagerUploadCandidateReloadListener::default())
+            .run()
+            .expect("committed vanilla TextureManager upload candidates should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "texture_manager_upload_candidates");
+        assert_eq!(
+            listener.preparation.items(),
+            initial_texture_manager_registrations()
+                .iter()
+                .map(texture_manager_prepare_item)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            listener.reload.items().len(),
+            INITIAL_SIMPLE_TEXTURES.len() + 3
+        );
+        assert!(listener.reload.items()[0].starts_with(&format!(
+            "texture_upload_candidates:candidates:{} ready:{} blocked:0 sources:{} bytes:",
+            INITIAL_SIMPLE_TEXTURES.len() + 2,
+            INITIAL_SIMPLE_TEXTURES.len() + 2,
+            INITIAL_SIMPLE_TEXTURES.len() + 7,
+        )));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.starts_with(
+                "upload_candidate:minecraft:textures/gui/title/mojangstudios.png kind:mojang_logo",
+            ) && item.contains("loading_overlay_mojang_logo:")
+                && item.contains("metadata:synthetic blur:true clamp:true mipmap_strategy:mean")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.starts_with(
+                "upload_candidate:minecraft:textures/gui/title/background/panorama kind:cubemap",
+            ) && item.contains("cubemap_face:0:_1.png:")
+                && item.contains("cubemap_face:5:_2.png:")
+                && item.contains("upload_size:")
+                && item.contains("x6 metadata:synthetic")
         }));
     }
 
