@@ -2,12 +2,13 @@ use std::io;
 
 use crate::protocol::{
     packet::{self, Packet},
-    Error, LenPrefixed, Serializable, VarInt,
+    Error, Serializable, VarInt,
 };
 
 use super::read_empty_play_item_stack_marker;
 
 mod set_entity_link;
+mod set_passengers;
 mod teleport_entity;
 
 pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
@@ -24,6 +25,11 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
     }
     if let Some(packet) =
         set_entity_link::read_set_entity_link_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        set_passengers::read_set_passengers_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
     }
@@ -65,23 +71,6 @@ pub(crate) fn read_entity_clientbound_packet_by_internal_id<R: io::Read>(
                     entity_id,
                     equipment_slot,
                     item: None,
-                },
-            )))
-        }
-        packet::play::clientbound::internal_ids::PlaySetPassengersClientbound => {
-            let vehicle_entity_id = VarInt::read_from(buf)?;
-            let passenger_entity_ids: LenPrefixed<VarInt, VarInt> = LenPrefixed::read_from(buf)?;
-            let passenger_ids: Vec<i32> = passenger_entity_ids.data.iter().map(|id| id.0).collect();
-            if vehicle_entity_id.0 != 3 || passenger_ids != [4] {
-                return Err(Error::Err(format!(
-                    "unsupported Play set_passengers fixture vehicle {} passengers {:?}",
-                    vehicle_entity_id.0, passenger_ids
-                )));
-            }
-            Ok(Some(Packet::PlaySetPassengersClientbound(
-                packet::play::clientbound::PlaySetPassengersClientbound {
-                    vehicle_entity_id,
-                    passenger_entity_ids,
                 },
             )))
         }
