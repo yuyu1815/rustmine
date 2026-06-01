@@ -14,6 +14,7 @@ use super::account_flow::{AccountFlow, AccountFlowScreen, StoredLauncherAccount}
 pub struct StartupFlow {
     account_flow: AccountFlow,
     loading_phase: StartupLoadingPhase,
+    startup_destination: Option<StartupDestination>,
     loading_tasks: Vec<LoadingTask>,
 }
 
@@ -22,6 +23,7 @@ impl StartupFlow {
         Self {
             account_flow: AccountFlow::new(accounts),
             loading_phase: StartupLoadingPhase::WaitingForTasks,
+            startup_destination: None,
             loading_tasks: Vec::new(),
         }
     }
@@ -31,6 +33,7 @@ impl StartupFlow {
             background_visible: true,
             account_screen: self.account_flow.screen(),
             loading_phase: self.loading_phase,
+            startup_destination: self.startup_destination,
             loading_overlay: self.loading_overlay(),
         }
     }
@@ -51,6 +54,10 @@ impl StartupFlow {
         self.loading_phase
     }
 
+    pub fn startup_destination(&self) -> Option<StartupDestination> {
+        self.startup_destination
+    }
+
     pub fn is_loading(&self) -> bool {
         self.loading_phase == StartupLoadingPhase::Loading
     }
@@ -62,6 +69,7 @@ impl StartupFlow {
     pub fn begin_loading(&mut self) {
         if !self.loading_is_complete() {
             self.loading_phase = StartupLoadingPhase::Loading;
+            self.startup_destination = None;
         }
     }
 
@@ -69,6 +77,7 @@ impl StartupFlow {
         self.loading_tasks = tasks.into_iter().collect();
         if !self.loading_tasks.is_empty() {
             self.loading_phase = StartupLoadingPhase::Loading;
+            self.startup_destination = None;
         }
     }
 
@@ -83,6 +92,7 @@ impl StartupFlow {
             self.loading_tasks.push(task);
         }
         self.loading_phase = StartupLoadingPhase::Loading;
+        self.startup_destination = None;
     }
 
     pub fn remove_loading_task(
@@ -118,6 +128,7 @@ impl StartupFlow {
         let task = LoadingTask::finishing(name, file);
         self.loading_tasks.push(task.clone());
         self.loading_phase = StartupLoadingPhase::Loading;
+        self.startup_destination = None;
         task
     }
 
@@ -126,8 +137,13 @@ impl StartupFlow {
     }
 
     pub fn finish_loading(&mut self) {
+        self.finish_loading_to(StartupDestination::TitleMenu);
+    }
+
+    pub fn finish_loading_to(&mut self, destination: StartupDestination) {
         self.loading_tasks.clear();
         self.loading_phase = StartupLoadingPhase::Complete;
+        self.startup_destination = Some(destination);
     }
 
     pub fn clear_loading_tasks(&mut self) {
@@ -181,6 +197,7 @@ pub struct StartupScreen<'a> {
     pub background_visible: bool,
     pub account_screen: &'a AccountFlowScreen,
     pub loading_phase: StartupLoadingPhase,
+    pub startup_destination: Option<StartupDestination>,
     pub loading_overlay: Option<&'a [LoadingTask]>,
 }
 
@@ -200,6 +217,12 @@ pub enum StartupLoadingPhase {
     WaitingForTasks,
     Loading,
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartupDestination {
+    TitleMenu,
+    QuickPlay,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -752,6 +775,7 @@ mod tests {
                 background_visible: true,
                 account_screen: &AccountFlowScreen::AccountSelection,
                 loading_phase: StartupLoadingPhase::WaitingForTasks,
+                startup_destination: None,
                 loading_overlay: None,
             }
         );
@@ -798,9 +822,68 @@ mod tests {
         assert_eq!(flow.screen().loading_overlay, None);
         assert_eq!(flow.screen().loading_phase, StartupLoadingPhase::Complete);
         assert_eq!(
+            flow.screen().startup_destination,
+            Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(
             flow.screen().account_screen,
             &AccountFlowScreen::AccountSelection
         );
+    }
+
+    #[test]
+    fn startup_destination_is_absent_until_loading_finishes() {
+        let mut flow = StartupFlow::new(Vec::new());
+        assert_eq!(flow.startup_destination(), None);
+
+        flow.begin_loading();
+        assert_eq!(flow.startup_destination(), None);
+
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            0.5,
+        ));
+        assert_eq!(flow.screen().startup_destination, None);
+    }
+
+    #[test]
+    fn resource_loading_complete_targets_main_menu_pending() {
+        let mut flow = StartupFlow::new(Vec::new());
+        flow.apply_resource_loading_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_CORE_ASSETS,
+            "client.jar",
+            1,
+            4,
+        ));
+
+        flow.apply_resource_loading_update(ResourceLoadingUpdate::Complete);
+
+        let screen = flow.screen();
+        assert_eq!(screen.loading_overlay, None);
+        assert_eq!(screen.loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            screen.startup_destination,
+            Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(screen.account_screen, &AccountFlowScreen::AccountSelection);
+    }
+
+    #[test]
+    fn finish_loading_can_target_quick_play_without_changing_account_flow() {
+        let mut flow = StartupFlow::new(vec![StoredLauncherAccount::offline("Alex")]);
+        flow.begin_loading();
+
+        flow.finish_loading_to(StartupDestination::QuickPlay);
+
+        let screen = flow.screen();
+        assert_eq!(screen.loading_overlay, None);
+        assert_eq!(screen.loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            screen.startup_destination,
+            Some(StartupDestination::QuickPlay)
+        );
+        assert_eq!(screen.account_screen, &AccountFlowScreen::AccountSelection);
     }
 
     #[test]
