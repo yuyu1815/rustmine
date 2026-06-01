@@ -11,7 +11,8 @@ use super::{
     },
 };
 use crate::resources::{
-    ClientResourceStack, ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
+    ClientResourceRepository, ClientResourceStack,
+    ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
     ResourceReloadProgressSnapshot, ResourceReloadReport, ResourceReloadResult,
 };
 
@@ -83,6 +84,7 @@ impl ResourceLoadingTracker {
     }
 
     pub fn apply_resource_reload_snapshot(&mut self, snapshot: &ResourceReloadProgressSnapshot) {
+        self.flow.begin_loading();
         self.resource_reload_progress = Some(weighted_progress_from_resource_reload(snapshot));
     }
 
@@ -103,14 +105,28 @@ impl ResourceLoadingTracker {
         &mut self,
         stack: ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadReport> {
+        self.run_initial_client_resource_reload(stack)
+    }
+
+    pub fn run_initial_client_resource_reload(
+        &mut self,
+        stack: ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadReport> {
         let manager = ResourceReloadManager::with_default_client_resources(stack);
         self.run_resource_reload(&manager)
+    }
+
+    pub fn run_initial_client_resource_reload_from_repository(
+        &mut self,
+        repository: &ClientResourceRepository,
+    ) -> ResourceReloadResult<ResourceReloadReport> {
+        self.run_initial_client_resource_reload(repository.stack())
     }
 
     pub fn run_vanilla_client_resource_reload(
         &mut self,
     ) -> ResourceReloadResult<ResourceReloadReport> {
-        self.run_client_resource_reload(ClientResourceStack::vanilla())
+        self.run_initial_client_resource_reload(ClientResourceStack::vanilla())
     }
 
     pub fn advance_presentation(&mut self) {
@@ -173,11 +189,13 @@ mod tests {
     use super::*;
     use crate::{
         resources::{
-            ClientResourceStack, ResourceReloadError, ResourceReloadListener,
-            ResourceReloadManager, ResourceReloadResult, ResourceReloadTaskReport,
+            ClientResourceRepository, ClientResourceStack, ResourceReloadError,
+            ResourceReloadListener, ResourceReloadManager, ResourceReloadResult,
+            ResourceReloadTaskReport,
         },
         ui::startup_flow::{
-            LoadingTask, LoadingTaskPresentationState, StartupLoadingPhase, loading_task_names,
+            LoadingTask, LoadingTaskPresentationState, StartupDestination, StartupLoadingPhase,
+            loading_task_names,
         },
     };
 
@@ -295,6 +313,7 @@ mod tests {
 
         tracker.apply_resource_reload_event(event);
 
+        assert_eq!(tracker.flow().loading_phase(), StartupLoadingPhase::Loading);
         assert_eq!(
             tracker.weighted_progress().actual_progress(),
             event.progress_snapshot.actual_progress()
@@ -383,10 +402,7 @@ mod tests {
 
                 if progress > 0.0 && progress < 1.0 {
                     saw_intermediate_progress = true;
-                    assert_ne!(
-                        tracker.flow().loading_phase(),
-                        StartupLoadingPhase::Complete
-                    );
+                    assert_eq!(tracker.flow().loading_phase(), StartupLoadingPhase::Loading);
                 }
             })
             .expect("vanilla client resources should reload");
@@ -396,6 +412,28 @@ mod tests {
             tracker.flow().loading_phase(),
             StartupLoadingPhase::Complete
         );
+    }
+
+    #[test]
+    fn tracker_run_initial_client_resource_reload_from_repository_completes_to_title_menu() {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let report = tracker
+            .run_initial_client_resource_reload_from_repository(&repository)
+            .expect("committed vanilla client resources should reload through startup tracker");
+
+        assert!(!report.events().is_empty());
+        assert!(!report.listener_reports().is_empty());
+        assert_eq!(
+            tracker.flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+        assert_eq!(
+            tracker.flow().startup_destination(),
+            Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
     }
 
     #[test]
