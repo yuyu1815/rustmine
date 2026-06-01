@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use std::io;
 
+mod cookie;
 mod custom_report_details;
 mod dialog;
 mod disconnect_reset_chat;
@@ -8,6 +9,7 @@ mod keep_alive_ping;
 mod resource_pack;
 mod update_tags;
 
+pub use cookie::{ConfigurationCookieRequestClientbound, ConfigurationStoreCookieClientbound};
 pub use custom_report_details::{
     ConfigurationCustomReportDetail, ConfigurationCustomReportDetailsClientbound,
 };
@@ -48,28 +50,6 @@ pub mod internal_ids {
     pub const ConfigurationClearDialogClientbound: i32 = 17;
     pub const ConfigurationShowDialogClientbound: i32 = 18;
     pub const ConfigurationCodeOfConductClientbound: i32 = 19;
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationCookieRequestClientbound {
-    pub key: String,
-}
-
-impl PacketType for ConfigurationCookieRequestClientbound {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationCookieRequestClientbound,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        self.key.write_to(buf)?;
-        Ok(())
-    }
 }
 
 #[derive(Default, Debug)]
@@ -116,31 +96,6 @@ impl PacketType for ConfigurationRegistryDataClientbound {
     fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
         self.registry.write_to(buf)?;
         self.data.write_to(buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ConfigurationStoreCookieClientbound {
-    pub key: String,
-    pub payload: Vec<u8>,
-}
-
-impl PacketType for ConfigurationStoreCookieClientbound {
-    fn packet_id(&self, version: i32) -> i32 {
-        packet::versions::translate_internal_packet_id_for_version(
-            version,
-            State::Configuration,
-            Direction::Clientbound,
-            internal_ids::ConfigurationStoreCookieClientbound,
-            false,
-        )
-    }
-
-    fn write<W: io::Write>(&self, buf: &mut W) -> Result<(), Error> {
-        self.key.write_to(buf)?;
-        VarInt(self.payload.len() as i32).write_to(buf)?;
-        buf.write_all(&self.payload)?;
         Ok(())
     }
 }
