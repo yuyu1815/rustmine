@@ -9,6 +9,7 @@ use super::super::super::translate_internal_packet_id;
 
 mod accept_code_of_conduct;
 mod custom_click_action;
+mod custom_payload;
 mod keep_alive;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
@@ -43,6 +44,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         keep_alive::read_keep_alive_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        custom_payload::read_custom_payload_configuration_serverbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
@@ -84,18 +93,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                         .payload
                         .map(|payload| payload.data)
                         .unwrap_or_else(Vec::new),
-                },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationCustomPayloadServerbound => {
-            let packet = packet::configuration::serverbound::ConfigurationCustomPayloadServerbound {
-                channel: Serializable::read_from(buf)?,
-                data: Serializable::read_from(buf)?,
-            };
-            return Ok(Some(Packet::PluginMessageServerbound(
-                packet::play::serverbound::PluginMessageServerbound {
-                    channel: packet.channel,
-                    data: packet.data,
                 },
             )));
         }
