@@ -10,6 +10,7 @@ use crate::shared::Position;
 
 use super::super::translate_internal_packet_id;
 
+mod custom_report_details;
 mod dialog;
 mod entity;
 mod scoreboard;
@@ -56,6 +57,14 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        custom_report_details::read_custom_report_details_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::Disconnect => {
@@ -93,24 +102,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
             read_empty_play_item_stack_marker(buf, "set_player_inventory")?;
             return Ok(Some(Packet::PlaySetPlayerInventoryClientbound(
                 packet::play::clientbound::PlaySetPlayerInventoryClientbound { slot, item: None },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlayCustomReportDetailsClientbound => {
-            let detail_count = VarInt::read_from(buf)?;
-            if detail_count.0 < 0 {
-                return Err(Error::Err(format!(
-                    "negative Play custom_report_details detail count {}",
-                    detail_count.0
-                )));
-            }
-            if detail_count.0 != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty Play custom_report_details map count {}",
-                    detail_count.0
-                )));
-            }
-            return Ok(Some(Packet::PlayCustomReportDetailsClientbound(
-                packet::play::clientbound::PlayCustomReportDetailsClientbound { detail_count },
             )));
         }
         packet::play::clientbound::internal_ids::PlayServerLinksClientbound => {
