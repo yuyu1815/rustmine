@@ -9,6 +9,7 @@ use super::super::super::translate_internal_packet_id;
 
 mod cookie;
 mod custom_payload;
+mod custom_report_details;
 mod dialog;
 mod resource_pack;
 mod server_links;
@@ -27,6 +28,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         custom_payload::read_custom_payload_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        custom_report_details::read_custom_report_details_configuration_clientbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
@@ -130,33 +139,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "SelectKnownPacks".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationCustomReportDetailsClientbound => {
-            let detail_count = VarInt::read_from(buf)?.0;
-            if detail_count < 0 {
-                return Err(Error::Err(format!(
-                    "negative custom_report_details detail count {}",
-                    detail_count
-                )));
-            }
-            let mut details = Vec::with_capacity(detail_count as usize);
-            for _ in 0..detail_count {
-                details.push(
-                    packet::configuration::clientbound::ConfigurationCustomReportDetail {
-                        key: Serializable::read_from(buf)?,
-                        value: Serializable::read_from(buf)?,
-                    },
-                );
-            }
-            let _packet = packet::configuration::clientbound::ConfigurationCustomReportDetailsClientbound {
-                details,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "CustomReportDetails".to_owned(),
                     data: Vec::new(),
                 },
             )));
