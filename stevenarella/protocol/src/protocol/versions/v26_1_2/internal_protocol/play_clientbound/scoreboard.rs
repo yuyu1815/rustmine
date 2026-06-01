@@ -5,27 +5,22 @@ use crate::protocol::{
     Error, Serializable, VarInt,
 };
 
+mod set_display_objective;
+
 pub(crate) fn read_scoreboard_clientbound_packet_by_internal_id<R: io::Read>(
     internal_id: i32,
     buf: &mut R,
 ) -> Result<Option<Packet>, Error> {
+    if let Some(packet) =
+        set_display_objective::read_set_display_objective_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+
     match internal_id {
-        packet::play::clientbound::internal_ids::PlaySetDisplayObjectiveClientbound => {
-            let slot = VarInt::read_from(buf)?;
-            let objective_name = String::read_from(buf)?;
-            if !objective_name.is_empty() {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty Play set_display_objective objective name {:?}",
-                    objective_name
-                )));
-            }
-            Ok(Some(Packet::PlaySetDisplayObjectiveClientbound(
-                packet::play::clientbound::PlaySetDisplayObjectiveClientbound {
-                    slot,
-                    objective_name,
-                },
-            )))
-        }
         packet::play::clientbound::internal_ids::PlaySetScoreClientbound => {
             let owner = String::read_from(buf)?;
             let objective_name = String::read_from(buf)?;
