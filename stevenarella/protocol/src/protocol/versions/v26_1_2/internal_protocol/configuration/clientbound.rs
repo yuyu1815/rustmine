@@ -13,6 +13,7 @@ mod custom_payload;
 mod custom_report_details;
 mod dialog;
 mod keep_alive_ping;
+mod registry_data;
 mod resource_pack;
 mod select_known_packs;
 mod server_links;
@@ -109,6 +110,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        registry_data::read_registry_data_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
@@ -126,19 +135,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "ResetChat".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationRegistryDataClientbound => {
-            let _packet =
-                packet::configuration::clientbound::ConfigurationRegistryDataClientbound {
-                    registry: Serializable::read_from(buf)?,
-                    data: Serializable::read_from(buf)?,
-                };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "RegistryData".to_owned(),
                     data: Vec::new(),
                 },
             )));
