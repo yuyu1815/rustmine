@@ -94,6 +94,7 @@ const DEFAULT_FONT_DEFINITIONS: &[&str] = &[
 ];
 const DEFAULT_PARTICLE_MANIFEST_IDS: &[&str] = &["rain", "firework", "splash"];
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
+const VANILLA_EXCLUDED_SPLASH_JAVA_HASH: i32 = 125_780_783;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const PACK_MCMETA_RESOURCE: &str = "pack.mcmeta";
 const CLIENT_RESOURCE_PACK_FORMAT: u32 = 84;
@@ -4059,6 +4060,98 @@ impl ResourceReloadListener for ListingResourceReloadListener {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSplashes {
+    lines: Vec<String>,
+    report: ClientSplashesReloadReport,
+}
+
+impl ClientSplashes {
+    pub fn lines(&self) -> &[String] {
+        &self.lines
+    }
+
+    pub fn count(&self) -> usize {
+        self.lines.len()
+    }
+
+    pub fn report(&self) -> &ClientSplashesReloadReport {
+        &self.report
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSplashesReloadReport {
+    resource: String,
+    pack_id: String,
+    splash_count: usize,
+}
+
+impl ClientSplashesReloadReport {
+    fn new(resource: impl Into<String>, pack_id: impl Into<String>, splash_count: usize) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            splash_count,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn splash_count(&self) -> usize {
+        self.splash_count
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+pub fn load_client_splashes_resource(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<ClientSplashes> {
+    let resource = resource.as_ref();
+    let location = stack.require_resource(resource)?;
+    let contents =
+        location
+            .read_to_string()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: resource.to_string_lossy().into_owned(),
+                path: location.path.clone(),
+                source,
+            })?;
+    let lines = parse_splash_lines(&contents);
+    let report = ClientSplashesReloadReport::new(
+        resource.to_string_lossy().into_owned(),
+        location.pack_id,
+        lines.len(),
+    );
+
+    Ok(ClientSplashes { lines, report })
+}
+
+fn parse_splash_lines(contents: &str) -> Vec<String> {
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| java_string_hash_code(line) != VANILLA_EXCLUDED_SPLASH_JAVA_HASH)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn java_string_hash_code(text: &str) -> i32 {
+    text.encode_utf16().fold(0_i32, |hash, unit| {
+        hash.wrapping_mul(31).wrapping_add(i32::from(unit))
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SplashesReloadListener {
     name: String,
     resource: String,
@@ -4070,6 +4163,10 @@ impl SplashesReloadListener {
             name: "splashes".to_owned(),
             resource: resource.into(),
         }
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientSplashes> {
+        load_client_splashes_resource(stack, &self.resource)
     }
 }
 
@@ -4097,23 +4194,13 @@ impl ResourceReloadListener for SplashesReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let location = stack.require_resource(&self.resource)?;
-        let contents =
-            location
-                .read_to_string()
-                .map_err(|source| ResourceReloadError::ReadResource {
-                    resource: self.resource.clone(),
-                    path: location.path.clone(),
-                    source,
-                })?;
-        let splash_count = contents
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .count();
+        let splashes = self.load(stack)?;
+        let report = splashes.report();
 
         Ok(ResourceReloadTaskReport::new([format!(
-            "{}@{}:{splash_count} splashes",
-            self.resource, location.pack_id
+            "{}:{} splashes",
+            report.loaded_resource_pack(),
+            report.splash_count()
         )]))
     }
 }
@@ -6354,7 +6441,7 @@ mod tests {
     }
 
     #[test]
-    fn splashes_listener_counts_non_empty_lines_from_highest_priority_pack() {
+    fn splashes_listener_counts_vanilla_trimmed_lines_from_highest_priority_pack() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(SPLASHES_RESOURCE, "base one\nbase two\nbase three\n");
@@ -6374,8 +6461,37 @@ mod tests {
         assert_eq!(listener.preparation.items(), [SPLASHES_RESOURCE.to_owned()]);
         assert_eq!(
             listener.reload.items(),
-            [format!("{SPLASHES_RESOURCE}@override:2 splashes")]
+            [format!("{SPLASHES_RESOURCE}@override:4 splashes")]
         );
+    }
+
+    #[test]
+    fn splashes_resource_loads_highest_priority_vanilla_trimmed_lines() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(SPLASHES_RESOURCE, "base one\nbase two\nbase three\n");
+        override_pack.write(
+            SPLASHES_RESOURCE,
+            "\n custom one \n\t\nThis message will never appear on the splash screen, isn't that weird?\ncustom two\r\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let splashes = load_client_splashes_resource(&stack, SPLASHES_RESOURCE)
+            .expect("splashes resource should load");
+
+        assert_eq!(splashes.lines(), ["", "custom one", "", "custom two"]);
+        assert_eq!(splashes.count(), 4);
+        assert_eq!(splashes.report().resource(), SPLASHES_RESOURCE);
+        assert_eq!(splashes.report().pack_id(), "override");
+        assert_eq!(
+            splashes.report().loaded_resource_pack(),
+            format!("{SPLASHES_RESOURCE}@override")
+        );
+        assert_eq!(splashes.report().splash_count(), 4);
     }
 
     #[test]
@@ -6414,8 +6530,22 @@ mod tests {
 
     #[test]
     fn committed_vanilla_splashes_listener_reports_a_non_empty_count() {
-        let manager = ResourceReloadManager::new(ClientResourceStack::vanilla())
-            .with_listener(SplashesReloadListener::default());
+        let stack = ClientResourceStack::vanilla();
+        let splashes = load_client_splashes_resource(&stack, SPLASHES_RESOURCE)
+            .expect("committed vanilla splashes resource should load");
+        assert!(splashes.count() > 0, "vanilla splashes should not be empty");
+        assert!(
+            splashes
+                .lines()
+                .iter()
+                .all(|line| { java_string_hash_code(line) != VANILLA_EXCLUDED_SPLASH_JAVA_HASH })
+        );
+        assert_eq!(splashes.report().resource(), SPLASHES_RESOURCE);
+        assert_eq!(splashes.report().pack_id(), VANILLA_PACK_ID);
+        assert_eq!(splashes.report().splash_count(), splashes.count());
+
+        let manager =
+            ResourceReloadManager::new(stack).with_listener(SplashesReloadListener::default());
 
         let report = manager
             .run()
@@ -6428,7 +6558,7 @@ mod tests {
             .expect("report should include vanilla splash count")
             .parse::<usize>()
             .expect("splash count should be numeric");
-        assert!(count > 0, "vanilla splashes should not be empty");
+        assert_eq!(count, splashes.count());
     }
 
     #[test]
