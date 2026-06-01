@@ -13,6 +13,7 @@ mod custom_payload;
 mod keep_alive;
 mod pong;
 mod resource_pack;
+mod select_known_packs;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     id: i32,
@@ -73,6 +74,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        select_known_packs::read_select_known_packs_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
@@ -108,17 +117,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                         .payload
                         .map(|payload| payload.data)
                         .unwrap_or_else(Vec::new),
-                },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationSelectKnownPacksServerbound => {
-            let _packet = packet::configuration::serverbound::ConfigurationSelectKnownPacksServerbound {
-                known_packs: Serializable::read_from(buf)?,
-            };
-            return Ok(Some(Packet::PluginMessageServerbound(
-                packet::play::serverbound::PluginMessageServerbound {
-                    channel: "SelectKnownPacks".to_owned(),
-                    data: Vec::new(),
                 },
             )));
         }
