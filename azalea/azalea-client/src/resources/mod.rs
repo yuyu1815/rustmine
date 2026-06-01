@@ -1958,6 +1958,7 @@ impl ResourceReloadManager {
         manager
             .with_listener(SplashesReloadListener::default())
             .with_listener(AtlasSourceReloadListener::default())
+            .with_listener(AtlasStitchCandidateReloadListener::default())
             .with_listener(FontDefinitionsReloadListener::default())
             .with_listener(ColormapReloadListener::default())
             .with_listener(ModelDependencyReloadListener::default())
@@ -9194,6 +9195,7 @@ pub struct AtlasSourceManifest {
     sources: Vec<AtlasSpriteSourceEntry>,
     sprite_inventory: BTreeSet<String>,
     referenced_resources: BTreeSet<String>,
+    filter_removed_sprites: BTreeSet<String>,
 }
 
 impl AtlasSourceManifest {
@@ -9215,6 +9217,10 @@ impl AtlasSourceManifest {
 
     pub fn referenced_resources(&self) -> &BTreeSet<String> {
         &self.referenced_resources
+    }
+
+    pub fn filter_removed_sprites(&self) -> &BTreeSet<String> {
+        &self.filter_removed_sprites
     }
 
     pub fn report(&self) -> AtlasSourceManifestReport {
@@ -9401,6 +9407,7 @@ pub fn load_client_atlas_sources(
                 sources: parsed.sources,
                 sprite_inventory: parsed.sprite_inventory,
                 referenced_resources: parsed.referenced_resources,
+                filter_removed_sprites: parsed.filter_removed_sprites,
             });
         }
     }
@@ -9719,6 +9726,7 @@ struct ParsedAtlasSources {
     sources: Vec<AtlasSpriteSourceEntry>,
     sprite_inventory: BTreeSet<String>,
     referenced_resources: BTreeSet<String>,
+    filter_removed_sprites: BTreeSet<String>,
 }
 
 fn parse_atlas_sources(
@@ -9754,7 +9762,8 @@ fn parse_atlas_sources(
         };
         let source_type = source_type.as_str().expect("type string checked above");
         let entry = parse_atlas_source_entry(stack, resource, index, source_type, source)?;
-        apply_atlas_source_entry(&entry, &mut parsed.sprite_inventory);
+        let removed = apply_atlas_source_entry(&entry, &mut parsed.sprite_inventory);
+        parsed.filter_removed_sprites.extend(removed);
         parsed
             .referenced_resources
             .extend(entry.resources.iter().cloned());
@@ -9939,16 +9948,28 @@ fn parse_paletted_permutations_atlas_source(
     Ok(entry)
 }
 
-fn apply_atlas_source_entry(entry: &AtlasSpriteSourceEntry, sprites: &mut BTreeSet<String>) {
+fn apply_atlas_source_entry(
+    entry: &AtlasSpriteSourceEntry,
+    sprites: &mut BTreeSet<String>,
+) -> BTreeSet<String> {
     if entry.source_type == "filter" {
+        let mut removed = BTreeSet::new();
         for filter in &entry.filters {
             let (namespace_pattern, path_pattern) = atlas_filter_patterns(filter);
-            sprites.retain(|sprite| {
-                !atlas_identifier_matches(sprite, namespace_pattern, path_pattern)
-            });
+            let matching = sprites
+                .iter()
+                .filter(|sprite| atlas_identifier_matches(sprite, namespace_pattern, path_pattern))
+                .cloned()
+                .collect::<Vec<_>>();
+            for sprite in matching {
+                sprites.remove(&sprite);
+                removed.insert(sprite);
+            }
         }
+        removed
     } else {
         sprites.extend(entry.sprites.iter().cloned());
+        BTreeSet::new()
     }
 }
 
@@ -10146,6 +10167,375 @@ fn atlas_source_type_counts_fragment(counts: &BTreeMap<String, usize>) -> String
     counts
         .iter()
         .map(|(source_type, count)| format!("{source_type}={count}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasStitchCandidateCollection {
+    atlases: Vec<AtlasStitchCandidateManifest>,
+}
+
+impl AtlasStitchCandidateCollection {
+    pub fn atlases(&self) -> &[AtlasStitchCandidateManifest] {
+        &self.atlases
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = AtlasStitchCandidateManifestReport> + '_ {
+        self.atlases
+            .iter()
+            .map(AtlasStitchCandidateManifest::report)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasStitchCandidateManifest {
+    resource: String,
+    pack_id: String,
+    source_count: usize,
+    source_type_counts: BTreeMap<String, usize>,
+    sprite_candidates: BTreeSet<String>,
+    referenced_resources: BTreeSet<String>,
+    available_resources: Vec<AtlasStitchResourceAvailability>,
+    blockers: Vec<AtlasStitchBlocker>,
+    filter_removed_sprites: BTreeSet<String>,
+}
+
+impl AtlasStitchCandidateManifest {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn source_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.source_type_counts
+    }
+
+    pub fn sprite_candidates(&self) -> &BTreeSet<String> {
+        &self.sprite_candidates
+    }
+
+    pub fn referenced_resources(&self) -> &BTreeSet<String> {
+        &self.referenced_resources
+    }
+
+    pub fn available_resources(&self) -> &[AtlasStitchResourceAvailability] {
+        &self.available_resources
+    }
+
+    pub fn blockers(&self) -> &[AtlasStitchBlocker] {
+        &self.blockers
+    }
+
+    pub fn filter_removed_sprites(&self) -> &BTreeSet<String> {
+        &self.filter_removed_sprites
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.sprite_candidates.len()
+    }
+
+    pub fn referenced_resource_count(&self) -> usize {
+        self.referenced_resources.len()
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resources.len()
+    }
+
+    pub fn missing_resource_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn filter_removed_count(&self) -> usize {
+        self.filter_removed_sprites.len()
+    }
+
+    pub fn report(&self) -> AtlasStitchCandidateManifestReport {
+        AtlasStitchCandidateManifestReport {
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            source_count: self.source_count,
+            source_type_counts: self.source_type_counts.clone(),
+            candidate_count: self.candidate_count(),
+            referenced_resource_count: self.referenced_resource_count(),
+            available_resource_count: self.available_resource_count(),
+            missing_resource_count: self.missing_resource_count(),
+            filter_removed_count: self.filter_removed_count(),
+            blockers: self.blockers.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasStitchResourceAvailability {
+    resource: String,
+    pack_id: String,
+}
+
+impl AtlasStitchResourceAvailability {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasStitchBlocker {
+    resource: String,
+    reason: AtlasStitchBlockerReason,
+}
+
+impl AtlasStitchBlocker {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn reason(&self) -> AtlasStitchBlockerReason {
+        self.reason
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AtlasStitchBlockerReason {
+    MissingTextureResource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasStitchCandidateManifestReport {
+    resource: String,
+    pack_id: String,
+    source_count: usize,
+    source_type_counts: BTreeMap<String, usize>,
+    candidate_count: usize,
+    referenced_resource_count: usize,
+    available_resource_count: usize,
+    missing_resource_count: usize,
+    filter_removed_count: usize,
+    blockers: Vec<AtlasStitchBlocker>,
+}
+
+impl AtlasStitchCandidateManifestReport {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn source_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.source_type_counts
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_count
+    }
+
+    pub fn referenced_resource_count(&self) -> usize {
+        self.referenced_resource_count
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn missing_resource_count(&self) -> usize {
+        self.missing_resource_count
+    }
+
+    pub fn filter_removed_count(&self) -> usize {
+        self.filter_removed_count
+    }
+
+    pub fn blockers(&self) -> &[AtlasStitchBlocker] {
+        &self.blockers
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasStitchCandidateReloadListener {
+    name: String,
+    manifests: Vec<String>,
+    discover_manifests: bool,
+}
+
+impl AtlasStitchCandidateReloadListener {
+    pub fn new(manifests: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "atlas_stitch_candidates".to_owned(),
+            manifests: manifests.into_iter().map(Into::into).collect(),
+            discover_manifests: false,
+        }
+    }
+
+    pub fn manifests(&self) -> &[String] {
+        &self.manifests
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<AtlasStitchCandidateCollection> {
+        if self.discover_manifests {
+            load_discovered_client_atlas_stitch_candidates(stack)
+        } else {
+            load_client_atlas_stitch_candidates(stack, &self.manifests)
+        }
+    }
+
+    fn resolved_manifests(&self, stack: &ClientResourceStack) -> ResourceReloadResult<Vec<String>> {
+        if self.discover_manifests {
+            discover_atlas_manifest_resources(stack)
+        } else {
+            Ok(self.manifests.clone())
+        }
+    }
+}
+
+impl Default for AtlasStitchCandidateReloadListener {
+    fn default() -> Self {
+        Self {
+            name: "atlas_stitch_candidates".to_owned(),
+            manifests: Vec::new(),
+            discover_manifests: true,
+        }
+    }
+}
+
+impl ResourceReloadListener for AtlasStitchCandidateReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.resolved_manifests(stack)?;
+        for manifest in &manifests {
+            stack.require_resource(manifest)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(manifests))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let candidates = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(
+            candidates
+                .reports()
+                .map(|report| atlas_stitch_candidate_report_item(&report)),
+        ))
+    }
+}
+
+pub fn load_client_atlas_stitch_candidates(
+    stack: &ClientResourceStack,
+    manifests: &[String],
+) -> ResourceReloadResult<AtlasStitchCandidateCollection> {
+    let sources = load_client_atlas_sources(stack, manifests)?;
+    Ok(build_atlas_stitch_candidate_collection(stack, &sources))
+}
+
+pub fn load_discovered_client_atlas_stitch_candidates(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<AtlasStitchCandidateCollection> {
+    let manifests = discover_atlas_manifest_resources(stack)?;
+    load_client_atlas_stitch_candidates(stack, &manifests)
+}
+
+fn build_atlas_stitch_candidate_collection(
+    stack: &ClientResourceStack,
+    sources: &AtlasSourceCollection,
+) -> AtlasStitchCandidateCollection {
+    AtlasStitchCandidateCollection {
+        atlases: sources
+            .atlases()
+            .iter()
+            .map(|atlas| build_atlas_stitch_candidate_manifest(stack, atlas))
+            .collect(),
+    }
+}
+
+fn build_atlas_stitch_candidate_manifest(
+    stack: &ClientResourceStack,
+    atlas: &AtlasSourceManifest,
+) -> AtlasStitchCandidateManifest {
+    let mut available_resources = Vec::new();
+    let mut blockers = Vec::new();
+
+    for resource in atlas.referenced_resources() {
+        if let Some(location) = stack.find_resource(resource) {
+            available_resources.push(AtlasStitchResourceAvailability {
+                resource: resource.clone(),
+                pack_id: location.pack_id,
+            });
+        } else {
+            blockers.push(AtlasStitchBlocker {
+                resource: resource.clone(),
+                reason: AtlasStitchBlockerReason::MissingTextureResource,
+            });
+        }
+    }
+
+    AtlasStitchCandidateManifest {
+        resource: atlas.resource().report().resource().to_owned(),
+        pack_id: atlas.resource().report().pack_id().to_owned(),
+        source_count: atlas.source_count(),
+        source_type_counts: atlas_source_type_counts(atlas.sources()),
+        sprite_candidates: atlas.sprite_inventory().clone(),
+        referenced_resources: atlas.referenced_resources().clone(),
+        available_resources,
+        blockers,
+        filter_removed_sprites: atlas.filter_removed_sprites().clone(),
+    }
+}
+
+fn atlas_stitch_candidate_report_item(report: &AtlasStitchCandidateManifestReport) -> String {
+    format!(
+        "{}:{} sources types:{} candidates:{} refs:{} available:{} missing:{} filtered:{} blockers:{}",
+        report.loaded_resource_pack(),
+        report.source_count(),
+        atlas_source_type_counts_fragment(report.source_type_counts()),
+        report.candidate_count(),
+        report.referenced_resource_count(),
+        report.available_resource_count(),
+        report.missing_resource_count(),
+        report.filter_removed_count(),
+        atlas_stitch_blockers_fragment(report.blockers())
+    )
+}
+
+fn atlas_stitch_blockers_fragment(blockers: &[AtlasStitchBlocker]) -> String {
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+
+    blockers
+        .iter()
+        .map(|blocker| format!("missing:{}", blocker.resource()))
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -13276,9 +13666,11 @@ mod tests {
                 "headless_shader_sources",
                 "splashes",
                 "atlas_sources",
+                "atlas_stitch_candidates",
                 "font_definitions",
                 "colormaps",
                 "model_dependencies",
+                "model_bake_candidates",
                 "equipment_assets",
                 "particle_manifests",
                 "waypoint_style_manifests",
@@ -13705,6 +14097,154 @@ mod tests {
                 .referenced_resources()
                 .contains("assets/minecraft/textures/entity/sheet.png")
         );
+    }
+
+    #[test]
+    fn atlas_stitch_candidate_report_counts_candidates_and_missing_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"example:direct","sprite":"example:renamed"},
+                {"type":"minecraft:single","resource":"minecraft:item/missing"},
+                {"type":"minecraft:directory","source":"block","prefix":"block/"},
+                {"type":"minecraft:filter","pattern":{"path":"^block/stone$"}},
+                {"type":"minecraft:unstitch","resource":"minecraft:entity/sheet","regions":[{"sprite":"minecraft:entity/sheet_piece","x":0,"y":0,"width":1,"height":1}]},
+                {"type":"minecraft:paletted_permutations","textures":["minecraft:trims/items/helmet_trim"],"palette_key":"minecraft:trims/color_palettes/trim_palette","permutations":{"iron":"minecraft:trims/color_palettes/iron"}}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/direct.png", MINIMAL_PNG);
+        temp.write_bytes("assets/minecraft/textures/block/stone.png", MINIMAL_PNG);
+        temp.write_bytes("assets/minecraft/textures/block/dirt.png", MINIMAL_PNG);
+        temp.write_bytes("assets/minecraft/textures/entity/sheet.png", MINIMAL_PNG);
+        temp.write_bytes(
+            "assets/minecraft/textures/trims/items/helmet_trim.png",
+            MINIMAL_PNG,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/trims/color_palettes/iron.png",
+            MINIMAL_PNG,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let collection = load_client_atlas_stitch_candidates(
+            &stack,
+            &["assets/minecraft/atlases/test.json".to_owned()],
+        )
+        .expect("atlas stitch candidates should report missing blockers without failing");
+        let atlas = &collection.atlases()[0];
+
+        assert_eq!(atlas.source_count(), 6);
+        assert_eq!(atlas.candidate_count(), 5);
+        assert_eq!(atlas.referenced_resource_count(), 8);
+        assert_eq!(atlas.available_resource_count(), 6);
+        assert_eq!(atlas.missing_resource_count(), 2);
+        assert_eq!(atlas.filter_removed_count(), 1);
+        assert!(atlas.sprite_candidates().contains("example:renamed"));
+        assert!(atlas.sprite_candidates().contains("minecraft:item/missing"));
+        assert!(atlas.sprite_candidates().contains("minecraft:block/dirt"));
+        assert!(!atlas.sprite_candidates().contains("minecraft:block/stone"));
+        assert!(
+            atlas
+                .filter_removed_sprites()
+                .contains("minecraft:block/stone")
+        );
+        assert_eq!(
+            atlas
+                .blockers()
+                .iter()
+                .map(AtlasStitchBlocker::resource)
+                .collect::<Vec<_>>(),
+            [
+                "assets/minecraft/textures/item/missing.png",
+                "assets/minecraft/textures/trims/color_palettes/trim_palette.png",
+            ]
+        );
+        assert!(
+            atlas
+                .blockers()
+                .iter()
+                .all(|blocker| blocker.reason() == AtlasStitchBlockerReason::MissingTextureResource)
+        );
+    }
+
+    #[test]
+    fn atlas_stitch_candidate_listener_reports_blockers_in_reload_summary() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:item/missing"}]}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(AtlasStitchCandidateReloadListener::new([
+                "assets/minecraft/atlases/test.json",
+            ]))
+            .run()
+            .expect("missing texture should be a stitch blocker, not a reload error");
+
+        assert_eq!(
+            report.listener_reports()[0].reload.items(),
+            ["assets/minecraft/atlases/test.json@test:1 sources types:single=1 candidates:1 refs:1 available:0 missing:1 filtered:0 blockers:missing:assets/minecraft/textures/item/missing.png".to_owned()]
+        );
+    }
+
+    #[test]
+    fn atlas_stitch_candidate_resource_availability_uses_stack_priority() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:block/stone"}]}"#,
+        );
+        base.write_bytes("assets/minecraft/textures/block/stone.png", MINIMAL_PNG);
+        override_pack.write_bytes(
+            "assets/minecraft/textures/block/stone.png",
+            OVERRIDE_MINIMAL_PNG,
+        );
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let collection = load_client_atlas_stitch_candidates(
+            &stack,
+            &["assets/minecraft/atlases/test.json".to_owned()],
+        )
+        .expect("atlas stitch candidates should load");
+        let atlas = &collection.atlases()[0];
+
+        assert_eq!(atlas.available_resource_count(), 1);
+        assert_eq!(
+            atlas.available_resources()[0].resource(),
+            "assets/minecraft/textures/block/stone.png"
+        );
+        assert_eq!(atlas.available_resources()[0].pack_id(), "override");
+        assert!(atlas.blockers().is_empty());
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_stitch_candidates_report_nonzero_surface() {
+        let collection =
+            load_discovered_client_atlas_stitch_candidates(&ClientResourceStack::vanilla())
+                .expect("committed vanilla atlas stitch candidates should load");
+        let reports = collection.reports().collect::<Vec<_>>();
+
+        assert_eq!(reports.len(), 15);
+        assert!(
+            reports
+                .iter()
+                .map(|report| report.candidate_count())
+                .sum::<usize>()
+                > 0,
+            "vanilla atlas stitch candidate surface should not be empty"
+        );
+        assert!(reports.iter().any(|report| {
+            report.resource() == "assets/minecraft/atlases/blocks.json"
+                && report.candidate_count() > 0
+                && report.available_resource_count() > 0
+        }));
     }
 
     #[test]
