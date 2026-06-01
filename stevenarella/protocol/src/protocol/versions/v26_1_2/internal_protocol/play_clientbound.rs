@@ -1,9 +1,6 @@
 use std::io;
 
-use crate::protocol::{
-    packet::{self, Packet},
-    read_nbt_string_component, Direction, Error, Serializable, State, VarInt,
-};
+use crate::protocol::{packet::Packet, Direction, Error, Serializable, State, VarInt};
 
 use super::super::translate_internal_packet_id;
 
@@ -19,6 +16,7 @@ mod set_player_inventory;
 mod set_time;
 mod sound;
 mod tag_query;
+mod test_instance_block_status;
 mod text;
 mod update;
 mod waypoint;
@@ -107,25 +105,16 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
-
-    match internal_id {
-        packet::play::clientbound::internal_ids::PlayTestInstanceBlockStatusClientbound => {
-            let status = read_nbt_string_component(buf)?;
-            let size_present = bool::read_from(buf)?;
-            if size_present {
-                return Err(Error::Err(
-                    "unsupported Play test_instance_block_status present size".to_owned(),
-                ));
-            }
-            return Ok(Some(Packet::PlayTestInstanceBlockStatusClientbound(
-                packet::play::clientbound::PlayTestInstanceBlockStatusClientbound {
-                    status,
-                    size_present,
-                },
-            )));
-        }
-        _ => Ok(None),
+    if let Some(packet) =
+        test_instance_block_status::read_test_instance_block_status_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
     }
+
+    Ok(None)
 }
 
 fn read_empty_play_item_stack_marker<R: io::Read>(
