@@ -89,10 +89,14 @@ const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
     "assets/minecraft/blockstates/stone.json",
     "assets/minecraft/items/stone.json",
 ];
+#[cfg(test)]
 const DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES: &[&str] = &["assets/minecraft/blockstates/stone.json"];
+#[cfg(test)]
 const DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS: &[&str] =
     &["assets/minecraft/models/block/stone.json"];
+#[cfg(test)]
 const DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS: &[&str] = &["assets/minecraft/models/item/stick.json"];
+#[cfg(test)]
 const DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS: &[&str] = &["assets/minecraft/items/stone.json"];
 const FONT_DEFINITION_ROOT_DIR: &str = "assets/minecraft/font";
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
@@ -4216,7 +4220,7 @@ fn collect_blockstate_variant_model_references(
 ) -> Result<(), String> {
     match variant {
         serde_json::Value::String(model) => {
-            model_references.insert(model.clone());
+            model_references.insert(normalize_model_id(model));
             Ok(())
         }
         serde_json::Value::Object(object) => {
@@ -4245,7 +4249,7 @@ fn collect_blockstate_model_object_reference(
     let model = model
         .as_str()
         .ok_or_else(|| "blockstate model field must be a string".to_owned())?;
-    model_references.insert(model.to_owned());
+    model_references.insert(normalize_model_id(model));
     Ok(())
 }
 
@@ -4266,6 +4270,7 @@ fn blockstate_model_reference_report_item(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelDependencyReloadListener {
+    discover_all: bool,
     blockstates: Vec<String>,
     block_models: Vec<String>,
     item_models: Vec<String>,
@@ -4280,6 +4285,7 @@ impl ModelDependencyReloadListener {
         item_roots: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         Self {
+            discover_all: false,
             blockstates: blockstates.into_iter().map(Into::into).collect(),
             block_models: block_models.into_iter().map(Into::into).collect(),
             item_models: item_models.into_iter().map(Into::into).collect(),
@@ -4288,13 +4294,17 @@ impl ModelDependencyReloadListener {
     }
 
     pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ModelDependencyReport> {
-        load_model_dependencies(
-            stack,
-            &self.blockstates,
-            &self.block_models,
-            &self.item_models,
-            &self.item_roots,
-        )
+        if self.discover_all {
+            load_discovered_model_dependencies(stack)
+        } else {
+            load_model_dependencies(
+                stack,
+                &self.blockstates,
+                &self.block_models,
+                &self.item_models,
+                &self.item_roots,
+            )
+        }
     }
 
     fn resources(&self) -> impl Iterator<Item = &String> {
@@ -4308,12 +4318,13 @@ impl ModelDependencyReloadListener {
 
 impl Default for ModelDependencyReloadListener {
     fn default() -> Self {
-        Self::new(
-            DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES.iter().copied(),
-            DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS.iter().copied(),
-            DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS.iter().copied(),
-            DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS.iter().copied(),
-        )
+        Self {
+            discover_all: true,
+            blockstates: Vec::new(),
+            block_models: Vec::new(),
+            item_models: Vec::new(),
+            item_roots: Vec::new(),
+        }
     }
 }
 
@@ -4326,6 +4337,11 @@ impl ResourceReloadListener for ModelDependencyReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        if self.discover_all {
+            let resources = discover_model_dependency_resources(stack)?;
+            return Ok(ResourceReloadTaskReport::new(resources.all_resources()));
+        }
+
         let mut resources = Vec::with_capacity(
             self.blockstates.len()
                 + self.block_models.len()
@@ -4357,6 +4373,12 @@ pub struct ModelDependencyReport {
     counts_by_top_priority_pack: BTreeMap<String, ModelDependencyPackCounts>,
     blockstate_models: BTreeSet<String>,
     item_root_models: BTreeSet<String>,
+    root_models: BTreeSet<String>,
+    reachable_models: BTreeSet<String>,
+    valid_models: BTreeSet<String>,
+    missing_models: BTreeSet<String>,
+    cyclic_models: BTreeSet<String>,
+    unreferenced_model_count: usize,
     parents: BTreeSet<String>,
     textures: BTreeSet<String>,
 }
@@ -4376,6 +4398,30 @@ impl ModelDependencyReport {
 
     pub fn item_root_models(&self) -> &BTreeSet<String> {
         &self.item_root_models
+    }
+
+    pub fn root_models(&self) -> &BTreeSet<String> {
+        &self.root_models
+    }
+
+    pub fn reachable_models(&self) -> &BTreeSet<String> {
+        &self.reachable_models
+    }
+
+    pub fn valid_models(&self) -> &BTreeSet<String> {
+        &self.valid_models
+    }
+
+    pub fn missing_models(&self) -> &BTreeSet<String> {
+        &self.missing_models
+    }
+
+    pub fn cyclic_models(&self) -> &BTreeSet<String> {
+        &self.cyclic_models
+    }
+
+    pub fn unreferenced_model_count(&self) -> usize {
+        self.unreferenced_model_count
     }
 
     pub fn parents(&self) -> &BTreeSet<String> {
@@ -4411,6 +4457,7 @@ impl ModelDependencyResourceReport {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModelDependencyResourceKind {
     Blockstate,
+    Model,
     BlockModel,
     ItemModel,
     ItemRoot,
@@ -4420,6 +4467,7 @@ impl ModelDependencyResourceKind {
     fn label(self) -> &'static str {
         match self {
             Self::Blockstate => "blockstates",
+            Self::Model => "models",
             Self::BlockModel => "block_models",
             Self::ItemModel => "item_models",
             Self::ItemRoot => "item_roots",
@@ -4430,6 +4478,7 @@ impl ModelDependencyResourceKind {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ModelDependencyPackCounts {
     pub blockstates: usize,
+    pub models: usize,
     pub block_models: usize,
     pub item_models: usize,
     pub item_roots: usize,
@@ -4439,6 +4488,7 @@ impl ModelDependencyPackCounts {
     fn increment(&mut self, kind: ModelDependencyResourceKind) {
         match kind {
             ModelDependencyResourceKind::Blockstate => self.blockstates += 1,
+            ModelDependencyResourceKind::Model => self.models += 1,
             ModelDependencyResourceKind::BlockModel => self.block_models += 1,
             ModelDependencyResourceKind::ItemModel => self.item_models += 1,
             ModelDependencyResourceKind::ItemRoot => self.item_roots += 1,
@@ -4453,31 +4503,79 @@ pub fn load_model_dependencies(
     item_models: &[String],
     item_roots: &[String],
 ) -> ResourceReloadResult<ModelDependencyReport> {
-    let mut resources = Vec::with_capacity(
-        blockstates.len() + block_models.len() + item_models.len() + item_roots.len(),
-    );
+    let mut discovered = DiscoveredModelDependencyResources::default();
+    discovered.blockstates.extend(blockstates.iter().cloned());
+    discovered.block_models.extend(block_models.iter().cloned());
+    discovered.item_models.extend(item_models.iter().cloned());
+    discovered.item_roots.extend(item_roots.iter().cloned());
+    load_model_dependencies_from_resources(stack, &discovered)
+}
+
+fn load_discovered_model_dependencies(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<ModelDependencyReport> {
+    let resources = discover_model_dependency_resources(stack)?;
+    load_model_dependencies_from_resources(stack, &resources)
+}
+
+fn load_model_dependencies_from_resources(
+    stack: &ClientResourceStack,
+    discovered: &DiscoveredModelDependencyResources,
+) -> ResourceReloadResult<ModelDependencyReport> {
+    let mut resources = Vec::new();
     let mut counts_by_top_priority_pack = BTreeMap::new();
     let mut blockstate_models = BTreeSet::new();
     let mut item_root_models = BTreeSet::new();
+    let mut model_definitions = BTreeMap::new();
     let mut parents = BTreeSet::new();
     let mut textures = BTreeSet::new();
 
-    for blockstate in blockstates {
-        let resource = load_client_json_resource(stack, blockstate)?;
-        let model_references = extract_blockstate_model_references(resource.value())
-            .map_err(|reason| invalid_model_dependency(&resource, reason))?;
-        blockstate_models.extend(model_references);
+    for blockstate in &discovered.blockstates {
+        let locations = stack.resource_stack(blockstate);
+        if locations.is_empty() {
+            return Err(ResourceReloadError::MissingResource(blockstate.clone()));
+        }
+        for location in locations {
+            let resource = load_client_json_resource_at_location(blockstate, location)?;
+            let model_references = extract_blockstate_model_references(resource.value())
+                .map_err(|reason| invalid_model_dependency(&resource, reason))?;
+            blockstate_models.extend(model_references);
+            push_model_dependency_resource(
+                &mut resources,
+                &mut counts_by_top_priority_pack,
+                resource.report(),
+                ModelDependencyResourceKind::Blockstate,
+            );
+        }
+    }
+
+    for model in &discovered.models {
+        let resource = load_client_json_resource(stack, model)?;
+        let model_id = model_resource_id(model).ok_or_else(|| {
+            invalid_model_dependency(&resource, format!("invalid model resource path `{model}`"))
+        })?;
+        let definition = parse_model_json_dependencies(&resource)?;
+        collect_model_definition_dependencies(&definition, &mut parents, &mut textures);
+        model_definitions.insert(model_id, definition);
         push_model_dependency_resource(
             &mut resources,
             &mut counts_by_top_priority_pack,
             resource.report(),
-            ModelDependencyResourceKind::Blockstate,
+            ModelDependencyResourceKind::Model,
         );
     }
 
-    for block_model in block_models {
+    for block_model in &discovered.block_models {
         let resource = load_client_json_resource(stack, block_model)?;
-        collect_model_json_dependencies(&resource, &mut parents, &mut textures)?;
+        let model_id = model_resource_id(block_model).ok_or_else(|| {
+            invalid_model_dependency(
+                &resource,
+                format!("invalid model resource path `{block_model}`"),
+            )
+        })?;
+        let definition = parse_model_json_dependencies(&resource)?;
+        collect_model_definition_dependencies(&definition, &mut parents, &mut textures);
+        model_definitions.insert(model_id, definition);
         push_model_dependency_resource(
             &mut resources,
             &mut counts_by_top_priority_pack,
@@ -4486,9 +4584,17 @@ pub fn load_model_dependencies(
         );
     }
 
-    for item_model in item_models {
+    for item_model in &discovered.item_models {
         let resource = load_client_json_resource(stack, item_model)?;
-        collect_model_json_dependencies(&resource, &mut parents, &mut textures)?;
+        let model_id = model_resource_id(item_model).ok_or_else(|| {
+            invalid_model_dependency(
+                &resource,
+                format!("invalid model resource path `{item_model}`"),
+            )
+        })?;
+        let definition = parse_model_json_dependencies(&resource)?;
+        collect_model_definition_dependencies(&definition, &mut parents, &mut textures);
+        model_definitions.insert(model_id, definition);
         push_model_dependency_resource(
             &mut resources,
             &mut counts_by_top_priority_pack,
@@ -4497,7 +4603,7 @@ pub fn load_model_dependencies(
         );
     }
 
-    for item_root in item_roots {
+    for item_root in &discovered.item_roots {
         let resource = load_client_json_resource(stack, item_root)?;
         let model_references = extract_item_root_model_dependencies(resource.value())
             .map_err(|reason| invalid_model_dependency(&resource, reason))?;
@@ -4510,11 +4616,22 @@ pub fn load_model_dependencies(
         );
     }
 
+    let mut root_models = BTreeSet::from(["minecraft:builtin/generated".to_owned()]);
+    root_models.extend(blockstate_models.iter().cloned());
+    root_models.extend(item_root_models.iter().cloned());
+    let graph = resolve_model_dependency_graph(&model_definitions, &root_models);
+
     Ok(ModelDependencyReport {
         resources,
         counts_by_top_priority_pack,
         blockstate_models,
         item_root_models,
+        root_models,
+        reachable_models: graph.reachable_models,
+        valid_models: graph.valid_models,
+        missing_models: graph.missing_models,
+        cyclic_models: graph.cyclic_models,
+        unreferenced_model_count: graph.unreferenced_model_count,
         parents,
         textures,
     })
@@ -4537,11 +4654,155 @@ fn push_model_dependency_resource(
     });
 }
 
-fn collect_model_json_dependencies(
-    resource: &ClientJsonResource,
-    parents: &mut BTreeSet<String>,
-    textures: &mut BTreeSet<String>,
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct DiscoveredModelDependencyResources {
+    blockstates: BTreeSet<String>,
+    models: BTreeSet<String>,
+    block_models: BTreeSet<String>,
+    item_models: BTreeSet<String>,
+    item_roots: BTreeSet<String>,
+}
+
+impl DiscoveredModelDependencyResources {
+    fn all_resources(&self) -> Vec<String> {
+        self.blockstates
+            .iter()
+            .chain(self.models.iter())
+            .chain(self.block_models.iter())
+            .chain(self.item_models.iter())
+            .chain(self.item_roots.iter())
+            .cloned()
+            .collect()
+    }
+}
+
+fn discover_model_dependency_resources(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<DiscoveredModelDependencyResources> {
+    let mut resources = DiscoveredModelDependencyResources::default();
+    for pack in stack.packs() {
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_model_dependency_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::RootZip(root) => {
+                discover_zip_model_dependency_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::Unavailable(_) => {}
+        }
+    }
+    Ok(resources)
+}
+
+fn discover_directory_model_dependency_resources(
+    root: &Path,
+    resources: &mut DiscoveredModelDependencyResources,
 ) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+    discover_directory_model_dependency_resources_inner(root, &assets, resources)
+}
+
+fn discover_directory_model_dependency_resources_inner(
+    root: &Path,
+    directory: &Path,
+    resources: &mut DiscoveredModelDependencyResources,
+) -> ResourceReloadResult<()> {
+    let entries = fs::read_dir(directory).map_err(|source| ResourceReloadError::ReadResource {
+        resource: directory_resource_name(root, directory),
+        path: directory.to_owned(),
+        source,
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: directory_resource_name(root, directory),
+            path: directory.to_owned(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            discover_directory_model_dependency_resources_inner(root, &path, resources)?;
+            continue;
+        }
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(resource_path) = path.strip_prefix(root) else {
+            continue;
+        };
+        if let Some(resource) = resource_path.to_str() {
+            collect_model_dependency_resource_path(resource, resources);
+        }
+    }
+    Ok(())
+}
+
+fn discover_zip_model_dependency_resources(
+    root: &Path,
+    resources: &mut DiscoveredModelDependencyResources,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets/*/{models,blockstates,items}/**/*.json".to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets/*/{models,blockstates,items}/**/*.json".to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: "assets/*/{models,blockstates,items}/**/*.json".to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        if !entry.is_dir() {
+            collect_model_dependency_resource_path(entry.name(), resources);
+        }
+    }
+    Ok(())
+}
+
+fn collect_model_dependency_resource_path(
+    resource: &str,
+    resources: &mut DiscoveredModelDependencyResources,
+) {
+    let Some((_namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once('/')?;
+        Some((namespace, rest))
+    }) else {
+        return;
+    };
+    if !resource.ends_with(".json") {
+        return;
+    }
+    if rest.starts_with("models/") {
+        resources.models.insert(resource.to_owned());
+    } else if rest.starts_with("blockstates/") {
+        resources.blockstates.insert(resource.to_owned());
+    } else if rest.starts_with("items/") {
+        resources.item_roots.insert(resource.to_owned());
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ModelJsonDependencies {
+    parent: Option<String>,
+    textures: BTreeSet<String>,
+}
+
+fn parse_model_json_dependencies(
+    resource: &ClientJsonResource,
+) -> ResourceReloadResult<ModelJsonDependencies> {
     let Some(object) = resource.value().as_object() else {
         return Err(invalid_model_dependency(
             resource,
@@ -4549,6 +4810,7 @@ fn collect_model_json_dependencies(
         ));
     };
 
+    let mut dependencies = ModelJsonDependencies::default();
     if let Some(parent) = object.get("parent") {
         let Some(parent) = parent.as_str() else {
             return Err(invalid_model_dependency(
@@ -4556,7 +4818,7 @@ fn collect_model_json_dependencies(
                 "model parent must be a string",
             ));
         };
-        parents.insert(parent.to_owned());
+        dependencies.parent = Some(normalize_model_id(parent));
     }
 
     if let Some(texture_values) = object.get("textures") {
@@ -4567,17 +4829,135 @@ fn collect_model_json_dependencies(
             ));
         };
         for (texture_key, texture) in texture_values {
-            let Some(texture) = texture.as_str() else {
-                return Err(invalid_model_dependency(
-                    resource,
-                    format!("model texture `{texture_key}` must be a string"),
-                ));
-            };
-            textures.insert(texture.to_owned());
+            if let Some(texture) = texture.as_str() {
+                dependencies.textures.insert(texture.to_owned());
+            } else if let Some(sprite) = texture
+                .as_object()
+                .and_then(|texture| texture.get("sprite"))
+                .and_then(serde_json::Value::as_str)
+            {
+                dependencies.textures.insert(sprite.to_owned());
+            } else {
+                let _ = texture_key;
+            }
         }
     }
 
-    Ok(())
+    Ok(dependencies)
+}
+
+fn collect_model_definition_dependencies(
+    dependencies: &ModelJsonDependencies,
+    parents: &mut BTreeSet<String>,
+    textures: &mut BTreeSet<String>,
+) {
+    if let Some(parent) = &dependencies.parent {
+        parents.insert(parent.clone());
+    }
+    textures.extend(dependencies.textures.iter().cloned());
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ModelDependencyGraphReport {
+    reachable_models: BTreeSet<String>,
+    valid_models: BTreeSet<String>,
+    missing_models: BTreeSet<String>,
+    cyclic_models: BTreeSet<String>,
+    unreferenced_model_count: usize,
+}
+
+fn resolve_model_dependency_graph(
+    definitions: &BTreeMap<String, ModelJsonDependencies>,
+    roots: &BTreeSet<String>,
+) -> ModelDependencyGraphReport {
+    let mut graph = ModelDependencyGraphReport::default();
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    let mut stack = Vec::new();
+
+    for root in roots {
+        visit_model_dependency(
+            root,
+            definitions,
+            &mut visiting,
+            &mut visited,
+            &mut stack,
+            &mut graph,
+        );
+    }
+
+    graph.valid_models = graph
+        .reachable_models
+        .difference(&graph.missing_models)
+        .cloned()
+        .collect();
+    graph.unreferenced_model_count = definitions
+        .keys()
+        .filter(|model| !graph.reachable_models.contains(*model))
+        .count();
+    graph
+}
+
+fn visit_model_dependency(
+    model: &str,
+    definitions: &BTreeMap<String, ModelJsonDependencies>,
+    visiting: &mut BTreeSet<String>,
+    visited: &mut BTreeSet<String>,
+    stack: &mut Vec<String>,
+    graph: &mut ModelDependencyGraphReport,
+) {
+    graph.reachable_models.insert(model.to_owned());
+    if visited.contains(model) {
+        return;
+    }
+    if visiting.contains(model) {
+        if let Some(position) = stack.iter().position(|stacked| stacked == model) {
+            graph
+                .cyclic_models
+                .extend(stack[position..].iter().cloned());
+        }
+        graph.cyclic_models.insert(model.to_owned());
+        return;
+    }
+
+    let Some(dependencies) = definitions.get(model) else {
+        graph.missing_models.insert(model.to_owned());
+        return;
+    };
+
+    visiting.insert(model.to_owned());
+    stack.push(model.to_owned());
+    if let Some(parent) = &dependencies.parent {
+        visit_model_dependency(parent, definitions, visiting, visited, stack, graph);
+    }
+    stack.pop();
+    visiting.remove(model);
+    visited.insert(model.to_owned());
+}
+
+fn normalize_model_id(id: &str) -> String {
+    if id.contains(':') {
+        id.to_owned()
+    } else {
+        format!("minecraft:{id}")
+    }
+}
+
+fn model_resource_id(resource: &str) -> Option<String> {
+    resource_id_from_directory(resource, "models")
+}
+
+fn resource_id_from_directory(resource: &str, directory: &str) -> Option<String> {
+    let rest = resource.strip_prefix("assets/")?;
+    let (namespace, rest) = rest.split_once('/')?;
+    let path = rest
+        .strip_prefix(directory)?
+        .strip_prefix('/')?
+        .strip_suffix(".json")?;
+    if namespace.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some(format!("{namespace}:{path}"))
 }
 
 pub fn extract_item_root_model_dependencies(
@@ -4617,7 +4997,7 @@ fn collect_item_model_dependencies(
             let Some(model) = model.as_str() else {
                 return Err("minecraft:model item model model must be a string".to_owned());
             };
-            model_references.insert(model.to_owned());
+            model_references.insert(normalize_model_id(model));
         }
         "special" => {
             let Some(base) = object.get("base") else {
@@ -4626,7 +5006,7 @@ fn collect_item_model_dependencies(
             let Some(base) = base.as_str() else {
                 return Err("minecraft:special item model base must be a string".to_owned());
             };
-            model_references.insert(base.to_owned());
+            model_references.insert(normalize_model_id(base));
         }
         "range_dispatch" => {
             if let Some(entries) = object.get("entries") {
@@ -4766,10 +5146,62 @@ fn model_dependency_report_items(report: &ModelDependencyReport) -> Vec<String> 
 
     for (pack_id, counts) in report.counts_by_top_priority_pack() {
         items.push(format!(
-            "pack:{pack_id}:blockstates:{} block_models:{} item_models:{} item_roots:{}",
-            counts.blockstates, counts.block_models, counts.item_models, counts.item_roots
+            "pack:{pack_id}:blockstates:{} models:{} block_models:{} item_models:{} item_roots:{}",
+            counts.blockstates,
+            counts.models,
+            counts.block_models,
+            counts.item_models,
+            counts.item_roots
         ));
     }
+
+    let discovered_blockstates = report
+        .resources()
+        .iter()
+        .filter(|resource| resource.kind() == ModelDependencyResourceKind::Blockstate)
+        .map(|resource| resource.resource())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let discovered_models = report
+        .resources()
+        .iter()
+        .filter(|resource| {
+            matches!(
+                resource.kind(),
+                ModelDependencyResourceKind::Model
+                    | ModelDependencyResourceKind::BlockModel
+                    | ModelDependencyResourceKind::ItemModel
+            )
+        })
+        .map(|resource| resource.resource())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let discovered_item_roots = report
+        .resources()
+        .iter()
+        .filter(|resource| resource.kind() == ModelDependencyResourceKind::ItemRoot)
+        .map(|resource| resource.resource())
+        .collect::<BTreeSet<_>>()
+        .len();
+
+    items.push(format!(
+        "discovered:blockstates:{discovered_blockstates} models:{discovered_models} item_roots:{discovered_item_roots} resources:{}",
+        report.resources().len()
+    ));
+    items.push(format!(
+        "roots:blockstates:{} items:{} total:{}",
+        report.blockstate_models().len(),
+        report.item_root_models().len(),
+        report.root_models().len()
+    ));
+    items.push(format!(
+        "resolved:reachable:{} valid:{} missing:{} cyclic:{} unreferenced:{}",
+        report.reachable_models().len(),
+        report.valid_models().len(),
+        report.missing_models().len(),
+        report.cyclic_models().len(),
+        report.unreferenced_model_count()
+    ));
 
     items.push(format!(
         "blockstate_models:{}",
@@ -12225,7 +12657,7 @@ mod tests {
     }
 
     #[test]
-    fn committed_vanilla_model_dependency_listener_loads_stone_and_stick_resources() {
+    fn committed_vanilla_model_dependency_listener_discovers_full_model_surface() {
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(ModelDependencyReloadListener::default())
             .run()
@@ -12233,28 +12665,45 @@ mod tests {
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "model_dependencies");
-        assert_eq!(
-            listener.preparation.items(),
-            [
-                "assets/minecraft/blockstates/stone.json".to_owned(),
-                "assets/minecraft/models/block/stone.json".to_owned(),
-                "assets/minecraft/models/item/stick.json".to_owned(),
-                "assets/minecraft/items/stone.json".to_owned(),
-            ]
+        assert!(listener.preparation.items().len() > 6_000);
+        assert!(
+            listener
+                .preparation
+                .items()
+                .contains(&"assets/minecraft/blockstates/stone.json".to_owned())
         );
-        assert_eq!(
-            listener.reload.items(),
-            [
-                "assets/minecraft/blockstates/stone.json@vanilla:blockstates".to_owned(),
-                "assets/minecraft/models/block/stone.json@vanilla:block_models".to_owned(),
-                "assets/minecraft/models/item/stick.json@vanilla:item_models".to_owned(),
-                "assets/minecraft/items/stone.json@vanilla:item_roots".to_owned(),
-                "pack:vanilla:blockstates:1 block_models:1 item_models:1 item_roots:1".to_owned(),
-                "blockstate_models:minecraft:block/stone,minecraft:block/stone_mirrored".to_owned(),
-                "item_root_models:minecraft:block/stone".to_owned(),
-                "parents:minecraft:block/cube_all,minecraft:item/handheld".to_owned(),
-                "textures:minecraft:block/stone,minecraft:item/stick".to_owned(),
-            ]
+        assert!(
+            listener
+                .preparation
+                .items()
+                .contains(&"assets/minecraft/models/block/stone.json".to_owned())
+        );
+        assert!(
+            listener
+                .preparation
+                .items()
+                .contains(&"assets/minecraft/items/stone.json".to_owned())
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with("discovered:blockstates:"))
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with("roots:blockstates:"))
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with("resolved:reachable:"))
         );
     }
 
@@ -12288,7 +12737,12 @@ mod tests {
             ClientResourcePack::new("override", override_pack.path()),
         ]);
         let report = ResourceReloadManager::new(stack)
-            .with_listener(ModelDependencyReloadListener::default())
+            .with_listener(ModelDependencyReloadListener::new(
+                DEFAULT_MODEL_DEPENDENCY_BLOCKSTATES.iter().copied(),
+                DEFAULT_MODEL_DEPENDENCY_BLOCK_MODELS.iter().copied(),
+                DEFAULT_MODEL_DEPENDENCY_ITEM_MODELS.iter().copied(),
+                DEFAULT_MODEL_DEPENDENCY_ITEM_ROOTS.iter().copied(),
+            ))
             .run()
             .expect("model dependency reload should succeed");
 
@@ -12300,8 +12754,13 @@ mod tests {
                 "assets/minecraft/models/block/stone.json@base:block_models".to_owned(),
                 "assets/minecraft/models/item/stick.json@override:item_models".to_owned(),
                 "assets/minecraft/items/stone.json@base:item_roots".to_owned(),
-                "pack:base:blockstates:1 block_models:1 item_models:0 item_roots:1".to_owned(),
-                "pack:override:blockstates:0 block_models:0 item_models:1 item_roots:0".to_owned(),
+                "pack:base:blockstates:1 models:0 block_models:1 item_models:0 item_roots:1"
+                    .to_owned(),
+                "pack:override:blockstates:0 models:0 block_models:0 item_models:1 item_roots:0"
+                    .to_owned(),
+                "discovered:blockstates:1 models:2 item_roots:1 resources:4".to_owned(),
+                "roots:blockstates:1 items:1 total:2".to_owned(),
+                "resolved:reachable:3 valid:1 missing:2 cyclic:0 unreferenced:1".to_owned(),
                 "blockstate_models:minecraft:block/stone".to_owned(),
                 "item_root_models:minecraft:block/stone".to_owned(),
                 "parents:minecraft:block/cube_all,minecraft:item/generated".to_owned(),
