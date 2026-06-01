@@ -7,6 +7,7 @@ use crate::protocol::{
 
 use super::super::super::translate_internal_packet_id;
 
+mod code_of_conduct;
 mod cookie;
 mod custom_payload;
 mod custom_report_details;
@@ -85,6 +86,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        code_of_conduct::read_code_of_conduct_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::clientbound::internal_ids::ConfigurationDisconnectClientbound => {
@@ -149,18 +158,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "SelectKnownPacks".to_owned(),
                     data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationCodeOfConductClientbound => {
-            let packet =
-                packet::configuration::clientbound::ConfigurationCodeOfConductClientbound {
-                    code_of_conduct: Serializable::read_from(buf)?,
-                };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "CodeOfConduct".to_owned(),
-                    data: packet.code_of_conduct.into_bytes(),
                 },
             )));
         }
