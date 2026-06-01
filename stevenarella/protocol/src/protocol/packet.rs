@@ -3662,10 +3662,16 @@ impl Serializable for CommandNode {
     }
 }
 
+pub mod client_settings;
+pub use client_settings::send_client_settings;
+pub mod client_status;
+pub use client_status::{send_client_status, ClientStatus};
 pub mod interaction;
 pub use interaction::{DigType, Hand};
 pub mod inventory;
 pub use inventory::{send_click_container, send_close_window, InventoryOperation};
+pub mod keep_alive;
+pub use keep_alive::send_keep_alive;
 pub mod movement;
 pub use movement::{send_flying, send_look, send_position, send_position_look};
 pub mod player_interaction;
@@ -3673,83 +3679,3 @@ pub use player_interaction::{
     send_arm_swing, send_block_place, send_digging, send_drop_item, send_release_use_item,
     send_swap_item_in_hand, send_use_item,
 };
-
-#[derive(PartialEq, Eq)]
-#[repr(u8)]
-pub enum ClientStatus {
-    PerformRespawn = 0,
-    RequestStats = 1,
-    // this variant isn't available on all versions
-    OpenInventory = 2,
-}
-
-pub fn send_client_status(conn: &mut Conn, status: ClientStatus) -> Result<(), Error> {
-    let version = conn.get_version();
-    // we don't send any information to the server when opening the inv in newer versions
-    if version > Version::V1_11 && status == ClientStatus::OpenInventory {
-        return Ok(());
-    }
-
-    if version < Version::V1_8 {
-        conn.write_packet(
-            crate::protocol::packet::play::serverbound::ClientStatus_u8 {
-                action_id: status as u8,
-            },
-        )
-    } else {
-        conn.write_packet(crate::protocol::packet::play::serverbound::ClientStatus {
-            action_id: VarInt(status as u8 as i32),
-        })
-    }
-}
-
-pub fn send_client_settings(
-    conn: &mut Conn,
-    locale: String,
-    view_distance: u8,
-    chat_mode: u8,
-    chat_colors: bool,
-    displayed_skin_parts: u8,
-    main_hand: Hand,
-) -> Result<(), Error> {
-    let version = conn.get_version();
-    if version < Version::V1_9 {
-        // TODO: Do this for protocol version 48
-        // 1 snapshot after 1.8
-        conn.write_packet(packet::play::serverbound::ClientSettings_u8_Handsfree {
-            locale,
-            view_distance,
-            chat_mode,
-            chat_colors,
-            displayed_skin_parts,
-        })
-    } else {
-        conn.write_packet(packet::play::serverbound::ClientSettings {
-            locale,
-            view_distance,
-            chat_mode: VarInt(chat_mode as i32),
-            chat_colors,
-            displayed_skin_parts,
-            main_hand: VarInt(main_hand.ordinal()),
-        })
-    }
-}
-
-pub fn send_keep_alive(conn: &mut Conn, id: i64) -> Result<(), Error> {
-    if conn.state == State::Configuration {
-        return conn.write_packet(
-            packet::configuration::serverbound::ConfigurationKeepAliveServerbound_i64 { id },
-        );
-    }
-
-    let version = conn.get_version();
-    if version < Version::V1_8 {
-        conn.write_packet(packet::play::serverbound::KeepAliveServerbound_i32 { id: id as i32 })
-    } else if version < Version::V1_12 {
-        conn.write_packet(packet::play::serverbound::KeepAliveServerbound_VarInt {
-            id: VarInt(id as i32),
-        })
-    } else {
-        conn.write_packet(packet::play::serverbound::KeepAliveServerbound_i64 { id })
-    }
-}
