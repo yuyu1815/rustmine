@@ -13,6 +13,7 @@ use super::super::translate_internal_packet_id;
 mod entity;
 mod scoreboard;
 mod sound;
+mod text;
 mod update;
 
 pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
@@ -32,6 +33,9 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
         return Ok(Some(packet));
     }
     if let Some(packet) = entity::read_entity_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) = text::read_text_clientbound_packet_by_internal_id(internal_id, buf)? {
         return Ok(Some(packet));
     }
 
@@ -73,13 +77,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PlaySetPlayerInventoryClientbound { slot, item: None },
             )));
         }
-        packet::play::clientbound::internal_ids::PlaySetSubtitleTextClientbound => {
-            return Ok(Some(Packet::PlaySetSubtitleTextClientbound(
-                packet::play::clientbound::PlaySetSubtitleTextClientbound {
-                    text: read_nbt_string_component(buf)?,
-                },
-            )));
-        }
         packet::play::clientbound::internal_ids::PlaySetTimeClientbound => {
             let game_time = i64::read_from(buf)?;
             let clock_update_count = VarInt::read_from(buf)?;
@@ -99,13 +96,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PlaySetTimeClientbound {
                     game_time,
                     clock_update_count,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetTitleTextClientbound => {
-            return Ok(Some(Packet::PlaySetTitleTextClientbound(
-                packet::play::clientbound::PlaySetTitleTextClientbound {
-                    text: read_nbt_string_component(buf)?,
                 },
             )));
         }
@@ -159,21 +149,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "ShowDialog".to_owned(),
                     data: dialog_data,
-                },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySystemChatClientbound => {
-            let content = read_nbt_string_component(buf)?;
-            let overlay = bool::read_from(buf)?;
-            return Ok(Some(Packet::PlaySystemChatClientbound(
-                packet::play::clientbound::PlaySystemChatClientbound { content, overlay },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlayTabListClientbound => {
-            return Ok(Some(Packet::PlayTabListClientbound(
-                packet::play::clientbound::PlayTabListClientbound {
-                    header: read_nbt_string_component(buf)?,
-                    footer: read_nbt_string_component(buf)?,
                 },
             )));
         }
