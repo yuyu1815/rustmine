@@ -11,7 +11,7 @@ use super::{
     },
 };
 use crate::resources::{
-    ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
+    ClientResourceStack, ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
     ResourceReloadProgressSnapshot, ResourceReloadReport, ResourceReloadResult,
 };
 
@@ -97,6 +97,20 @@ impl ResourceLoadingTracker {
         }
 
         report
+    }
+
+    pub fn run_client_resource_reload(
+        &mut self,
+        stack: ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadReport> {
+        let manager = ResourceReloadManager::with_default_client_resources(stack);
+        self.run_resource_reload(&manager)
+    }
+
+    pub fn run_vanilla_client_resource_reload(
+        &mut self,
+    ) -> ResourceReloadResult<ResourceReloadReport> {
+        self.run_client_resource_reload(ClientResourceStack::vanilla())
     }
 
     pub fn advance_presentation(&mut self) {
@@ -338,6 +352,50 @@ mod tests {
             StartupLoadingPhase::Complete
         );
         assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
+    }
+
+    #[test]
+    fn tracker_run_vanilla_client_resource_reload_marks_complete() {
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let report = tracker
+            .run_vanilla_client_resource_reload()
+            .expect("vanilla client resources should reload through tracker");
+
+        assert!(!report.listener_reports().is_empty());
+        assert_eq!(
+            tracker.flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+        assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
+    }
+
+    #[test]
+    fn tracker_sees_default_client_resource_reload_progress_before_completion() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+        let mut saw_intermediate_progress = false;
+
+        manager
+            .run_with_events(|event| {
+                tracker.apply_resource_reload_event(event);
+                let progress = tracker.weighted_progress().actual_progress();
+
+                if progress > 0.0 && progress < 1.0 {
+                    saw_intermediate_progress = true;
+                    assert_ne!(
+                        tracker.flow().loading_phase(),
+                        StartupLoadingPhase::Complete
+                    );
+                }
+            })
+            .expect("vanilla client resources should reload");
+
+        assert!(saw_intermediate_progress);
+        assert_ne!(
+            tracker.flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
     }
 
     #[test]
