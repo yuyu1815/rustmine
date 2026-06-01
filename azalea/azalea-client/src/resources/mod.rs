@@ -1961,6 +1961,7 @@ impl ResourceReloadManager {
             .with_listener(SplashesReloadListener::default())
             .with_listener(AtlasSourceReloadListener::default())
             .with_listener(AtlasStitchCandidateReloadListener::default())
+            .with_listener(AtlasTextureUploadCandidateReloadListener::default())
             .with_listener(FontDefinitionsReloadListener::default())
             .with_listener(FontProviderAssetReloadListener::default())
             .with_listener(FontGlyphAtlasCandidateReloadListener::default())
@@ -13384,6 +13385,552 @@ fn atlas_stitch_blockers_fragment(blockers: &[AtlasStitchBlocker]) -> String {
         .join(",")
 }
 
+const ATLAS_TEXTURE_UPLOAD_BOUNDARY: &str = "sprite_decode_complete_texture_upload_pending";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasTextureUploadCandidateCollection {
+    atlases: Vec<AtlasTextureUploadCandidateManifest>,
+}
+
+impl AtlasTextureUploadCandidateCollection {
+    pub fn atlases(&self) -> &[AtlasTextureUploadCandidateManifest] {
+        &self.atlases
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = AtlasTextureUploadCandidateManifestReport> + '_ {
+        self.atlases
+            .iter()
+            .map(AtlasTextureUploadCandidateManifest::report)
+    }
+
+    pub fn atlas_count(&self) -> usize {
+        self.atlases.len()
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.atlases.iter().map(|atlas| atlas.source_count()).sum()
+    }
+
+    pub fn sprite_candidate_count(&self) -> usize {
+        self.atlases
+            .iter()
+            .map(|atlas| atlas.sprite_candidate_count())
+            .sum()
+    }
+
+    pub fn available_sprite_resource_count(&self) -> usize {
+        self.atlases
+            .iter()
+            .map(|atlas| atlas.available_sprite_resource_count())
+            .sum()
+    }
+
+    pub fn decoded_sprite_resource_count(&self) -> usize {
+        self.atlases
+            .iter()
+            .map(|atlas| atlas.decoded_sprite_resource_count())
+            .sum()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.atlases.iter().map(|atlas| atlas.byte_count()).sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.atlases.iter().map(|atlas| atlas.blocker_count()).sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "atlas_upload_candidates:atlases:{} sources:{} sprite_candidates:{} available:{} decoded:{} blocked:{} bytes:{} boundary:{}",
+            self.atlas_count(),
+            self.source_count(),
+            self.sprite_candidate_count(),
+            self.available_sprite_resource_count(),
+            self.decoded_sprite_resource_count(),
+            self.blocker_count(),
+            self.byte_count(),
+            ATLAS_TEXTURE_UPLOAD_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| atlas_texture_upload_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasTextureUploadCandidateManifest {
+    resource: String,
+    pack_id: String,
+    source_count: usize,
+    source_type_counts: BTreeMap<String, usize>,
+    sprite_candidate_count: usize,
+    available_sprite_resource_count: usize,
+    decoded_sprite_resources: Vec<AtlasTextureUploadSpriteResource>,
+    blockers: Vec<AtlasTextureUploadBlocker>,
+}
+
+impl AtlasTextureUploadCandidateManifest {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn source_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.source_type_counts
+    }
+
+    pub fn sprite_candidate_count(&self) -> usize {
+        self.sprite_candidate_count
+    }
+
+    pub fn available_sprite_resource_count(&self) -> usize {
+        self.available_sprite_resource_count
+    }
+
+    pub fn decoded_sprite_resources(&self) -> &[AtlasTextureUploadSpriteResource] {
+        &self.decoded_sprite_resources
+    }
+
+    pub fn blockers(&self) -> &[AtlasTextureUploadBlocker] {
+        &self.blockers
+    }
+
+    pub fn decoded_sprite_resource_count(&self) -> usize {
+        self.decoded_sprite_resources.len()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.decoded_sprite_resources
+            .iter()
+            .map(AtlasTextureUploadSpriteResource::byte_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn upload_boundary(&self) -> &'static str {
+        ATLAS_TEXTURE_UPLOAD_BOUNDARY
+    }
+
+    pub fn report(&self) -> AtlasTextureUploadCandidateManifestReport {
+        AtlasTextureUploadCandidateManifestReport {
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            source_count: self.source_count,
+            source_type_counts: self.source_type_counts.clone(),
+            sprite_candidate_count: self.sprite_candidate_count,
+            available_sprite_resource_count: self.available_sprite_resource_count,
+            decoded_sprite_resource_count: self.decoded_sprite_resource_count(),
+            byte_count: self.byte_count(),
+            blocker_count: self.blocker_count(),
+            decoded_sprite_resources: self.decoded_sprite_resources.clone(),
+            blockers: self.blockers.clone(),
+            upload_boundary: self.upload_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasTextureUploadSpriteResource {
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+}
+
+impl AtlasTextureUploadSpriteResource {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    fn item_fragment(&self) -> String {
+        format!(
+            "{}@{}:{} bytes:png:{}x{}",
+            self.resource, self.pack_id, self.byte_count, self.width, self.height
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasTextureUploadBlocker {
+    resource: String,
+    reason: AtlasTextureUploadBlockerReason,
+}
+
+impl AtlasTextureUploadBlocker {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn reason(&self) -> &AtlasTextureUploadBlockerReason {
+        &self.reason
+    }
+
+    fn item_fragment(&self) -> String {
+        format!("{}:{}", self.reason.report_fragment(), self.resource)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AtlasTextureUploadBlockerReason {
+    MissingTextureResource,
+    ReadTextureResource,
+    InvalidPngSignature { byte_count: usize },
+    InvalidPngMetadata { reason: String },
+}
+
+impl AtlasTextureUploadBlockerReason {
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::MissingTextureResource => "missing".to_owned(),
+            Self::ReadTextureResource => "read_error".to_owned(),
+            Self::InvalidPngSignature { byte_count } => {
+                format!("invalid_png_signature:bytes:{byte_count}")
+            }
+            Self::InvalidPngMetadata { reason } => format!("invalid_png_metadata:{reason}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasTextureUploadCandidateManifestReport {
+    resource: String,
+    pack_id: String,
+    source_count: usize,
+    source_type_counts: BTreeMap<String, usize>,
+    sprite_candidate_count: usize,
+    available_sprite_resource_count: usize,
+    decoded_sprite_resource_count: usize,
+    byte_count: usize,
+    blocker_count: usize,
+    decoded_sprite_resources: Vec<AtlasTextureUploadSpriteResource>,
+    blockers: Vec<AtlasTextureUploadBlocker>,
+    upload_boundary: &'static str,
+}
+
+impl AtlasTextureUploadCandidateManifestReport {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn source_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.source_type_counts
+    }
+
+    pub fn sprite_candidate_count(&self) -> usize {
+        self.sprite_candidate_count
+    }
+
+    pub fn available_sprite_resource_count(&self) -> usize {
+        self.available_sprite_resource_count
+    }
+
+    pub fn decoded_sprite_resource_count(&self) -> usize {
+        self.decoded_sprite_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn decoded_sprite_resources(&self) -> &[AtlasTextureUploadSpriteResource] {
+        &self.decoded_sprite_resources
+    }
+
+    pub fn blockers(&self) -> &[AtlasTextureUploadBlocker] {
+        &self.blockers
+    }
+
+    pub fn upload_boundary(&self) -> &'static str {
+        self.upload_boundary
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasTextureUploadCandidateReloadListener {
+    name: String,
+    manifests: Vec<String>,
+    discover_manifests: bool,
+}
+
+impl AtlasTextureUploadCandidateReloadListener {
+    pub fn new(manifests: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "atlas_texture_upload_candidates".to_owned(),
+            manifests: manifests.into_iter().map(Into::into).collect(),
+            discover_manifests: false,
+        }
+    }
+
+    pub fn manifests(&self) -> &[String] {
+        &self.manifests
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<AtlasTextureUploadCandidateCollection> {
+        if self.discover_manifests {
+            load_discovered_client_atlas_texture_upload_candidates(stack)
+        } else {
+            load_client_atlas_texture_upload_candidates(stack, &self.manifests)
+        }
+    }
+
+    fn resolved_manifests(&self, stack: &ClientResourceStack) -> ResourceReloadResult<Vec<String>> {
+        if self.discover_manifests {
+            discover_atlas_manifest_resources(stack)
+        } else {
+            Ok(self.manifests.clone())
+        }
+    }
+}
+
+impl Default for AtlasTextureUploadCandidateReloadListener {
+    fn default() -> Self {
+        Self {
+            name: "atlas_texture_upload_candidates".to_owned(),
+            manifests: Vec::new(),
+            discover_manifests: true,
+        }
+    }
+}
+
+impl ResourceReloadListener for AtlasTextureUploadCandidateReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.resolved_manifests(stack)?;
+        for manifest in &manifests {
+            stack.require_resource(manifest)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(manifests))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+pub fn load_client_atlas_texture_upload_candidates(
+    stack: &ClientResourceStack,
+    manifests: &[String],
+) -> ResourceReloadResult<AtlasTextureUploadCandidateCollection> {
+    let stitch_candidates = load_client_atlas_stitch_candidates(stack, manifests)?;
+    Ok(build_atlas_texture_upload_candidate_collection(
+        stack,
+        &stitch_candidates,
+    ))
+}
+
+pub fn load_discovered_client_atlas_texture_upload_candidates(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<AtlasTextureUploadCandidateCollection> {
+    let manifests = discover_atlas_manifest_resources(stack)?;
+    load_client_atlas_texture_upload_candidates(stack, &manifests)
+}
+
+fn build_atlas_texture_upload_candidate_collection(
+    stack: &ClientResourceStack,
+    stitch_candidates: &AtlasStitchCandidateCollection,
+) -> AtlasTextureUploadCandidateCollection {
+    AtlasTextureUploadCandidateCollection {
+        atlases: stitch_candidates
+            .atlases()
+            .iter()
+            .map(|atlas| build_atlas_texture_upload_candidate_manifest(stack, atlas))
+            .collect(),
+    }
+}
+
+fn build_atlas_texture_upload_candidate_manifest(
+    stack: &ClientResourceStack,
+    stitch: &AtlasStitchCandidateManifest,
+) -> AtlasTextureUploadCandidateManifest {
+    let mut decoded_sprite_resources = Vec::new();
+    let mut blockers = stitch
+        .blockers()
+        .iter()
+        .map(|blocker| AtlasTextureUploadBlocker {
+            resource: blocker.resource().to_owned(),
+            reason: AtlasTextureUploadBlockerReason::MissingTextureResource,
+        })
+        .collect::<Vec<_>>();
+
+    for available in stitch.available_resources() {
+        let resource = available.resource();
+        let Some(location) = stack.find_resource(resource) else {
+            blockers.push(AtlasTextureUploadBlocker {
+                resource: resource.to_owned(),
+                reason: AtlasTextureUploadBlockerReason::MissingTextureResource,
+            });
+            continue;
+        };
+        match load_atlas_texture_upload_sprite_resource(resource, location) {
+            Ok(sprite_resource) => decoded_sprite_resources.push(sprite_resource),
+            Err(blocker) => blockers.push(blocker),
+        }
+    }
+
+    AtlasTextureUploadCandidateManifest {
+        resource: stitch.resource().to_owned(),
+        pack_id: stitch.pack_id().to_owned(),
+        source_count: stitch.source_count(),
+        source_type_counts: stitch.source_type_counts().clone(),
+        sprite_candidate_count: stitch.candidate_count(),
+        available_sprite_resource_count: stitch.available_resource_count(),
+        decoded_sprite_resources,
+        blockers,
+    }
+}
+
+fn load_atlas_texture_upload_sprite_resource(
+    resource: &str,
+    location: ResourceLocation,
+) -> Result<AtlasTextureUploadSpriteResource, AtlasTextureUploadBlocker> {
+    let bytes = match read_resource_bytes(resource, &location) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Err(AtlasTextureUploadBlocker {
+                resource: resource.to_owned(),
+                reason: AtlasTextureUploadBlockerReason::ReadTextureResource,
+            });
+        }
+    };
+    let image = match decode_png_dimensions(resource, &location, &bytes) {
+        Ok(image) => image,
+        Err(ResourceReloadError::InvalidPngSignature { byte_count, .. }) => {
+            return Err(AtlasTextureUploadBlocker {
+                resource: resource.to_owned(),
+                reason: AtlasTextureUploadBlockerReason::InvalidPngSignature { byte_count },
+            });
+        }
+        Err(ResourceReloadError::InvalidPngMetadata { reason, .. }) => {
+            return Err(AtlasTextureUploadBlocker {
+                resource: resource.to_owned(),
+                reason: AtlasTextureUploadBlockerReason::InvalidPngMetadata { reason },
+            });
+        }
+        Err(_) => {
+            return Err(AtlasTextureUploadBlocker {
+                resource: resource.to_owned(),
+                reason: AtlasTextureUploadBlockerReason::ReadTextureResource,
+            });
+        }
+    };
+
+    Ok(AtlasTextureUploadSpriteResource {
+        resource: resource.to_owned(),
+        pack_id: location.pack_id,
+        byte_count: bytes.len(),
+        width: image.width,
+        height: image.height,
+    })
+}
+
+fn atlas_texture_upload_candidate_report_item(
+    report: &AtlasTextureUploadCandidateManifestReport,
+) -> String {
+    format!(
+        "{}:{} sources types:{} sprite_candidates:{} available:{} decoded:{} bytes:{} blockers:{} blocker_details:{} resources:{} boundary:{}",
+        report.loaded_resource_pack(),
+        report.source_count(),
+        atlas_source_type_counts_fragment(report.source_type_counts()),
+        report.sprite_candidate_count(),
+        report.available_sprite_resource_count(),
+        report.decoded_sprite_resource_count(),
+        report.byte_count(),
+        report.blocker_count(),
+        atlas_texture_upload_blockers_fragment(report.blockers()),
+        atlas_texture_upload_resources_fragment(report.decoded_sprite_resources()),
+        report.upload_boundary()
+    )
+}
+
+fn atlas_texture_upload_resources_fragment(
+    resources: &[AtlasTextureUploadSpriteResource],
+) -> String {
+    if resources.is_empty() {
+        return "none".to_owned();
+    }
+
+    resources
+        .iter()
+        .map(AtlasTextureUploadSpriteResource::item_fragment)
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn atlas_texture_upload_blockers_fragment(blockers: &[AtlasTextureUploadBlocker]) -> String {
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+
+    blockers
+        .iter()
+        .map(AtlasTextureUploadBlocker::item_fragment)
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ColormapReloadListener {
     name: String,
@@ -17022,6 +17569,7 @@ mod tests {
                 "splashes",
                 "atlas_sources",
                 "atlas_stitch_candidates",
+                "atlas_texture_upload_candidates",
                 "font_definitions",
                 "font_provider_assets",
                 "font_glyph_atlas_candidates",
@@ -17603,6 +18151,144 @@ mod tests {
             report.resource() == "assets/minecraft/atlases/blocks.json"
                 && report.candidate_count() > 0
                 && report.available_resource_count() > 0
+        }));
+    }
+
+    #[test]
+    fn atlas_upload_candidate_reports_decoded_resources_blockers_and_boundary() {
+        let temp = TempPack::new();
+        let direct_png = encode_test_rgba_png(2, 2, &[0, 0, 0, 255].repeat(4));
+        let stone_png = encode_test_rgba_png(1, 1, &[255, 255, 255, 255]);
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"example:direct","sprite":"example:renamed"},
+                {"type":"minecraft:single","resource":"minecraft:item/bad"},
+                {"type":"minecraft:single","resource":"minecraft:item/missing"},
+                {"type":"minecraft:directory","source":"block","prefix":"block/"}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/direct.png", &direct_png);
+        temp.write_bytes("assets/minecraft/textures/item/bad.png", b"not a png");
+        temp.write_bytes("assets/minecraft/textures/block/stone.png", &stone_png);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let collection = load_client_atlas_texture_upload_candidates(
+            &stack,
+            &["assets/minecraft/atlases/test.json".to_owned()],
+        )
+        .expect("atlas upload candidates should report blockers without failing");
+        let atlas = &collection.atlases()[0];
+
+        assert_eq!(atlas.resource(), "assets/minecraft/atlases/test.json");
+        assert_eq!(atlas.pack_id(), "test");
+        assert_eq!(atlas.source_count(), 4);
+        assert_eq!(atlas.sprite_candidate_count(), 4);
+        assert_eq!(atlas.available_sprite_resource_count(), 3);
+        assert_eq!(atlas.decoded_sprite_resource_count(), 2);
+        assert_eq!(atlas.blocker_count(), 2);
+        assert_eq!(atlas.byte_count(), direct_png.len() + stone_png.len());
+        assert_eq!(
+            atlas
+                .decoded_sprite_resources()
+                .iter()
+                .map(|resource| (
+                    resource.resource(),
+                    resource.pack_id(),
+                    resource.byte_count(),
+                    resource.width(),
+                    resource.height()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "assets/example/textures/direct.png",
+                    "test",
+                    direct_png.len(),
+                    2,
+                    2
+                ),
+                (
+                    "assets/minecraft/textures/block/stone.png",
+                    "test",
+                    stone_png.len(),
+                    1,
+                    1
+                ),
+            ]
+        );
+        assert_eq!(
+            atlas
+                .blockers()
+                .iter()
+                .map(|blocker| (blocker.resource(), blocker.reason()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "assets/minecraft/textures/item/missing.png",
+                    &AtlasTextureUploadBlockerReason::MissingTextureResource
+                ),
+                (
+                    "assets/minecraft/textures/item/bad.png",
+                    &AtlasTextureUploadBlockerReason::InvalidPngSignature { byte_count: 9 }
+                ),
+            ]
+        );
+        assert_eq!(
+            atlas.upload_boundary(),
+            "sprite_decode_complete_texture_upload_pending"
+        );
+        assert!(collection.summary_fragment().contains(
+            "atlas_upload_candidates:atlases:1 sources:4 sprite_candidates:4 available:3 decoded:2 blocked:2"
+        ));
+    }
+
+    #[test]
+    fn atlas_upload_candidate_listener_reports_summary_items_and_blocker_details() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:item/bad"}]}"#,
+        );
+        temp.write_bytes("assets/minecraft/textures/item/bad.png", b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(AtlasTextureUploadCandidateReloadListener::new([
+                "assets/minecraft/atlases/test.json",
+            ]))
+            .run()
+            .expect("invalid atlas sprite texture should be an upload blocker");
+
+        let items = report.listener_reports()[0].reload.items();
+        assert_eq!(items.len(), 2);
+        assert_eq!(
+            items[0],
+            "atlas_upload_candidates:atlases:1 sources:1 sprite_candidates:1 available:1 decoded:0 blocked:1 bytes:0 boundary:sprite_decode_complete_texture_upload_pending"
+        );
+        assert!(items[1].contains("blockers:1 blocker_details:invalid_png_signature:bytes:9:assets/minecraft/textures/item/bad.png"));
+        assert!(items[1].contains("resources:none"));
+        assert!(items[1].ends_with("boundary:sprite_decode_complete_texture_upload_pending"));
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_upload_candidates_report_nonzero_surface() {
+        let collection =
+            load_discovered_client_atlas_texture_upload_candidates(&ClientResourceStack::vanilla())
+                .expect("committed vanilla atlas upload candidates should load");
+        let reports = collection.reports().collect::<Vec<_>>();
+
+        assert_eq!(reports.len(), 15);
+        assert!(
+            collection.decoded_sprite_resource_count() > 0,
+            "vanilla atlas upload candidate surface should decode at least one texture"
+        );
+        assert!(reports.iter().any(|report| {
+            report.resource() == "assets/minecraft/atlases/blocks.json"
+                && report.sprite_candidate_count() > 0
+                && report.available_sprite_resource_count() > 0
+                && report.decoded_sprite_resource_count() > 0
+                && report.upload_boundary() == "sprite_decode_complete_texture_upload_pending"
         }));
     }
 
