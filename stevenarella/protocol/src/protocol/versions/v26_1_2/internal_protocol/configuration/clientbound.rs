@@ -7,12 +7,20 @@ use crate::protocol::{
 
 use super::super::super::translate_internal_packet_id;
 
+mod update;
+
 pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     id: i32,
     buf: &mut R,
 ) -> Result<Option<Packet>, Error> {
     let internal_id =
         translate_internal_packet_id(State::Configuration, Direction::Clientbound, id, true);
+    if let Some(packet) =
+        update::read_update_configuration_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+
     match internal_id {
         packet::configuration::clientbound::internal_ids::ConfigurationCookieRequestClientbound => {
             let _packet = packet::configuration::clientbound::ConfigurationCookieRequestClientbound {
@@ -140,85 +148,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
             return Ok(Some(Packet::PluginMessageClientbound(
                 packet::play::clientbound::PluginMessageClientbound {
                     channel: "Transfer".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationUpdateEnabledFeaturesClientbound => {
-            let feature_count = VarInt::read_from(buf)?.0;
-            if feature_count < 0 {
-                return Err(Error::Err(format!(
-                    "negative update_enabled_features feature count {}",
-                    feature_count
-                )));
-            }
-            let mut features = Vec::with_capacity(feature_count as usize);
-            for _ in 0..feature_count {
-                features.push(Serializable::read_from(buf)?);
-            }
-            let _packet = packet::configuration::clientbound::ConfigurationUpdateEnabledFeaturesClientbound {
-                features,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "UpdateEnabledFeatures".to_owned(),
-                    data: Vec::new(),
-                },
-            )));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationUpdateTagsClientbound => {
-            let registry_payload_count = VarInt::read_from(buf)?.0;
-            if registry_payload_count < 0 {
-                return Err(Error::Err(format!(
-                    "negative update_tags registry-payload count {}",
-                    registry_payload_count
-                )));
-            }
-            let mut registry_payloads =
-                Vec::with_capacity(registry_payload_count as usize);
-            for _ in 0..registry_payload_count {
-                let registry_key = Serializable::read_from(buf)?;
-                let tag_count = VarInt::read_from(buf)?.0;
-                if tag_count < 0 {
-                    return Err(Error::Err(format!(
-                        "negative update_tags tag count {}",
-                        tag_count
-                    )));
-                }
-                let mut tags = Vec::with_capacity(tag_count as usize);
-                for _ in 0..tag_count {
-                    let tag_key = Serializable::read_from(buf)?;
-                    let entry_count = VarInt::read_from(buf)?.0;
-                    if entry_count < 0 {
-                        return Err(Error::Err(format!(
-                            "negative update_tags entry count {}",
-                            entry_count
-                        )));
-                    }
-                    let mut entry_ids = Vec::with_capacity(entry_count as usize);
-                    for _ in 0..entry_count {
-                        entry_ids.push(VarInt::read_from(buf)?.0);
-                    }
-                    tags.push(
-                        packet::configuration::clientbound::ConfigurationUpdateTagsTagPayload {
-                            tag_key,
-                            entry_ids,
-                        },
-                    );
-                }
-                registry_payloads.push(
-                    packet::configuration::clientbound::ConfigurationUpdateTagsRegistryPayload {
-                        registry_key,
-                        tags,
-                    },
-                );
-            }
-            let _packet = packet::configuration::clientbound::ConfigurationUpdateTagsClientbound {
-                registry_payloads,
-            };
-            return Ok(Some(Packet::PluginMessageClientbound(
-                packet::play::clientbound::PluginMessageClientbound {
-                    channel: "UpdateTags".to_owned(),
                     data: Vec::new(),
                 },
             )));
