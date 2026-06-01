@@ -32,6 +32,7 @@ pub const CLOUDS_TEXTURE_RESOURCE: &str = "assets/minecraft/textures/environment
 pub const GPU_WARNLIST_RESOURCE: &str = "assets/minecraft/gpu_warnlist.json";
 pub const REGIONAL_COMPLIANCIES_RESOURCE: &str = "assets/minecraft/regional_compliancies.json";
 pub const SOUND_EVENTS_RESOURCE: &str = "assets/minecraft/sounds.json";
+pub const SOUND_EVENTS_RESOURCE_GLOB: &str = "assets/*/sounds.json";
 pub const EQUIPMENT_MANIFEST_DIR: &str = "assets/minecraft/equipment";
 pub const PARTICLE_MANIFEST_DIR: &str = "assets/minecraft/particles";
 pub const WAYPOINT_STYLE_MANIFEST_DIR: &str = "assets/minecraft/waypoint_style";
@@ -1840,7 +1841,7 @@ impl ResourceReloadManager {
     }
 
     pub fn with_default_client_resources(stack: ClientResourceStack) -> Self {
-        let has_sound_events = stack.find_resource(SOUND_EVENTS_RESOURCE).is_some();
+        let has_sound_events = discover_sound_event_resources(&stack).is_ok();
         let mut manager = Self::new(stack)
             .with_listener(ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE))
             .with_listener(TextureMetadataReloadListener::default())
@@ -3097,47 +3098,199 @@ impl ClientWaypointStyleReloadReport {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClientSoundEvents {
+    events: BTreeMap<String, ClientSoundEvent>,
     report: ClientSoundEventsReloadReport,
 }
 
 impl ClientSoundEvents {
+    pub fn events(&self) -> &BTreeMap<String, ClientSoundEvent> {
+        &self.events
+    }
+
     pub fn report(&self) -> &ClientSoundEventsReloadReport {
         &self.report
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientSoundEvent {
+    subtitle: Option<String>,
+    sounds: Vec<ClientSoundEntry>,
+}
+
+impl ClientSoundEvent {
+    pub fn subtitle(&self) -> Option<&str> {
+        self.subtitle.as_deref()
+    }
+
+    pub fn sounds(&self) -> &[ClientSoundEntry] {
+        &self.sounds
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientSoundEntry {
+    name: String,
+    kind: ClientSoundEntryKind,
+    volume: f32,
+    pitch: f32,
+    weight: u32,
+    stream: bool,
+    preload: bool,
+    attenuation_distance: u32,
+    file_resource: Option<String>,
+}
+
+impl ClientSoundEntry {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn kind(&self) -> ClientSoundEntryKind {
+        self.kind
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.volume
+    }
+
+    pub fn pitch(&self) -> f32 {
+        self.pitch
+    }
+
+    pub fn weight(&self) -> u32 {
+        self.weight
+    }
+
+    pub fn stream(&self) -> bool {
+        self.stream
+    }
+
+    pub fn preload(&self) -> bool {
+        self.preload
+    }
+
+    pub fn attenuation_distance(&self) -> u32 {
+        self.attenuation_distance
+    }
+
+    pub fn file_resource(&self) -> Option<&str> {
+        self.file_resource.as_deref()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientSoundEntryKind {
+    File,
+    Event,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSoundEventsReloadReport {
-    resource: String,
-    pack_id: String,
+    namespace_count: usize,
+    sounds_json_resource_count: usize,
     event_count: usize,
+    sound_entry_count: usize,
+    file_sound_count: usize,
+    event_reference_count: usize,
+    missing_file_sound_count: usize,
+    loaded_resources: Vec<String>,
 }
 
 impl ClientSoundEventsReloadReport {
-    fn new(resource: impl Into<String>, pack_id: impl Into<String>, event_count: usize) -> Self {
+    fn new(
+        namespace_count: usize,
+        sounds_json_resource_count: usize,
+        event_count: usize,
+        sound_entry_count: usize,
+        file_sound_count: usize,
+        event_reference_count: usize,
+        missing_file_sound_count: usize,
+        loaded_resources: Vec<String>,
+    ) -> Self {
         Self {
-            resource: resource.into(),
-            pack_id: pack_id.into(),
+            namespace_count,
+            sounds_json_resource_count,
             event_count,
+            sound_entry_count,
+            file_sound_count,
+            event_reference_count,
+            missing_file_sound_count,
+            loaded_resources,
         }
     }
 
-    pub fn resource(&self) -> &str {
-        &self.resource
+    pub fn namespace_count(&self) -> usize {
+        self.namespace_count
     }
 
-    pub fn pack_id(&self) -> &str {
-        &self.pack_id
+    pub fn sounds_json_resource_count(&self) -> usize {
+        self.sounds_json_resource_count
     }
 
     pub fn event_count(&self) -> usize {
         self.event_count
     }
 
+    pub fn sound_entry_count(&self) -> usize {
+        self.sound_entry_count
+    }
+
+    pub fn file_sound_count(&self) -> usize {
+        self.file_sound_count
+    }
+
+    pub fn event_reference_count(&self) -> usize {
+        self.event_reference_count
+    }
+
+    pub fn missing_file_sound_count(&self) -> usize {
+        self.missing_file_sound_count
+    }
+
+    pub fn loaded_resources(&self) -> &[String] {
+        &self.loaded_resources
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "namespaces:{} sounds_json:{} events:{} entries:{} files:{} event_refs:{} missing_files:{} resources:{}",
+            self.namespace_count,
+            self.sounds_json_resource_count,
+            self.event_count,
+            self.sound_entry_count,
+            self.file_sound_count,
+            self.event_reference_count,
+            self.missing_file_sound_count,
+            self.loaded_resources.join(",")
+        )
+    }
+
+    #[deprecated(note = "use loaded_resources for multi-namespace sounds.json reports")]
+    pub fn resource(&self) -> &str {
+        self.loaded_resources
+            .first()
+            .map(|resource| {
+                resource
+                    .split_once('@')
+                    .map_or(resource.as_str(), |(path, _)| path)
+            })
+            .unwrap_or_default()
+    }
+
+    #[deprecated(note = "use loaded_resources for multi-namespace sounds.json reports")]
+    pub fn pack_id(&self) -> &str {
+        self.loaded_resources
+            .first()
+            .and_then(|resource| resource.split_once('@').map(|(_, pack)| pack))
+            .unwrap_or_default()
+    }
+
+    #[deprecated(note = "use loaded_resources for multi-namespace sounds.json reports")]
     pub fn loaded_resource_pack(&self) -> String {
-        format!("{}@{}", self.resource, self.pack_id)
+        self.loaded_resources.first().cloned().unwrap_or_default()
     }
 }
 
@@ -3173,8 +3326,8 @@ impl ResourceReloadListener for SoundEventsReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        stack.require_resource(&self.resource)?;
-        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+        let resources = discover_sound_event_resources(stack)?;
+        Ok(ResourceReloadTaskReport::new(resources))
     }
 
     fn reload(
@@ -3182,11 +3335,9 @@ impl ResourceReloadListener for SoundEventsReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let sound_events = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new([format!(
-            "{}:{} events",
-            sound_events.report().loaded_resource_pack(),
-            sound_events.report().event_count()
-        )]))
+        Ok(ResourceReloadTaskReport::new([sound_events
+            .report()
+            .summary_fragment()]))
     }
 }
 
@@ -3194,55 +3345,492 @@ pub fn load_client_sound_events(
     stack: &ClientResourceStack,
     resource: impl AsRef<Path>,
 ) -> ResourceReloadResult<ClientSoundEvents> {
-    let resource = resource.as_ref();
-    let json = load_client_json_resource(stack, resource)?;
-    let events =
-        json.value()
-            .as_object()
-            .ok_or_else(|| ResourceReloadError::InvalidSoundEvents {
-                resource: resource.to_string_lossy().into_owned(),
-                path: stack
-                    .require_resource(resource)
-                    .map(|location| location.path)
-                    .unwrap_or_default(),
-                reason: "top-level value must be an object".to_owned(),
+    let requested_resource = resource.as_ref();
+    let resources = if requested_resource == Path::new(SOUND_EVENTS_RESOURCE) {
+        discover_sound_event_resources(stack)?
+    } else {
+        let resource = requested_resource.to_string_lossy().into_owned();
+        if stack.resource_stack(requested_resource).is_empty() {
+            return Err(ResourceReloadError::MissingResource(resource));
+        }
+        vec![resource]
+    };
+
+    load_client_sound_events_from_resources(stack, resources)
+}
+
+fn load_client_sound_events_from_resources(
+    stack: &ClientResourceStack,
+    resources: Vec<String>,
+) -> ResourceReloadResult<ClientSoundEvents> {
+    let mut events = BTreeMap::<String, ClientSoundEvent>::new();
+    let mut namespaces = BTreeSet::<String>::new();
+    let mut loaded_resources = Vec::<String>::new();
+    let mut sounds_json_resource_count = 0;
+    let mut sound_entry_count = 0;
+    let mut file_sound_count = 0;
+    let mut event_reference_count = 0;
+    let mut missing_file_sound_count = 0;
+
+    for resource in resources {
+        let namespace = sound_events_resource_namespace(&resource).ok_or_else(|| {
+            ResourceReloadError::InvalidSoundEvents {
+                resource: resource.clone(),
+                path: PathBuf::new(),
+                reason: "sounds.json resource must be assets/<namespace>/sounds.json".to_owned(),
+            }
+        })?;
+        namespaces.insert(namespace.clone());
+
+        for location in stack.resource_stack(&resource) {
+            sounds_json_resource_count += 1;
+            loaded_resources.push(format!("{}@{}", resource, location.pack_id));
+            let json = read_client_json_resource(Path::new(&resource), &location)?;
+            let sound_events = json.value().as_object().ok_or_else(|| {
+                ResourceReloadError::InvalidSoundEvents {
+                    resource: resource.clone(),
+                    path: location.path.clone(),
+                    reason: "top-level value must be an object".to_owned(),
+                }
             })?;
 
-    if let Some((event, _)) = events.iter().find(|(_, value)| !value.is_object()) {
-        let location = stack.require_resource(resource)?;
-        return Err(ResourceReloadError::InvalidSoundEvents {
-            resource: resource.to_string_lossy().into_owned(),
-            path: location.path,
-            reason: format!("sound event `{event}` must be an object"),
-        });
-    }
+            for (event_key, value) in sound_events {
+                let definition =
+                    parse_client_sound_event_definition(&resource, &location, event_key, value)?;
+                let event_id = format!("{namespace}:{event_key}");
+                let event = events.entry(event_id).or_insert_with(|| ClientSoundEvent {
+                    subtitle: definition.subtitle.clone(),
+                    sounds: Vec::new(),
+                });
 
-    for (event, value) in events {
-        let Some(sounds) = value.get("sounds") else {
-            let location = stack.require_resource(resource)?;
-            return Err(ResourceReloadError::InvalidSoundEvents {
-                resource: resource.to_string_lossy().into_owned(),
-                path: location.path,
-                reason: format!("sound event `{event}` must define a sounds array"),
-            });
-        };
-        if !sounds.is_array() {
-            let location = stack.require_resource(resource)?;
-            return Err(ResourceReloadError::InvalidSoundEvents {
-                resource: resource.to_string_lossy().into_owned(),
-                path: location.path,
-                reason: format!("sound event `{event}` sounds must be an array"),
-            });
+                if definition.replace {
+                    event.subtitle = definition.subtitle.clone();
+                    event.sounds.clear();
+                }
+
+                for entry in definition.sounds {
+                    sound_entry_count += 1;
+                    match entry.kind {
+                        ClientSoundEntryKind::File => {
+                            let Some(file_resource) = &entry.file_resource else {
+                                continue;
+                            };
+                            if stack.find_resource(file_resource).is_some() {
+                                file_sound_count += 1;
+                                event.sounds.push(entry);
+                            } else {
+                                missing_file_sound_count += 1;
+                            }
+                        }
+                        ClientSoundEntryKind::Event => {
+                            event_reference_count += 1;
+                            event.sounds.push(entry);
+                        }
+                    }
+                }
+            }
         }
     }
 
     Ok(ClientSoundEvents {
         report: ClientSoundEventsReloadReport::new(
-            resource.to_string_lossy(),
-            json.report().pack_id(),
+            namespaces.len(),
+            sounds_json_resource_count,
             events.len(),
+            sound_entry_count,
+            file_sound_count,
+            event_reference_count,
+            missing_file_sound_count,
+            loaded_resources,
         ),
+        events,
     })
+}
+
+struct ClientSoundEventDefinition {
+    replace: bool,
+    subtitle: Option<String>,
+    sounds: Vec<ClientSoundEntry>,
+}
+
+fn parse_client_sound_event_definition(
+    resource: &str,
+    location: &ResourceLocation,
+    event_key: &str,
+    value: &serde_json::Value,
+) -> ResourceReloadResult<ClientSoundEventDefinition> {
+    let object = value.as_object().ok_or_else(|| {
+        invalid_sound_events(
+            resource,
+            location,
+            format!("sound event `{event_key}` must be an object"),
+        )
+    })?;
+
+    let replace = match object.get("replace") {
+        Some(value) => value.as_bool().ok_or_else(|| {
+            invalid_sound_events(
+                resource,
+                location,
+                format!("sound event `{event_key}` replace must be a boolean"),
+            )
+        })?,
+        None => false,
+    };
+    let subtitle = match object.get("subtitle") {
+        Some(value) => Some(
+            value
+                .as_str()
+                .ok_or_else(|| {
+                    invalid_sound_events(
+                        resource,
+                        location,
+                        format!("sound event `{event_key}` subtitle must be a string"),
+                    )
+                })?
+                .to_owned(),
+        ),
+        None => None,
+    };
+    let sounds = match object.get("sounds") {
+        Some(value) => value.as_array().ok_or_else(|| {
+            invalid_sound_events(
+                resource,
+                location,
+                format!("sound event `{event_key}` sounds must be an array"),
+            )
+        })?,
+        None => {
+            return Ok(ClientSoundEventDefinition {
+                replace,
+                subtitle,
+                sounds: Vec::new(),
+            });
+        }
+    };
+
+    let sounds = sounds
+        .iter()
+        .enumerate()
+        .map(|(index, value)| parse_client_sound_entry(resource, location, event_key, index, value))
+        .collect::<ResourceReloadResult<Vec<_>>>()?;
+
+    Ok(ClientSoundEventDefinition {
+        replace,
+        subtitle,
+        sounds,
+    })
+}
+
+fn parse_client_sound_entry(
+    resource: &str,
+    location: &ResourceLocation,
+    event_key: &str,
+    index: usize,
+    value: &serde_json::Value,
+) -> ResourceReloadResult<ClientSoundEntry> {
+    let context = || format!("sound event `{event_key}` sound `{index}`");
+    if let Some(name) = value.as_str() {
+        return Ok(client_sound_file_entry(name, 1.0, 1.0, 1, false, false, 16));
+    }
+
+    let object = value.as_object().ok_or_else(|| {
+        invalid_sound_events(
+            resource,
+            location,
+            format!("{} must be a string or object", context()),
+        )
+    })?;
+    let name = object
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            invalid_sound_events(
+                resource,
+                location,
+                format!("{} name must be a string", context()),
+            )
+        })?;
+    let kind = match object.get("type") {
+        Some(value) => match value.as_str() {
+            Some("file") => ClientSoundEntryKind::File,
+            Some("event") => ClientSoundEntryKind::Event,
+            _ => {
+                return Err(invalid_sound_events(
+                    resource,
+                    location,
+                    format!("{} type must be `file` or `event`", context()),
+                ));
+            }
+        },
+        None => ClientSoundEntryKind::File,
+    };
+    let volume = positive_f32_field(resource, location, &context(), object, "volume", 1.0)?;
+    let pitch = positive_f32_field(resource, location, &context(), object, "pitch", 1.0)?;
+    let weight = positive_u32_field(resource, location, &context(), object, "weight", 1)?;
+    let stream = bool_field(resource, location, &context(), object, "stream", false)?;
+    let preload = bool_field(resource, location, &context(), object, "preload", false)?;
+    let attenuation_distance = positive_u32_field(
+        resource,
+        location,
+        &context(),
+        object,
+        "attenuation_distance",
+        16,
+    )?;
+
+    Ok(match kind {
+        ClientSoundEntryKind::File => client_sound_file_entry(
+            name,
+            volume,
+            pitch,
+            weight,
+            stream,
+            preload,
+            attenuation_distance,
+        ),
+        ClientSoundEntryKind::Event => ClientSoundEntry {
+            name: name.to_owned(),
+            kind,
+            volume,
+            pitch,
+            weight,
+            stream,
+            preload,
+            attenuation_distance,
+            file_resource: None,
+        },
+    })
+}
+
+fn client_sound_file_entry(
+    name: &str,
+    volume: f32,
+    pitch: f32,
+    weight: u32,
+    stream: bool,
+    preload: bool,
+    attenuation_distance: u32,
+) -> ClientSoundEntry {
+    ClientSoundEntry {
+        name: name.to_owned(),
+        kind: ClientSoundEntryKind::File,
+        volume,
+        pitch,
+        weight,
+        stream,
+        preload,
+        attenuation_distance,
+        file_resource: Some(sound_file_resource(name)),
+    }
+}
+
+fn sound_file_resource(name: &str) -> String {
+    let (namespace, path) = resource_identifier_parts(name);
+    format!("assets/{namespace}/sounds/{path}.ogg")
+}
+
+fn resource_identifier_parts(name: &str) -> (&str, &str) {
+    name.split_once(':').unwrap_or(("minecraft", name))
+}
+
+fn positive_f32_field(
+    resource: &str,
+    location: &ResourceLocation,
+    context: &str,
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    default: f32,
+) -> ResourceReloadResult<f32> {
+    let Some(value) = object.get(field) else {
+        return Ok(default);
+    };
+    let value = value.as_f64().ok_or_else(|| {
+        invalid_sound_events(
+            resource,
+            location,
+            format!("{context} {field} must be a positive number"),
+        )
+    })?;
+    if value <= 0.0 || !value.is_finite() {
+        return Err(invalid_sound_events(
+            resource,
+            location,
+            format!("{context} {field} must be a positive number"),
+        ));
+    }
+    Ok(value as f32)
+}
+
+fn positive_u32_field(
+    resource: &str,
+    location: &ResourceLocation,
+    context: &str,
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    default: u32,
+) -> ResourceReloadResult<u32> {
+    let Some(value) = object.get(field) else {
+        return Ok(default);
+    };
+    let value = value.as_u64().ok_or_else(|| {
+        invalid_sound_events(
+            resource,
+            location,
+            format!("{context} {field} must be a positive integer"),
+        )
+    })?;
+    if value == 0 || value > u32::MAX as u64 {
+        return Err(invalid_sound_events(
+            resource,
+            location,
+            format!("{context} {field} must be a positive integer"),
+        ));
+    }
+    Ok(value as u32)
+}
+
+fn bool_field(
+    resource: &str,
+    location: &ResourceLocation,
+    context: &str,
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    default: bool,
+) -> ResourceReloadResult<bool> {
+    match object.get(field) {
+        Some(value) => value.as_bool().ok_or_else(|| {
+            invalid_sound_events(
+                resource,
+                location,
+                format!("{context} {field} must be a boolean"),
+            )
+        }),
+        None => Ok(default),
+    }
+}
+
+fn invalid_sound_events(
+    resource: &str,
+    location: &ResourceLocation,
+    reason: String,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidSoundEvents {
+        resource: resource.to_owned(),
+        path: location.path.clone(),
+        reason,
+    }
+}
+
+fn discover_sound_event_resources(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<Vec<String>> {
+    let mut resources = BTreeSet::new();
+
+    for pack in stack.packs() {
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_sound_event_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::RootZip(root) => {
+                discover_zip_sound_event_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::Unavailable(_) => {}
+        }
+    }
+
+    if resources.is_empty() {
+        return Err(ResourceReloadError::MissingResource(
+            SOUND_EVENTS_RESOURCE_GLOB.to_owned(),
+        ));
+    }
+
+    Ok(resources.into_iter().collect())
+}
+
+fn discover_directory_sound_event_resources(
+    root: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(&assets).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets".to_owned(),
+        path: assets.clone(),
+        source,
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets".to_owned(),
+            path: assets.clone(),
+            source,
+        })?;
+        let path = entry.path();
+        if !path.is_dir() || !path.join("sounds.json").is_file() {
+            continue;
+        }
+        let Some(namespace) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        resources.insert(sound_events_resource_path(namespace));
+    }
+
+    Ok(())
+}
+
+fn discover_zip_sound_event_resources(
+    root: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: SOUND_EVENTS_RESOURCE_GLOB.to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: SOUND_EVENTS_RESOURCE_GLOB.to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: SOUND_EVENTS_RESOURCE_GLOB.to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        let name = entry.name();
+        let Some(namespace) = name
+            .strip_prefix("assets/")
+            .and_then(|name| name.strip_suffix("/sounds.json"))
+        else {
+            continue;
+        };
+        if !namespace.is_empty() && !namespace.contains('/') {
+            resources.insert(sound_events_resource_path(namespace));
+        }
+    }
+
+    Ok(())
+}
+
+fn sound_events_resource_path(namespace: &str) -> String {
+    format!("assets/{namespace}/sounds.json")
+}
+
+fn sound_events_resource_namespace(resource: &str) -> Option<String> {
+    let namespace = resource
+        .strip_prefix("assets/")?
+        .strip_suffix("/sounds.json")?;
+    (!namespace.is_empty() && !namespace.contains('/')).then(|| namespace.to_owned())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -9209,17 +9797,20 @@ mod tests {
     }
 
     #[test]
-    fn sound_events_listener_reports_highest_priority_pack_and_event_count() {
+    fn sound_events_reload_merges_stacked_packs_in_resource_stack_order() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(
             SOUND_EVENTS_RESOURCE,
             r#"{"block.stone.break":{"sounds":["dig.stone"]}}"#,
         );
+        base.write_bytes("assets/minecraft/sounds/dig.stone.ogg", b"ogg");
         override_pack.write(
             SOUND_EVENTS_RESOURCE,
-            r#"{"block.stone.break":{"sounds":["override.stone"]},"entity.player.hurt":{"sounds":[{"name":"damage.hit","type":"sound"}]}}"#,
+            r#"{"block.stone.break":{"sounds":["override.stone"]},"entity.player.hurt":{"sounds":[{"name":"damage.hit","type":"file"}]}}"#,
         );
+        override_pack.write_bytes("assets/minecraft/sounds/override.stone.ogg", b"ogg");
+        override_pack.write_bytes("assets/minecraft/sounds/damage.hit.ogg", b"ogg");
 
         let stack = ClientResourceStack::new(vec![
             ClientResourcePack::new("base", base.path()),
@@ -9236,10 +9827,145 @@ mod tests {
             listener.preparation.items(),
             [SOUND_EVENTS_RESOURCE.to_owned()]
         );
+        assert_eq!(listener.reload.items().len(), 1);
+        assert!(listener.reload.items()[0].contains("events:2 entries:3 files:3"));
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("base", base.path()),
+                ClientResourcePack::new("override", override_pack.path()),
+            ]))
+            .expect("sound events should load");
+        let stone = &sounds.events()["minecraft:block.stone.break"];
+        assert_eq!(stone.sounds().len(), 2);
+        assert_eq!(stone.sounds()[0].name(), "dig.stone");
+        assert_eq!(stone.sounds()[1].name(), "override.stone");
         assert_eq!(
-            listener.reload.items(),
-            [format!("{SOUND_EVENTS_RESOURCE}@override:2 events")]
+            sounds.report().loaded_resources(),
+            &[
+                "assets/minecraft/sounds.json@base".to_owned(),
+                "assets/minecraft/sounds.json@override".to_owned()
+            ]
         );
+    }
+
+    #[test]
+    fn sound_events_reload_replace_resets_sounds_and_subtitle() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.test":{"subtitle":"old","sounds":["old.sound"]}}"#,
+        );
+        base.write_bytes("assets/minecraft/sounds/old.sound.ogg", b"ogg");
+        override_pack.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.test":{"replace":true,"sounds":["new.sound"]}}"#,
+        );
+        override_pack.write_bytes("assets/minecraft/sounds/new.sound.ogg", b"ogg");
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let sounds = SoundEventsReloadListener::default()
+            .load(&stack)
+            .expect("replace sound events should load");
+        let event = &sounds.events()["minecraft:music.test"];
+
+        assert_eq!(event.subtitle(), None);
+        assert_eq!(event.sounds().len(), 1);
+        assert_eq!(event.sounds()[0].name(), "new.sound");
+    }
+
+    #[test]
+    fn sound_events_reload_uses_custom_namespace_event_id() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/sounds.json",
+            r#"{"ui.click":{"sounds":["example:click"]}}"#,
+        );
+        temp.write_bytes("assets/example/sounds/click.ogg", b"ogg");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("custom namespace sounds should load");
+
+        assert!(sounds.events().contains_key("example:ui.click"));
+        assert_eq!(sounds.report().namespace_count(), 1);
+    }
+
+    #[test]
+    fn sound_events_reload_defaults_unqualified_sound_names_to_minecraft_namespace() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"test.default_namespace":{"sounds":["entity.arrow.hit"]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/entity.arrow.hit.ogg", b"ogg");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("default namespace sound should load");
+        let entry = &sounds.events()["minecraft:test.default_namespace"].sounds()[0];
+
+        assert_eq!(
+            entry.file_resource(),
+            Some("assets/minecraft/sounds/entity.arrow.hit.ogg")
+        );
+    }
+
+    #[test]
+    fn sound_events_reload_applies_object_defaults() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"test.defaults":{"sounds":[{"name":"custom:ambient"}]}}"#,
+        );
+        temp.write_bytes("assets/custom/sounds/ambient.ogg", b"ogg");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("object default sound should load");
+        let entry = &sounds.events()["minecraft:test.defaults"].sounds()[0];
+
+        assert_eq!(entry.kind(), ClientSoundEntryKind::File);
+        assert_eq!(entry.volume(), 1.0);
+        assert_eq!(entry.pitch(), 1.0);
+        assert_eq!(entry.weight(), 1);
+        assert!(!entry.stream());
+        assert!(!entry.preload());
+        assert_eq!(entry.attenuation_distance(), 16);
+    }
+
+    #[test]
+    fn sound_events_reload_allows_missing_sounds_array() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"subtitle":"subtitles.block.generic.break"}}"#,
+        );
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("sound event without sounds array should load");
+        let event = &sounds.events()["minecraft:block.stone.break"];
+
+        assert_eq!(event.subtitle(), Some("subtitles.block.generic.break"));
+        assert!(event.sounds().is_empty());
+        assert_eq!(sounds.report().sound_entry_count(), 0);
     }
 
     #[test]
@@ -9258,20 +9984,82 @@ mod tests {
     }
 
     #[test]
-    fn sound_events_reload_rejects_missing_sounds_array() {
+    fn sound_events_reload_rejects_invalid_entry_fields() {
         let temp = TempPack::new();
         temp.write(
             SOUND_EVENTS_RESOURCE,
-            r#"{"block.stone.break":{"subtitle":"subtitles.block.generic.break"}}"#,
+            r#"{"block.stone.break":{"sounds":[{"name":"dig.stone","volume":0}]}}"#,
         );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
         let error = SoundEventsReloadListener::default()
             .load(&stack)
-            .expect_err("sound events without sounds arrays should fail");
+            .expect_err("sound events with invalid object fields should fail");
 
         assert!(
-            matches!(error, ResourceReloadError::InvalidSoundEvents { resource, reason, .. } if resource == SOUND_EVENTS_RESOURCE && reason == "sound event `block.stone.break` must define a sounds array")
+            matches!(error, ResourceReloadError::InvalidSoundEvents { resource, reason, .. } if resource == SOUND_EVENTS_RESOURCE && reason == "sound event `block.stone.break` sound `0` volume must be a positive number")
+        );
+    }
+
+    #[test]
+    fn sound_events_reload_skips_and_reports_missing_ogg_files() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"sounds":["missing.stone","present.stone"]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/present.stone.ogg", b"ogg");
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("sound events with missing files should load");
+        let event = &sounds.events()["minecraft:block.stone.break"];
+
+        assert_eq!(event.sounds().len(), 1);
+        assert_eq!(event.sounds()[0].name(), "present.stone");
+        assert_eq!(sounds.report().sound_entry_count(), 2);
+        assert_eq!(sounds.report().file_sound_count(), 1);
+        assert_eq!(sounds.report().missing_file_sound_count(), 1);
+    }
+
+    #[test]
+    fn sound_events_reload_retains_event_references_without_ogg() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.game","type":"event"}]}}"#,
+        );
+
+        let sounds = SoundEventsReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("event reference sound should load");
+        let entry = &sounds.events()["minecraft:music.menu"].sounds()[0];
+
+        assert_eq!(entry.kind(), ClientSoundEntryKind::Event);
+        assert_eq!(entry.name(), "music.game");
+        assert_eq!(entry.file_resource(), None);
+        assert_eq!(sounds.report().event_reference_count(), 1);
+    }
+
+    #[test]
+    fn committed_vanilla_default_client_resources_still_succeeds() {
+        let report =
+            ResourceReloadManager::with_default_client_resources(ClientResourceStack::vanilla())
+                .run()
+                .expect("committed vanilla default client resources should reload");
+
+        assert!(
+            !report
+                .listener_reports()
+                .iter()
+                .any(|listener| listener.name == "sound_events"),
+            "the committed vanilla fixture currently has no sounds.json, so the optional sound listener should not be installed"
         );
     }
 
