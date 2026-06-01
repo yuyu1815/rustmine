@@ -113,6 +113,7 @@ macro_rules! state_packets {
             )*
         })+
     })+) => {
+        #[allow(unused_imports)]
         use $crate::protocol::*;
         use std::io;
 
@@ -235,8 +236,6 @@ macro_rules! state_mapped_packets {
             )*
         })+
     })+) => {
-        use $crate::protocol::*;
-
         #[derive(Debug)]
         pub enum MappedPacket {
         $(
