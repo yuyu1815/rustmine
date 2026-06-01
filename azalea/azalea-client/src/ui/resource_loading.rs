@@ -168,7 +168,7 @@ fn weighted_progress_from_resource_reload(
         ),
         WeightedReloadStageProgress::new(
             "listener",
-            progress_ratio(snapshot.completed_listeners(), snapshot.listener_count()),
+            progress_ratio(snapshot.prepared_listeners(), snapshot.listener_count()),
             listener_weight,
         ),
     ])
@@ -454,7 +454,9 @@ mod tests {
             tracker.flow().loading_phase(),
             StartupLoadingPhase::Complete
         );
-        assert!((tracker.weighted_progress().actual_progress() - (5.0 / 8.0)).abs() < f32::EPSILON);
+        assert!(
+            (tracker.weighted_progress().actual_progress() - (7.0 / 10.0)).abs() < f32::EPSILON
+        );
     }
 
     #[test]
