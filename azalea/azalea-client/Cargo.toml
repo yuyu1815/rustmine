@@ -46,6 +46,8 @@ bevy_utils = { workspace = true, features = ["debug"] }
 
 [dev-dependencies]
 eyre.workspace = true
+minifb = "0.28.0"
+png.workspace = true
 
 [features]
 default = ["log", "packet-event", "online-mode"]

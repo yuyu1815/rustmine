@@ -4,6 +4,8 @@
 //! background and launcher are available immediately, while resource loading
 //! appears as an overlay instead of a blocking screen.
 
+use bevy_ecs::prelude::Message;
+
 use super::account_flow::{AccountFlow, AccountFlowScreen, StoredLauncherAccount};
 
 #[derive(Clone, Debug)]
@@ -74,7 +76,7 @@ impl StartupFlow {
             .iter_mut()
             .find(|existing_task| existing_task.has_same_identity_as(&task))
         {
-            *existing_task = task;
+            existing_task.merge_progress_from(task);
         } else {
             self.loading_tasks.push(task);
         }
@@ -94,6 +96,33 @@ impl StartupFlow {
         Some(removed_task)
     }
 
+    pub fn finish_loading_task(
+        &mut self,
+        name: impl Into<String>,
+        file: impl Into<String>,
+    ) -> LoadingTask {
+        let name = name.into();
+        let file = file.into();
+
+        if let Some(existing_task) = self
+            .loading_tasks
+            .iter_mut()
+            .find(|task| task.matches(&name, &file))
+        {
+            existing_task.mark_finishing();
+            return existing_task.clone();
+        }
+
+        let task = LoadingTask::finishing(name, file);
+        self.loading_tasks.push(task.clone());
+        self.loading_phase = StartupLoadingPhase::Loading;
+        task
+    }
+
+    pub fn advance_loading_presentation(&mut self) {
+        self.loading_tasks.retain(|task| !task.is_finishing());
+    }
+
     pub fn finish_loading(&mut self) {
         self.loading_tasks.clear();
         self.loading_phase = StartupLoadingPhase::Complete;
@@ -109,10 +138,37 @@ impl StartupFlow {
                 self.upsert_loading_task(task.into_loading_task());
             }
             ResourceLoadingUpdate::TaskFinished { name, file } => {
-                self.remove_loading_task(name, file);
+                self.finish_loading_task(name, file);
             }
             ResourceLoadingUpdate::Complete => {
                 self.finish_loading();
+            }
+        }
+    }
+
+    pub fn apply_resource_loading_event(&mut self, event: ResourceLoadingEvent) {
+        match event {
+            ResourceLoadingEvent::Started { name, file } => {
+                self.begin_loading();
+                self.upsert_loading_task(LoadingTask::new(name, file, 0.0));
+            }
+            ResourceLoadingEvent::Progress {
+                name,
+                file,
+                progress,
+                total,
+            } => {
+                self.apply_resource_loading_update(ResourceLoadingUpdate::task_progress(
+                    name, file, progress, total,
+                ));
+            }
+            ResourceLoadingEvent::Finished { name, file } => {
+                self.apply_resource_loading_update(ResourceLoadingUpdate::task_finished(
+                    name, file,
+                ));
+            }
+            ResourceLoadingEvent::Complete => {
+                self.apply_resource_loading_update(ResourceLoadingUpdate::Complete);
             }
         }
     }
@@ -185,14 +241,30 @@ pub struct LoadingTask {
     pub name: String,
     pub file: String,
     pub progress: f32,
+    pub presentation_state: LoadingTaskPresentationState,
 }
 
 impl LoadingTask {
     pub fn new(name: impl Into<String>, file: impl Into<String>, progress: f32) -> Self {
+        let progress = progress.clamp(0.0, 1.0);
         Self {
             name: name.into(),
             file: file.into(),
-            progress: progress.clamp(0.0, 1.0),
+            progress,
+            presentation_state: if progress >= 1.0 {
+                LoadingTaskPresentationState::Finishing
+            } else {
+                LoadingTaskPresentationState::Active
+            },
+        }
+    }
+
+    pub fn finishing(name: impl Into<String>, file: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            file: file.into(),
+            progress: 1.0,
+            presentation_state: LoadingTaskPresentationState::Finishing,
         }
     }
 
@@ -203,6 +275,28 @@ impl LoadingTask {
     fn has_same_identity_as(&self, other: &LoadingTask) -> bool {
         self.matches(&other.name, &other.file)
     }
+
+    fn merge_progress_from(&mut self, task: LoadingTask) {
+        self.progress = self.progress.max(task.progress);
+        if self.progress >= 1.0 || task.is_finishing() {
+            self.mark_finishing();
+        }
+    }
+
+    fn mark_finishing(&mut self) {
+        self.progress = 1.0;
+        self.presentation_state = LoadingTaskPresentationState::Finishing;
+    }
+
+    pub fn is_finishing(&self) -> bool {
+        self.presentation_state == LoadingTaskPresentationState::Finishing
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoadingTaskPresentationState {
+    Active,
+    Finishing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -228,7 +322,7 @@ impl ResourceLoadingTask {
         }
     }
 
-    fn into_loading_task(self) -> LoadingTask {
+    pub(super) fn into_loading_task(self) -> LoadingTask {
         let progress = if self.total == 0 {
             0.0
         } else {
@@ -238,7 +332,7 @@ impl ResourceLoadingTask {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub enum ResourceLoadingUpdate {
     TaskProgress(ResourceLoadingTask),
     TaskFinished { name: String, file: String },
@@ -257,6 +351,55 @@ impl ResourceLoadingUpdate {
 
     pub fn task_finished(name: impl Into<String>, file: impl Into<String>) -> Self {
         Self::TaskFinished {
+            name: name.into(),
+            file: file.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResourceLoadingEvent {
+    Started {
+        name: String,
+        file: String,
+    },
+    Progress {
+        name: String,
+        file: String,
+        progress: u64,
+        total: u64,
+    },
+    Finished {
+        name: String,
+        file: String,
+    },
+    Complete,
+}
+
+impl ResourceLoadingEvent {
+    pub fn started(name: impl Into<String>, file: impl Into<String>) -> Self {
+        Self::Started {
+            name: name.into(),
+            file: file.into(),
+        }
+    }
+
+    pub fn progress(
+        name: impl Into<String>,
+        file: impl Into<String>,
+        progress: u64,
+        total: u64,
+    ) -> Self {
+        Self::Progress {
+            name: name.into(),
+            file: file.into(),
+            progress,
+            total,
+        }
+    }
+
+    pub fn finished(name: impl Into<String>, file: impl Into<String>) -> Self {
+        Self::Finished {
             name: name.into(),
             file: file.into(),
         }
@@ -343,6 +486,49 @@ mod tests {
     }
 
     #[test]
+    fn resource_loading_progress_is_normalized_for_presentation() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.apply_resource_loading_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_ASSET_INDEX,
+            "1.21.6.json",
+            25,
+            100,
+        ));
+        flow.apply_resource_loading_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            1,
+            0,
+        ));
+        flow.apply_resource_loading_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_CORE_ASSETS,
+            "client.jar",
+            5,
+            4,
+        ));
+
+        assert_eq!(
+            flow.loading_overlay(),
+            Some(
+                [
+                    LoadingTask::new(
+                        loading_task_names::DOWNLOADING_ASSET_INDEX,
+                        "1.21.6.json",
+                        0.25,
+                    ),
+                    LoadingTask::new(loading_task_names::DOWNLOADING_ASSET, "stone.png", 0.0),
+                    LoadingTask::finishing(
+                        loading_task_names::DOWNLOADING_CORE_ASSETS,
+                        "client.jar",
+                    ),
+                ]
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
     fn updating_the_same_loading_task_does_not_duplicate_the_panel() {
         let mut flow = StartupFlow::new(Vec::new());
 
@@ -368,6 +554,91 @@ mod tests {
                 .as_slice()
             )
         );
+    }
+
+    #[test]
+    fn updating_the_same_loading_task_only_grows_progress() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            0.75,
+        ));
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            0.25,
+        ));
+
+        assert_eq!(
+            flow.loading_overlay(),
+            Some(
+                [LoadingTask::new(
+                    loading_task_names::DOWNLOADING_ASSET,
+                    "stone.png",
+                    0.75,
+                )]
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn reaching_full_progress_keeps_a_finishing_panel_until_presentation_advances() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            0.5,
+        ));
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            1.0,
+        ));
+
+        assert_eq!(
+            flow.loading_overlay(),
+            Some(
+                [LoadingTask::finishing(
+                    loading_task_names::DOWNLOADING_ASSET,
+                    "stone.png",
+                )]
+                .as_slice()
+            )
+        );
+        assert!(flow.is_loading());
+
+        flow.advance_loading_presentation();
+
+        assert_eq!(flow.loading_overlay(), None);
+        assert!(flow.is_loading());
+    }
+
+    #[test]
+    fn finishing_unknown_loading_task_creates_finishing_panel() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        let finished_task =
+            flow.finish_loading_task(loading_task_names::DOWNLOADING_ASSET, "unknown.png");
+
+        assert_eq!(
+            finished_task,
+            LoadingTask::finishing(loading_task_names::DOWNLOADING_ASSET, "unknown.png")
+        );
+        assert_eq!(
+            flow.loading_overlay(),
+            Some(
+                [LoadingTask::finishing(
+                    loading_task_names::DOWNLOADING_ASSET,
+                    "unknown.png",
+                )]
+                .as_slice()
+            )
+        );
+        assert!(flow.is_loading());
     }
 
     #[test]
@@ -481,6 +752,27 @@ mod tests {
     }
 
     #[test]
+    fn loading_panels_expose_task_presentation_state() {
+        let mut flow = StartupFlow::new(Vec::new());
+        flow.replace_loading_tasks([
+            LoadingTask::new(loading_task_names::DOWNLOADING_ASSET, "stone.png", 0.25),
+            LoadingTask::finishing(loading_task_names::UNPACKING_CORE_ASSETS, "client.jar"),
+        ]);
+
+        let screen = flow.screen();
+        let panels = screen.loading_panels();
+
+        assert_eq!(
+            panels[0].task.presentation_state,
+            LoadingTaskPresentationState::Active
+        );
+        assert_eq!(
+            panels[1].task.presentation_state,
+            LoadingTaskPresentationState::Finishing
+        );
+    }
+
+    #[test]
     fn resource_loading_update_upserts_the_same_task() {
         let mut flow = StartupFlow::new(Vec::new());
 
@@ -511,7 +803,45 @@ mod tests {
     }
 
     #[test]
-    fn resource_loading_update_removes_finished_task() {
+    fn resource_loading_event_starts_progress_finishes_and_completes_without_demo_timeline() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.apply_resource_loading_event(ResourceLoadingEvent::started(
+            loading_task_names::DOWNLOADING_ASSET_INDEX,
+            "1.21.6.json",
+        ));
+        flow.apply_resource_loading_event(ResourceLoadingEvent::progress(
+            loading_task_names::DOWNLOADING_ASSET_INDEX,
+            "1.21.6.json",
+            25,
+            100,
+        ));
+        flow.apply_resource_loading_event(ResourceLoadingEvent::finished(
+            loading_task_names::DOWNLOADING_ASSET_INDEX,
+            "1.21.6.json",
+        ));
+
+        assert_eq!(
+            flow.loading_overlay(),
+            Some(
+                [LoadingTask::finishing(
+                    loading_task_names::DOWNLOADING_ASSET_INDEX,
+                    "1.21.6.json",
+                )]
+                .as_slice()
+            )
+        );
+        assert!(flow.is_loading());
+
+        flow.advance_loading_presentation();
+        flow.apply_resource_loading_event(ResourceLoadingEvent::Complete);
+
+        assert_eq!(flow.loading_overlay(), None);
+        assert!(flow.loading_is_complete());
+    }
+
+    #[test]
+    fn resource_loading_update_keeps_finished_task_until_presentation_advances() {
         let mut flow = StartupFlow::new(Vec::new());
         flow.apply_resource_loading_update(ResourceLoadingUpdate::task_progress(
             loading_task_names::DOWNLOADING_ASSET_INDEX,
@@ -535,6 +865,22 @@ mod tests {
         assert_eq!(
             flow.loading_overlay(),
             Some(
+                [
+                    LoadingTask::finishing(
+                        loading_task_names::DOWNLOADING_ASSET_INDEX,
+                        "1.21.6.json",
+                    ),
+                    LoadingTask::new(loading_task_names::DOWNLOADING_ASSET, "grass.png", 0.25),
+                ]
+                .as_slice()
+            )
+        );
+
+        flow.advance_loading_presentation();
+
+        assert_eq!(
+            flow.loading_overlay(),
+            Some(
                 [LoadingTask::new(
                     loading_task_names::DOWNLOADING_ASSET,
                     "grass.png",
@@ -554,10 +900,15 @@ mod tests {
             1,
             4,
         ));
+        flow.apply_resource_loading_update(ResourceLoadingUpdate::task_finished(
+            loading_task_names::DOWNLOADING_ASSET,
+            "grass.png",
+        ));
 
         flow.apply_resource_loading_update(ResourceLoadingUpdate::Complete);
 
         assert_eq!(flow.loading_overlay(), None);
+        assert_eq!(flow.screen().loading_panels(), Vec::new());
         assert!(flow.loading_is_complete());
     }
 }

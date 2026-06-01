@@ -26,21 +26,23 @@ Never treat `stevenarella/` as the implementation target. Never overwrite `_anal
 
 ## Before Starting Work
 
-Before implementation, produce a short work map. It must name exactly one target UI Migration Slice, list the Stevenarella screen or behavior being referenced, list the Azalea crate/plugin areas likely involved, say whether Jar Analysis is needed, identify the responsibility boundaries that will be touched, and list the subagent investigations that will run before implementation.
+Before implementation, produce a short work map. It must name exactly one target UI Migration Slice, list the Stevenarella screen or behavior being referenced, list the Azalea crate/plugin areas likely involved, say whether Jar Analysis is needed, identify the responsibility boundaries that will be touched, and list the subagent investigations and implementation drafts that will run before the main agent edits code.
 
 Do not change multiple screens, multiple user flows, or multiple crates without this work map. If the work map grows broad, split the work before editing.
 
 ## Subagent Delegation
 
-Implementation investigation must be delegated to subagents before implementation begins. The main agent owns the work map, task splitting, integration of subagent findings, `AGENTS.md` and `CONTEXT.md` updates, final decisions, and final reporting. The main agent must not perform broad implementation research, cross-codebase comparison, or Jar Analysis by itself.
+Implementation investigation and implementation drafting must be delegated to subagents before code is changed. The main agent is an orchestrator and reviewer, not the primary implementer. The main agent owns the work map, task splitting, integration of subagent findings, `AGENTS.md` and `CONTEXT.md` updates, final decisions, and final reporting. The main agent must not perform broad implementation research, cross-codebase comparison, Jar Analysis, or first-pass code creation by itself.
 
 The only allowed main-agent investigation exceptions are tiny checks needed to maintain the thread, update documentation, confirm tool availability, or verify a specific subagent result. If the main agent uses an exception, it must state the exception in the work map or final report.
 
-Before making implementation edits, the main agent must have either received the required subagent findings or explicitly reported that subagent tools are unavailable. If subagent tools are unavailable, the main agent may continue only after saying which investigations would have been delegated and why local investigation is being used as a fallback.
+Before making implementation edits, the main agent must have either received the required subagent findings and patch proposal, or explicitly reported that subagent tools are unavailable. If subagent tools are unavailable, the main agent may continue only after saying which investigations and implementation draft would have been delegated and why local work is being used as a fallback.
 
-For every implementation task, the main agent should ask: "What investigation can be separated from my critical path?" If the answer is not "none", spawn at least one subagent. Do not use "I can inspect it faster myself" as a reason to skip delegation.
+For every implementation task, the main agent must ask: "What investigation or code drafting can be separated from my critical path?" If the answer is not "none", spawn at least one subagent before editing. Do not use "I can inspect it faster myself" or "I can implement it faster myself" as a reason to skip delegation.
 
-Subagents are investigation and bounded work-package helpers, not release owners. A subagent may inspect files, run read-only analysis, run verification commands, and prepare a bounded patch only when the main agent explicitly assigns a disjoint write scope. A subagent must not run `git add`, `git commit`, `git push`, create branches, open pull requests, or perform any final repository publication step. The main agent must review the subagent's findings or patch, decide what to integrate, and own all final reporting and git actions.
+Subagents are investigation and bounded implementation helpers, not release owners. A subagent may inspect files, run read-only analysis, run verification commands, and prepare a bounded patch when the main agent explicitly assigns a disjoint write scope. A subagent must not run `git add`, `git commit`, `git push`, create branches, open pull requests, or perform any final repository publication step. The main agent must review the subagent's findings or patch, decide what to integrate, and own all final reporting and git actions.
+
+The main agent should not write new production code directly when subagent tools are available. The main agent may make only small integration edits after reviewing subagent output, such as resolving a narrow conflict, applying a reported patch, fixing formatting fallout, or updating documentation. If the main agent writes production code directly, the final report must label it as a harness exception and explain why no subagent could draft it.
 
 When delegating implementation work, the main agent must state the subagent's write scope and must say that the subagent is not alone in the codebase, must not revert unrelated changes, and must not touch files outside its assigned scope. If the task is investigation-only, the prompt must say that no files should be edited. If the task is patch-producing, the prompt must say that the subagent should report changed paths and verification, but should not commit.
 
