@@ -2,7 +2,7 @@ use std::io;
 
 use crate::protocol::{
     packet::{self, Packet},
-    Direction, Error, Serializable, State, VarInt, UUID,
+    Direction, Error, Serializable, State, VarInt,
 };
 
 use super::super::super::translate_internal_packet_id;
@@ -12,6 +12,7 @@ mod custom_click_action;
 mod custom_payload;
 mod keep_alive;
 mod pong;
+mod resource_pack;
 
 pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     id: i32,
@@ -64,6 +65,14 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        resource_pack::read_resource_pack_configuration_serverbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::configuration::serverbound::internal_ids::ConfigurationClientInformationServerbound => {
@@ -100,13 +109,6 @@ pub(crate) fn read_configuration_serverbound_packet_by_id<R: io::Read>(
                         .map(|payload| payload.data)
                         .unwrap_or_else(Vec::new),
                 },
-            )));
-        }
-        packet::configuration::serverbound::internal_ids::ConfigurationResourcePackServerbound => {
-            let _id: UUID = Serializable::read_from(buf)?;
-            let action: VarInt = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::ResourcePackStatus(
-                packet::play::serverbound::ResourcePackStatus { result: action },
             )));
         }
         packet::configuration::serverbound::internal_ids::ConfigurationSelectKnownPacksServerbound => {
