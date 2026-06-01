@@ -52,6 +52,7 @@ const DEFAULT_ATLAS_MANIFESTS: &[&str] = &[
     "assets/minecraft/atlases/items.json",
     "assets/minecraft/atlases/particles.json",
 ];
+const ATLAS_MANIFEST_RESOURCE_GLOB: &str = "assets/*/atlases/*.json";
 const DEFAULT_COLORMAPS: &[&str] = &[
     GRASS_COLORMAP_RESOURCE,
     FOLIAGE_COLORMAP_RESOURCE,
@@ -7724,7 +7725,9 @@ impl AtlasSourceCollection {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AtlasSourceManifest {
     resource: ClientJsonResource,
-    source_count: usize,
+    sources: Vec<AtlasSpriteSourceEntry>,
+    sprite_inventory: BTreeSet<String>,
+    referenced_resources: BTreeSet<String>,
 }
 
 impl AtlasSourceManifest {
@@ -7733,15 +7736,65 @@ impl AtlasSourceManifest {
     }
 
     pub fn source_count(&self) -> usize {
-        self.source_count
+        self.sources.len()
+    }
+
+    pub fn sources(&self) -> &[AtlasSpriteSourceEntry] {
+        &self.sources
+    }
+
+    pub fn sprite_inventory(&self) -> &BTreeSet<String> {
+        &self.sprite_inventory
+    }
+
+    pub fn referenced_resources(&self) -> &BTreeSet<String> {
+        &self.referenced_resources
     }
 
     pub fn report(&self) -> AtlasSourceManifestReport {
         AtlasSourceManifestReport {
             resource: self.resource.report().resource().to_owned(),
             pack_id: self.resource.report().pack_id().to_owned(),
-            source_count: self.source_count,
+            source_count: self.source_count(),
+            source_type_counts: atlas_source_type_counts(&self.sources),
+            sprite_count: self.sprite_inventory.len(),
+            referenced_resource_count: self.referenced_resources.len(),
         }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasSpriteSourceEntry {
+    source_type: String,
+    sprites: BTreeSet<String>,
+    resources: BTreeSet<String>,
+    filters: Vec<String>,
+}
+
+impl AtlasSpriteSourceEntry {
+    fn new(source_type: impl Into<String>) -> Self {
+        Self {
+            source_type: source_type.into(),
+            sprites: BTreeSet::new(),
+            resources: BTreeSet::new(),
+            filters: Vec::new(),
+        }
+    }
+
+    pub fn source_type(&self) -> &str {
+        &self.source_type
+    }
+
+    pub fn sprites(&self) -> &BTreeSet<String> {
+        &self.sprites
+    }
+
+    pub fn resources(&self) -> &BTreeSet<String> {
+        &self.resources
+    }
+
+    pub fn filters(&self) -> &[String] {
+        &self.filters
     }
 }
 
@@ -7750,6 +7803,9 @@ pub struct AtlasSourceManifestReport {
     resource: String,
     pack_id: String,
     source_count: usize,
+    source_type_counts: BTreeMap<String, usize>,
+    sprite_count: usize,
+    referenced_resource_count: usize,
 }
 
 impl AtlasSourceManifestReport {
@@ -7765,6 +7821,18 @@ impl AtlasSourceManifestReport {
         self.source_count
     }
 
+    pub fn source_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.source_type_counts
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn referenced_resource_count(&self) -> usize {
+        self.referenced_resource_count
+    }
+
     pub fn loaded_resource_pack(&self) -> String {
         format!("{}@{}", self.resource, self.pack_id)
     }
@@ -7774,6 +7842,7 @@ impl AtlasSourceManifestReport {
 pub struct AtlasSourceReloadListener {
     name: String,
     manifests: Vec<String>,
+    discover_manifests: bool,
 }
 
 impl AtlasSourceReloadListener {
@@ -7781,6 +7850,7 @@ impl AtlasSourceReloadListener {
         Self {
             name: "atlas_sources".to_owned(),
             manifests: manifests.into_iter().map(Into::into).collect(),
+            discover_manifests: false,
         }
     }
 
@@ -7789,13 +7859,29 @@ impl AtlasSourceReloadListener {
     }
 
     pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<AtlasSourceCollection> {
-        load_client_atlas_sources(stack, &self.manifests)
+        if self.discover_manifests {
+            load_discovered_client_atlas_sources(stack)
+        } else {
+            load_client_atlas_sources(stack, &self.manifests)
+        }
+    }
+
+    fn resolved_manifests(&self, stack: &ClientResourceStack) -> ResourceReloadResult<Vec<String>> {
+        if self.discover_manifests {
+            discover_atlas_manifest_resources(stack)
+        } else {
+            Ok(self.manifests.clone())
+        }
     }
 }
 
 impl Default for AtlasSourceReloadListener {
     fn default() -> Self {
-        Self::new(DEFAULT_ATLAS_MANIFESTS.iter().copied())
+        Self {
+            name: "atlas_sources".to_owned(),
+            manifests: Vec::new(),
+            discover_manifests: true,
+        }
     }
 }
 
@@ -7808,11 +7894,12 @@ impl ResourceReloadListener for AtlasSourceReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        for manifest in &self.manifests {
+        let manifests = self.resolved_manifests(stack)?;
+        for manifest in &manifests {
             stack.require_resource(manifest)?;
         }
 
-        Ok(ResourceReloadTaskReport::new(self.manifests.clone()))
+        Ok(ResourceReloadTaskReport::new(manifests))
     }
 
     fn reload(
@@ -7842,15 +7929,295 @@ pub fn load_client_atlas_sources(
 
         for location in locations {
             let resource = load_client_json_resource_at_location(manifest, location)?;
-            let source_count = validate_atlas_sources(&resource)?;
+            let parsed = parse_atlas_sources(stack, &resource)?;
             loaded.push(AtlasSourceManifest {
                 resource,
-                source_count,
+                sources: parsed.sources,
+                sprite_inventory: parsed.sprite_inventory,
+                referenced_resources: parsed.referenced_resources,
             });
         }
     }
 
     Ok(AtlasSourceCollection { atlases: loaded })
+}
+
+pub fn load_discovered_client_atlas_sources(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<AtlasSourceCollection> {
+    let manifests = discover_atlas_manifest_resources(stack)?;
+    load_client_atlas_sources(stack, &manifests)
+}
+
+fn discover_atlas_manifest_resources(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<Vec<String>> {
+    let mut resources = BTreeSet::new();
+
+    for pack in stack.packs() {
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_atlas_manifest_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::RootZip(root) => {
+                discover_zip_atlas_manifest_resources(root, &mut resources)?
+            }
+            ClientResourcePackSource::Unavailable(_) => {}
+        }
+    }
+
+    if resources.is_empty() {
+        return Err(ResourceReloadError::MissingResource(
+            ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+        ));
+    }
+
+    Ok(resources.into_iter().collect())
+}
+
+fn discover_directory_atlas_manifest_resources(
+    root: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+
+    let namespaces = fs::read_dir(&assets).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets".to_owned(),
+        path: assets.clone(),
+        source,
+    })?;
+    for namespace in namespaces {
+        let namespace = namespace.map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets".to_owned(),
+            path: assets.clone(),
+            source,
+        })?;
+        let namespace_path = namespace.path();
+        if !namespace_path.is_dir() {
+            continue;
+        }
+        let atlases = namespace_path.join("atlases");
+        if !atlases.exists() {
+            continue;
+        }
+        discover_directory_atlas_manifest_resources_inner(root, &atlases, resources)?;
+    }
+
+    Ok(())
+}
+
+fn discover_directory_atlas_manifest_resources_inner(
+    root: &Path,
+    directory: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let entries = fs::read_dir(directory).map_err(|source| ResourceReloadError::ReadResource {
+        resource: directory_resource_name(root, directory),
+        path: directory.to_owned(),
+        source,
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: directory_resource_name(root, directory),
+            path: directory.to_owned(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            discover_directory_atlas_manifest_resources_inner(root, &path, resources)?;
+        } else if path.is_file() {
+            let Ok(resource_path) = path.strip_prefix(root) else {
+                continue;
+            };
+            if let Some(resource) = resource_path.to_str() {
+                collect_atlas_manifest_resource_path(resource, resources);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn discover_zip_atlas_manifest_resources(
+    root: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        if !entry.is_dir() {
+            collect_atlas_manifest_resource_path(entry.name(), resources);
+        }
+    }
+    Ok(())
+}
+
+fn collect_atlas_manifest_resource_path(resource: &str, resources: &mut BTreeSet<String>) {
+    let Some((_namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once('/')?;
+        Some((namespace, rest))
+    }) else {
+        return;
+    };
+    if rest.starts_with("atlases/") && resource.ends_with(".json") {
+        resources.insert(resource.to_owned());
+    }
+}
+
+fn discover_atlas_directory_texture_resources(
+    stack: &ClientResourceStack,
+    source_path: &str,
+) -> ResourceReloadResult<BTreeSet<String>> {
+    let mut resources = BTreeSet::new();
+    for pack in stack.packs() {
+        match &pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                discover_directory_atlas_texture_resources(root, source_path, &mut resources)?
+            }
+            ClientResourcePackSource::RootZip(root) => {
+                discover_zip_atlas_texture_resources(root, source_path, &mut resources)?
+            }
+            ClientResourcePackSource::Unavailable(_) => {}
+        }
+    }
+    Ok(resources)
+}
+
+fn discover_directory_atlas_texture_resources(
+    root: &Path,
+    source_path: &str,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let assets = root.join("assets");
+    if !assets.exists() {
+        return Ok(());
+    }
+    let namespaces = fs::read_dir(&assets).map_err(|source| ResourceReloadError::ReadResource {
+        resource: "assets".to_owned(),
+        path: assets.clone(),
+        source,
+    })?;
+    for namespace in namespaces {
+        let namespace = namespace.map_err(|source| ResourceReloadError::ReadResource {
+            resource: "assets".to_owned(),
+            path: assets.clone(),
+            source,
+        })?;
+        let directory = namespace.path().join("textures").join(source_path);
+        if directory.exists() {
+            discover_directory_atlas_texture_resources_inner(root, &directory, resources)?;
+        }
+    }
+    Ok(())
+}
+
+fn discover_directory_atlas_texture_resources_inner(
+    root: &Path,
+    directory: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let entries = fs::read_dir(directory).map_err(|source| ResourceReloadError::ReadResource {
+        resource: directory_resource_name(root, directory),
+        path: directory.to_owned(),
+        source,
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: directory_resource_name(root, directory),
+            path: directory.to_owned(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            discover_directory_atlas_texture_resources_inner(root, &path, resources)?;
+        } else if path.is_file() {
+            let Ok(resource_path) = path.strip_prefix(root) else {
+                continue;
+            };
+            if let Some(resource) = resource_path.to_str() {
+                collect_atlas_directory_texture_resource_path(resource, resources);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn discover_zip_atlas_texture_resources(
+    root: &Path,
+    source_path: &str,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let file = fs::File::open(root).map_err(|source| ResourceReloadError::ReadResource {
+        resource: ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+        path: root.to_owned(),
+        source,
+    })?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|source| ResourceReloadError::ReadResource {
+            resource: ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+            path: root.to_owned(),
+            source: zip_error_to_io(source),
+        })?;
+    let source_prefix = format!("/textures/{source_path}/");
+
+    for index in 0..archive.len() {
+        let entry =
+            archive
+                .by_index(index)
+                .map_err(|source| ResourceReloadError::ReadResource {
+                    resource: ATLAS_MANIFEST_RESOURCE_GLOB.to_owned(),
+                    path: root.to_owned(),
+                    source: zip_error_to_io(source),
+                })?;
+        let name = entry.name();
+        if !entry.is_dir() && name.contains(&source_prefix) {
+            collect_atlas_directory_texture_resource_path(name, resources);
+        }
+    }
+    Ok(())
+}
+
+fn collect_atlas_directory_texture_resource_path(resource: &str, resources: &mut BTreeSet<String>) {
+    let Some((_namespace, rest)) = resource.strip_prefix("assets/").and_then(|rest| {
+        let (namespace, rest) = rest.split_once('/')?;
+        Some((namespace, rest))
+    }) else {
+        return;
+    };
+    if rest.starts_with("textures/") && resource.ends_with(".png") {
+        resources.insert(resource.to_owned());
+    }
+}
+
+fn directory_texture_resource_to_sprite(
+    resource: &str,
+    source_path: &str,
+    prefix: &str,
+) -> Option<String> {
+    let (namespace, rest) = resource.strip_prefix("assets/")?.split_once('/')?;
+    let texture_prefix = format!("textures/{source_path}/");
+    let relative = rest.strip_prefix(&texture_prefix)?.strip_suffix(".png")?;
+    Some(format!("{namespace}:{prefix}{relative}"))
 }
 
 fn load_client_json_resource_at_location(
@@ -7881,12 +8248,24 @@ fn load_client_json_resource_at_location(
     Ok(ClientJsonResource { value, report })
 }
 
-fn validate_atlas_sources(resource: &ClientJsonResource) -> ResourceReloadResult<usize> {
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ParsedAtlasSources {
+    sources: Vec<AtlasSpriteSourceEntry>,
+    sprite_inventory: BTreeSet<String>,
+    referenced_resources: BTreeSet<String>,
+}
+
+fn parse_atlas_sources(
+    stack: &ClientResourceStack,
+    resource: &ClientJsonResource,
+) -> ResourceReloadResult<ParsedAtlasSources> {
     let sources = resource
         .value()
         .get("sources")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| invalid_atlas_sources(resource, "missing sources array"))?;
+
+    let mut parsed = ParsedAtlasSources::default();
 
     for (index, source) in sources.iter().enumerate() {
         let Some(source) = source.as_object() else {
@@ -7906,10 +8285,373 @@ fn validate_atlas_sources(resource: &ClientJsonResource) -> ResourceReloadResult
                 resource,
                 format!("source {index} type field is not a string"),
             ));
-        }
+        };
+        let source_type = source_type.as_str().expect("type string checked above");
+        let entry = parse_atlas_source_entry(stack, resource, index, source_type, source)?;
+        apply_atlas_source_entry(&entry, &mut parsed.sprite_inventory);
+        parsed
+            .referenced_resources
+            .extend(entry.resources.iter().cloned());
+        parsed.sources.push(entry);
     }
 
-    Ok(sources.len())
+    Ok(parsed)
+}
+
+fn parse_atlas_source_entry(
+    stack: &ClientResourceStack,
+    resource: &ClientJsonResource,
+    index: usize,
+    source_type: &str,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<AtlasSpriteSourceEntry> {
+    match strip_minecraft_namespace(source_type) {
+        "single" => parse_single_atlas_source(resource, index, source),
+        "directory" => parse_directory_atlas_source(stack, resource, index, source),
+        "filter" => parse_filter_atlas_source(resource, index, source),
+        "unstitch" => parse_unstitch_atlas_source(resource, index, source),
+        "paletted_permutations" => {
+            parse_paletted_permutations_atlas_source(resource, index, source)
+        }
+        _ => Err(invalid_atlas_sources(
+            resource,
+            format!("source {index} has unsupported type `{source_type}`"),
+        )),
+    }
+}
+
+fn parse_single_atlas_source(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<AtlasSpriteSourceEntry> {
+    let resource_id = atlas_source_identifier_field(resource, index, source, "resource")?;
+    let sprite_id = match source.get("sprite") {
+        Some(value) => Some(atlas_source_identifier_value(
+            resource, index, "sprite", value,
+        )?),
+        None => None,
+    };
+    let mut entry = AtlasSpriteSourceEntry::new("single");
+    entry
+        .resources
+        .insert(texture_resource_path_for_identifier(&resource_id)?);
+    entry.sprites.insert(sprite_id.unwrap_or(resource_id));
+    Ok(entry)
+}
+
+fn parse_directory_atlas_source(
+    stack: &ClientResourceStack,
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<AtlasSpriteSourceEntry> {
+    let source_path = atlas_source_string_field(resource, index, source, "source")?;
+    let prefix = atlas_source_string_field(resource, index, source, "prefix")?;
+    let mut entry = AtlasSpriteSourceEntry::new("directory");
+    for texture_resource in discover_atlas_directory_texture_resources(stack, &source_path)? {
+        if let Some(sprite) =
+            directory_texture_resource_to_sprite(&texture_resource, &source_path, &prefix)
+        {
+            entry.resources.insert(texture_resource);
+            entry.sprites.insert(sprite);
+        }
+    }
+    Ok(entry)
+}
+
+fn parse_filter_atlas_source(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<AtlasSpriteSourceEntry> {
+    let pattern = source.get("pattern").ok_or_else(|| {
+        invalid_atlas_sources(resource, format!("source {index} is missing pattern field"))
+    })?;
+    let Some(pattern) = pattern.as_object() else {
+        return Err(invalid_atlas_sources(
+            resource,
+            format!("source {index} pattern field is not an object"),
+        ));
+    };
+    let namespace = optional_atlas_source_regex_field(resource, index, pattern, "namespace")?;
+    let path = optional_atlas_source_regex_field(resource, index, pattern, "path")?;
+    let mut entry = AtlasSpriteSourceEntry::new("filter");
+    entry.filters.push(format!(
+        "namespace:{} path:{}",
+        namespace.as_deref().unwrap_or("*"),
+        path.as_deref().unwrap_or("*")
+    ));
+    Ok(entry)
+}
+
+fn parse_unstitch_atlas_source(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<AtlasSpriteSourceEntry> {
+    let resource_id = atlas_source_identifier_field(resource, index, source, "resource")?;
+    let regions = source
+        .get("regions")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            invalid_atlas_sources(resource, format!("source {index} is missing regions array"))
+        })?;
+    if regions.is_empty() {
+        return Err(invalid_atlas_sources(
+            resource,
+            format!("source {index} regions array is empty"),
+        ));
+    }
+    let mut entry = AtlasSpriteSourceEntry::new("unstitch");
+    entry
+        .resources
+        .insert(texture_resource_path_for_identifier(&resource_id)?);
+    for (region_index, region) in regions.iter().enumerate() {
+        let Some(region) = region.as_object() else {
+            return Err(invalid_atlas_sources(
+                resource,
+                format!("source {index} region {region_index} is not an object"),
+            ));
+        };
+        for field in ["x", "y", "width", "height"] {
+            atlas_source_number_field(resource, index, region_index, region, field)?;
+        }
+        entry.sprites.insert(atlas_source_identifier_field(
+            resource, index, region, "sprite",
+        )?);
+    }
+    Ok(entry)
+}
+
+fn parse_paletted_permutations_atlas_source(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+) -> ResourceReloadResult<AtlasSpriteSourceEntry> {
+    let textures = atlas_source_identifier_array_field(resource, index, source, "textures")?;
+    let palette_key = atlas_source_identifier_field(resource, index, source, "palette_key")?;
+    let permutations = source
+        .get("permutations")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            invalid_atlas_sources(
+                resource,
+                format!("source {index} is missing permutations object"),
+            )
+        })?;
+    let separator = match source.get("separator") {
+        Some(value) => value.as_str().ok_or_else(|| {
+            invalid_atlas_sources(
+                resource,
+                format!("source {index} separator field is not a string"),
+            )
+        })?,
+        None => "_",
+    };
+
+    let mut entry = AtlasSpriteSourceEntry::new("paletted_permutations");
+    entry
+        .resources
+        .insert(texture_resource_path_for_identifier(&palette_key)?);
+    for value in permutations.values() {
+        let palette = atlas_source_identifier_value(resource, index, "permutations", value)?;
+        entry
+            .resources
+            .insert(texture_resource_path_for_identifier(&palette)?);
+    }
+    for texture in textures {
+        entry
+            .resources
+            .insert(texture_resource_path_for_identifier(&texture)?);
+        for suffix in permutations.keys() {
+            entry
+                .sprites
+                .insert(format!("{texture}{separator}{suffix}"));
+        }
+    }
+    Ok(entry)
+}
+
+fn apply_atlas_source_entry(entry: &AtlasSpriteSourceEntry, sprites: &mut BTreeSet<String>) {
+    if entry.source_type == "filter" {
+        for filter in &entry.filters {
+            let (namespace_pattern, path_pattern) = atlas_filter_patterns(filter);
+            sprites.retain(|sprite| {
+                !atlas_identifier_matches(sprite, namespace_pattern, path_pattern)
+            });
+        }
+    } else {
+        sprites.extend(entry.sprites.iter().cloned());
+    }
+}
+
+fn atlas_filter_patterns(filter: &str) -> (Option<&str>, Option<&str>) {
+    let namespace = filter
+        .strip_prefix("namespace:")
+        .and_then(|rest| rest.split_once(" path:"))
+        .and_then(|(namespace, _)| (namespace != "*").then_some(namespace));
+    let path = filter
+        .split_once(" path:")
+        .and_then(|(_, path)| (path != "*").then_some(path));
+    (namespace, path)
+}
+
+fn atlas_identifier_matches(
+    identifier: &str,
+    namespace_pattern: Option<&str>,
+    path_pattern: Option<&str>,
+) -> bool {
+    let (namespace, path) = identifier
+        .split_once(':')
+        .unwrap_or(("minecraft", identifier));
+    namespace_pattern
+        .map(|pattern| Regex::new(pattern).is_ok_and(|regex| regex.is_match(namespace)))
+        .unwrap_or(true)
+        && path_pattern
+            .map(|pattern| Regex::new(pattern).is_ok_and(|regex| regex.is_match(path)))
+            .unwrap_or(true)
+}
+
+fn atlas_source_string_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> ResourceReloadResult<String> {
+    source
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            invalid_atlas_sources(
+                resource,
+                format!("source {index} is missing {field} string field"),
+            )
+        })
+}
+
+fn atlas_source_identifier_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> ResourceReloadResult<String> {
+    let value = source.get(field).ok_or_else(|| {
+        invalid_atlas_sources(
+            resource,
+            format!("source {index} is missing {field} identifier field"),
+        )
+    })?;
+    atlas_source_identifier_value(resource, index, field, value)
+}
+
+fn atlas_source_identifier_value(
+    resource: &ClientJsonResource,
+    index: usize,
+    field: &str,
+    value: &serde_json::Value,
+) -> ResourceReloadResult<String> {
+    let Some(value) = value.as_str() else {
+        return Err(invalid_atlas_sources(
+            resource,
+            format!("source {index} {field} field is not a string"),
+        ));
+    };
+    let normalized = normalize_minecraft_identifier(value);
+    if !is_valid_vanilla_resource_identifier(&normalized) {
+        return Err(invalid_atlas_sources(
+            resource,
+            format!("source {index} {field} field is not a valid identifier"),
+        ));
+    }
+    Ok(normalized)
+}
+
+fn atlas_source_identifier_array_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    source: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> ResourceReloadResult<Vec<String>> {
+    let values = source
+        .get(field)
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            invalid_atlas_sources(
+                resource,
+                format!("source {index} is missing {field} array field"),
+            )
+        })?;
+    values
+        .iter()
+        .map(|value| atlas_source_identifier_value(resource, index, field, value))
+        .collect()
+}
+
+fn atlas_source_number_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    region_index: usize,
+    region: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> ResourceReloadResult<f64> {
+    region
+        .get(field)
+        .and_then(serde_json::Value::as_f64)
+        .ok_or_else(|| {
+            invalid_atlas_sources(
+                resource,
+                format!("source {index} region {region_index} is missing numeric {field} field"),
+            )
+        })
+}
+
+fn optional_atlas_source_regex_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    pattern: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> ResourceReloadResult<Option<String>> {
+    let Some(value) = pattern.get(field) else {
+        return Ok(None);
+    };
+    let Some(value) = value.as_str() else {
+        return Err(invalid_atlas_sources(
+            resource,
+            format!("source {index} pattern {field} field is not a string"),
+        ));
+    };
+    Regex::new(value).map_err(|source| {
+        invalid_atlas_sources(
+            resource,
+            format!("source {index} pattern {field} regex is invalid: {source}"),
+        )
+    })?;
+    Ok(Some(value.to_owned()))
+}
+
+fn normalize_minecraft_identifier(value: &str) -> String {
+    if value.contains(':') {
+        value.to_owned()
+    } else {
+        format!("minecraft:{value}")
+    }
+}
+
+fn texture_resource_path_for_identifier(identifier: &str) -> ResourceReloadResult<String> {
+    let Some((namespace, path)) = identifier.split_once(':') else {
+        return Err(ResourceReloadError::MissingResource(identifier.to_owned()));
+    };
+    Ok(format!("assets/{namespace}/textures/{path}.png"))
+}
+
+fn atlas_source_type_counts(sources: &[AtlasSpriteSourceEntry]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for source in sources {
+        *counts.entry(source.source_type.clone()).or_insert(0) += 1;
+    }
+    counts
 }
 
 fn invalid_atlas_sources(
@@ -7925,10 +8667,21 @@ fn invalid_atlas_sources(
 
 fn atlas_source_report_item(report: &AtlasSourceManifestReport) -> String {
     format!(
-        "{}:{} sources",
+        "{}:{} sources types:{} sprites:{} refs:{}",
         report.loaded_resource_pack(),
-        report.source_count()
+        report.source_count(),
+        atlas_source_type_counts_fragment(report.source_type_counts()),
+        report.sprite_count(),
+        report.referenced_resource_count()
     )
+}
+
+fn atlas_source_type_counts_fragment(counts: &BTreeMap<String, usize>) -> String {
+    counts
+        .iter()
+        .map(|(source_type, count)| format!("{source_type}={count}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -10860,19 +11613,26 @@ mod tests {
         let override_pack = TempPack::new();
         base.write(
             "assets/minecraft/atlases/blocks.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"block","prefix":"block/"}]}"#,
         );
         base.write(
             "assets/minecraft/atlases/items.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"item","prefix":"item/"}]}"#,
         );
         base.write(
             "assets/minecraft/atlases/particles.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"particle","prefix":""}]}"#,
         );
+        base.write_bytes("assets/minecraft/textures/block/stone.png", MINIMAL_PNG);
+        base.write_bytes("assets/minecraft/textures/item/stick.png", MINIMAL_PNG);
+        base.write_bytes("assets/minecraft/textures/particle/smoke.png", MINIMAL_PNG);
         override_pack.write(
             "assets/minecraft/atlases/items.json",
-            r#"{"sources":[{"type":"minecraft:directory"},{"type":"minecraft:single"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"item","prefix":"item/"},{"type":"minecraft:single","resource":"minecraft:item/apple"}]}"#,
+        );
+        override_pack.write_bytes(
+            "assets/minecraft/textures/item/apple.png",
+            OVERRIDE_MINIMAL_PNG,
         );
 
         let stack = ClientResourceStack::new(vec![
@@ -10890,10 +11650,10 @@ mod tests {
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/atlases/blocks.json@base:1 sources".to_owned(),
-                "assets/minecraft/atlases/items.json@base:1 sources".to_owned(),
-                "assets/minecraft/atlases/items.json@override:2 sources".to_owned(),
-                "assets/minecraft/atlases/particles.json@base:1 sources".to_owned(),
+                "assets/minecraft/atlases/blocks.json@base:1 sources types:directory=1 sprites:1 refs:1".to_owned(),
+                "assets/minecraft/atlases/items.json@base:1 sources types:directory=1 sprites:2 refs:2".to_owned(),
+                "assets/minecraft/atlases/items.json@override:2 sources types:directory=1,single=1 sprites:2 refs:2".to_owned(),
+                "assets/minecraft/atlases/particles.json@base:1 sources types:directory=1 sprites:1 refs:1".to_owned(),
             ]
         );
     }
@@ -10909,13 +11669,137 @@ mod tests {
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "atlas_sources");
+        assert_eq!(listener.preparation.items().len(), 15);
+        assert_eq!(listener.reload.items().len(), 15);
+        assert!(listener.reload.items().iter().any(|item| {
+            item.starts_with("assets/minecraft/atlases/blocks.json@vanilla:4 sources")
+        }));
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .any(|item| item
+                    .starts_with("assets/minecraft/atlases/items.json@vanilla:2 sources"))
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with(
+                    "assets/minecraft/atlases/armor_trims.json@vanilla:1 sources types:paletted_permutations=1"
+                ))
+        );
+    }
+
+    #[test]
+    fn atlas_source_listener_discovers_directory_and_zip_atlases() {
+        let directory_pack = TempPack::new();
+        let zip_pack = TempPack::new();
+        directory_pack.write(
+            "assets/example/atlases/custom.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"example:direct"}]}"#,
+        );
+        let zip_path = zip_pack.path().join("pack.zip");
+        fs::write(
+            &zip_path,
+            server_pack_zip_bytes_with_entries(
+                r#"{"pack":{"pack_format":84,"description":"test"}}"#,
+                [(
+                    "assets/ziptest/atlases/inside.json",
+                    r#"{"sources":[{"type":"minecraft:single","resource":"ziptest:direct"}]}"#,
+                )],
+            ),
+        )
+        .expect("zip pack should be written");
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("dir", directory_pack.path()),
+            ClientResourcePack::new("zip", zip_path),
+        ]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(AtlasSourceReloadListener::default())
+            .run()
+            .expect("discovered atlas source reload should succeed");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/example/atlases/custom.json".to_owned(),
+                "assets/ziptest/atlases/inside.json".to_owned(),
+            ]
+        );
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/atlases/blocks.json@vanilla:4 sources".to_owned(),
-                "assets/minecraft/atlases/items.json@vanilla:2 sources".to_owned(),
-                "assets/minecraft/atlases/particles.json@vanilla:1 sources".to_owned(),
+                "assets/example/atlases/custom.json@dir:1 sources types:single=1 sprites:1 refs:1"
+                    .to_owned(),
+                "assets/ziptest/atlases/inside.json@zip:1 sources types:single=1 sprites:1 refs:1"
+                    .to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn atlas_source_load_reports_typed_headless_inventory() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"example:direct","sprite":"example:renamed"},
+                {"type":"minecraft:directory","source":"block","prefix":"block/"},
+                {"type":"minecraft:filter","pattern":{"path":"^block/stone$"}},
+                {"type":"minecraft:unstitch","resource":"minecraft:entity/sheet","regions":[{"sprite":"minecraft:entity/sheet_piece","x":0,"y":0,"width":1,"height":1}]},
+                {"type":"minecraft:paletted_permutations","textures":["minecraft:trims/items/helmet_trim"],"palette_key":"minecraft:trims/color_palettes/trim_palette","permutations":{"iron":"minecraft:trims/color_palettes/iron"}}
+            ]}"#,
+        );
+        temp.write_bytes("assets/minecraft/textures/block/stone.png", MINIMAL_PNG);
+        temp.write_bytes("assets/minecraft/textures/block/dirt.png", MINIMAL_PNG);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let collection =
+            load_client_atlas_sources(&stack, &["assets/minecraft/atlases/test.json".to_owned()])
+                .expect("atlas sources should parse");
+        let atlas = &collection.atlases()[0];
+
+        assert_eq!(
+            atlas
+                .sources()
+                .iter()
+                .map(AtlasSpriteSourceEntry::source_type)
+                .collect::<Vec<_>>(),
+            [
+                "single",
+                "directory",
+                "filter",
+                "unstitch",
+                "paletted_permutations"
+            ]
+        );
+        assert!(atlas.sprite_inventory().contains("example:renamed"));
+        assert!(atlas.sprite_inventory().contains("minecraft:block/dirt"));
+        assert!(!atlas.sprite_inventory().contains("minecraft:block/stone"));
+        assert!(
+            atlas
+                .sprite_inventory()
+                .contains("minecraft:entity/sheet_piece")
+        );
+        assert!(
+            atlas
+                .sprite_inventory()
+                .contains("minecraft:trims/items/helmet_trim_iron")
+        );
+        assert!(
+            atlas
+                .referenced_resources()
+                .contains("assets/example/textures/direct.png")
+        );
+        assert!(
+            atlas
+                .referenced_resources()
+                .contains("assets/minecraft/textures/entity/sheet.png")
         );
     }
 
@@ -10924,7 +11808,7 @@ mod tests {
         let temp = TempPack::new();
         temp.write(
             "assets/minecraft/atlases/blocks.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"block","prefix":"block/"}]}"#,
         );
         temp.write(
             "assets/minecraft/atlases/items.json",
@@ -10932,7 +11816,7 @@ mod tests {
         );
         temp.write(
             "assets/minecraft/atlases/particles.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"particle","prefix":""}]}"#,
         );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
@@ -10956,12 +11840,12 @@ mod tests {
         let temp = TempPack::new();
         temp.write(
             "assets/minecraft/atlases/blocks.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"block","prefix":"block/"}]}"#,
         );
         temp.write("assets/minecraft/atlases/items.json", r#"{"sources":[{}]}"#);
         temp.write(
             "assets/minecraft/atlases/particles.json",
-            r#"{"sources":[{"type":"minecraft:directory"}]}"#,
+            r#"{"sources":[{"type":"minecraft:directory","source":"particle","prefix":""}]}"#,
         );
 
         let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
@@ -10977,6 +11861,31 @@ mod tests {
             }) if resource == "assets/minecraft/atlases/items.json"
                 && pack_id == "test"
                 && reason == "source 0 is missing a type field"
+        ));
+    }
+
+    #[test]
+    fn atlas_source_listener_rejects_unknown_source_type() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/custom.json",
+            r#"{"sources":[{"type":"minecraft:future"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = AtlasSourceReloadListener::default()
+            .load(&stack)
+            .expect_err("unknown atlas source should fail");
+
+        assert!(matches!(
+            error,
+            ResourceReloadError::InvalidAtlasSources {
+                resource,
+                pack_id,
+                reason,
+            } if resource == "assets/minecraft/atlases/custom.json"
+                && pack_id == "test"
+                && reason == "source 0 has unsupported type `minecraft:future`"
         ));
     }
 
