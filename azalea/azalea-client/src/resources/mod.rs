@@ -356,6 +356,7 @@ pub enum ServerResourcePackStatus {
     Accepted,
     Downloading,
     Downloaded,
+    Opened,
     Applied,
     Failed(ServerResourcePackFailure),
     Declined,
@@ -364,6 +365,8 @@ pub enum ServerResourcePackStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServerResourcePackFailure {
     Download,
+    HashMismatch,
+    Open,
     InvalidUrl,
     Reload,
     Discarded,
@@ -391,6 +394,7 @@ pub struct ServerResourcePackAck {
 pub struct ServerResourcePackApplyState {
     request: ServerResourcePackRequest,
     status: ServerResourcePackStatus,
+    downloaded: Option<ServerResourcePackDownload>,
 }
 
 impl ServerResourcePackApplyState {
@@ -398,6 +402,7 @@ impl ServerResourcePackApplyState {
         Self {
             request,
             status: ServerResourcePackStatus::Pending,
+            downloaded: None,
         }
     }
 
@@ -439,6 +444,7 @@ impl ServerResourcePackApplyState {
 
     pub fn start_download(&mut self) {
         self.status = ServerResourcePackStatus::Downloading;
+        self.downloaded = None;
     }
 
     pub fn download_succeeded(&mut self) -> ServerResourcePackAck {
@@ -446,14 +452,103 @@ impl ServerResourcePackApplyState {
         self.ack(ServerResourcePackAckAction::Downloaded)
     }
 
+    pub fn download_bytes_succeeded(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<ServerResourcePackAck, ServerResourcePackAck> {
+        let actual_sha1 = server_resource_pack_sha1_hex(bytes);
+        if !self.hash_matches(&actual_sha1) {
+            return Err(self.hash_mismatch());
+        }
+
+        self.downloaded = Some(ServerResourcePackDownload::Bytes {
+            len: bytes.len(),
+            sha1: actual_sha1,
+        });
+        Ok(self.download_succeeded())
+    }
+
+    pub fn download_path_succeeded(
+        &mut self,
+        path: impl Into<PathBuf>,
+    ) -> Result<ServerResourcePackAck, ServerResourcePackAck> {
+        let path = path.into();
+        if path.is_dir() {
+            if self.parsed_sha1_hash().is_some() {
+                return Err(self.hash_mismatch());
+            }
+            self.downloaded = Some(ServerResourcePackDownload::Path {
+                path,
+                len: 0,
+                sha1: String::new(),
+            });
+            return Ok(self.download_succeeded());
+        }
+
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => return Err(self.download_failed()),
+        };
+        let actual_sha1 = server_resource_pack_sha1_hex(&bytes);
+        if !self.hash_matches(&actual_sha1) {
+            return Err(self.hash_mismatch());
+        }
+
+        self.downloaded = Some(ServerResourcePackDownload::Path {
+            path,
+            len: bytes.len(),
+            sha1: actual_sha1,
+        });
+        Ok(self.download_succeeded())
+    }
+
+    pub fn downloaded(&self) -> Option<&ServerResourcePackDownload> {
+        self.downloaded.as_ref()
+    }
+
+    pub fn open_downloaded(&mut self) -> Result<(), ServerResourcePackAck> {
+        if self.status != ServerResourcePackStatus::Downloaded {
+            return Err(self.open_failed());
+        }
+        let Some(downloaded) = &self.downloaded else {
+            return Err(self.open_failed());
+        };
+        if !downloaded.is_openable() {
+            return Err(self.open_failed());
+        }
+
+        self.status = ServerResourcePackStatus::Opened;
+        Ok(())
+    }
+
     pub fn apply_downloaded(&mut self) -> ServerResourcePackAck {
+        self.apply_opened()
+    }
+
+    pub fn apply_opened(&mut self) -> ServerResourcePackAck {
+        if self.status != ServerResourcePackStatus::Opened {
+            return self.reload_failed();
+        }
+
         self.status = ServerResourcePackStatus::Applied;
         self.ack(ServerResourcePackAckAction::SuccessfullyLoaded)
     }
 
     pub fn download_failed(&mut self) -> ServerResourcePackAck {
         self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download);
+        self.downloaded = None;
         self.ack(ServerResourcePackAckAction::FailedDownload)
+    }
+
+    pub fn hash_mismatch(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::HashMismatch);
+        self.downloaded = None;
+        self.ack(ServerResourcePackAckAction::FailedDownload)
+    }
+
+    pub fn open_failed(&mut self) -> ServerResourcePackAck {
+        self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open);
+        self.ack(ServerResourcePackAckAction::FailedReload)
     }
 
     pub fn invalid_url(&mut self) -> ServerResourcePackAck {
@@ -468,6 +563,7 @@ impl ServerResourcePackApplyState {
 
     pub fn discarded(&mut self) -> ServerResourcePackAck {
         self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Discarded);
+        self.downloaded = None;
         self.ack(ServerResourcePackAckAction::Discarded)
     }
 
@@ -481,11 +577,67 @@ impl ServerResourcePackApplyState {
             action,
         }
     }
+
+    fn hash_matches(&self, actual_sha1: &str) -> bool {
+        self.parsed_sha1_hash()
+            .map(|expected| expected == actual_sha1)
+            .unwrap_or(true)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServerResourcePackApplyError {
     RequiredPackCannotBeDeclined { id: Uuid },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackDownload {
+    Bytes {
+        len: usize,
+        sha1: String,
+    },
+    Path {
+        path: PathBuf,
+        len: usize,
+        sha1: String,
+    },
+}
+
+impl ServerResourcePackDownload {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Bytes { len, .. } | Self::Path { len, .. } => *len,
+        }
+    }
+
+    pub fn sha1(&self) -> &str {
+        match self {
+            Self::Bytes { sha1, .. } | Self::Path { sha1, .. } => sha1,
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::Bytes { .. } => None,
+            Self::Path { path, .. } => Some(path),
+        }
+    }
+
+    fn is_openable(&self) -> bool {
+        match self {
+            Self::Bytes { .. } => true,
+            Self::Path { path, .. } if path.is_dir() => path.join("pack.mcmeta").is_file(),
+            Self::Path { path, .. } => path.is_file(),
+        }
+    }
+}
+
+fn server_resource_pack_sha1_hex(bytes: &[u8]) -> String {
+    let digest = azalea_crypto::digest_data(bytes, &[], &[]);
+    digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 
 impl fmt::Display for ServerResourcePackApplyError {
@@ -4617,14 +4769,87 @@ mod tests {
     }
 
     #[test]
-    fn accepted_server_pack_reports_downloaded_then_applied_ack_sequence() {
+    fn accepted_server_pack_no_longer_reports_loaded_without_open_apply() {
         let id = resource_pack_id(3);
         let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
 
         let accepted = pack.accept();
         pack.start_download();
         let downloaded = pack.download_succeeded();
-        let loaded = pack.apply_downloaded();
+        let failed_reload = pack.apply_downloaded();
+
+        assert_eq!(
+            [accepted, downloaded, failed_reload],
+            [
+                ServerResourcePackAck {
+                    id,
+                    action: ServerResourcePackAckAction::Accepted,
+                },
+                ServerResourcePackAck {
+                    id,
+                    action: ServerResourcePackAckAction::Downloaded,
+                },
+                ServerResourcePackAck {
+                    id,
+                    action: ServerResourcePackAckAction::FailedReload,
+                },
+            ]
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Reload)
+        );
+    }
+
+    #[test]
+    fn server_pack_download_rejects_hash_mismatch() {
+        let id = resource_pack_id(23);
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "0000000000000000000000000000000000000000",
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        let failed_download = pack
+            .download_bytes_succeeded(b"abc")
+            .expect_err("wrong sha1 should fail the download");
+
+        assert_eq!(
+            failed_download,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedDownload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::HashMismatch)
+        );
+        assert_eq!(pack.downloaded(), None);
+    }
+
+    #[test]
+    fn server_pack_directory_path_requires_mcmeta_open_then_apply_for_success() {
+        let id = resource_pack_id(24);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"pack_format":1,"description":"test"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        let accepted = pack.accept();
+        pack.start_download();
+        let downloaded = pack
+            .download_path_succeeded(temp.path())
+            .expect("directory pack without enforced sha1 should download");
+        pack.open_downloaded()
+            .expect("directory pack with pack.mcmeta should open");
+        let loaded = pack.apply_opened();
 
         assert_eq!(
             [accepted, downloaded, loaded],
@@ -4644,6 +4869,37 @@ mod tests {
             ]
         );
         assert_eq!(pack.status(), ServerResourcePackStatus::Applied);
+        assert_eq!(
+            pack.downloaded().and_then(ServerResourcePackDownload::path),
+            Some(temp.path())
+        );
+    }
+
+    #[test]
+    fn server_pack_directory_open_requires_pack_mcmeta() {
+        let id = resource_pack_id(25);
+        let temp = TempPack::new();
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("test request has no enforced sha1");
+        let failed_reload = pack
+            .open_downloaded()
+            .expect_err("directory pack without pack.mcmeta should fail to open");
+
+        assert_eq!(
+            failed_reload,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedReload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open)
+        );
     }
 
     #[test]
@@ -4662,7 +4918,9 @@ mod tests {
         let reload_acks = {
             let accepted = reload_failure.accept();
             reload_failure.start_download();
-            let downloaded = reload_failure.download_succeeded();
+            let downloaded = reload_failure
+                .download_bytes_succeeded(b"abc")
+                .expect("test pack has no enforced hash");
             [accepted, downloaded, reload_failure.reload_failed()]
         };
 
@@ -4706,14 +4964,14 @@ mod tests {
 
         model
             .receive(server_pack_request(first_id, true))
-            .apply_downloaded();
+            .apply_test_server_pack();
         model
             .receive(server_pack_request(resource_pack_id(8), false))
             .decline()
             .expect("optional middle pack can be declined");
         model
             .receive(server_pack_request(second_id, true))
-            .apply_downloaded();
+            .apply_test_server_pack();
 
         let stack = model.resource_stack();
         let pack_ids = stack
@@ -4740,10 +4998,10 @@ mod tests {
 
         model
             .receive(server_pack_request(removed_id, true))
-            .apply_downloaded();
+            .apply_test_server_pack();
         model
             .receive(server_pack_request(kept_id, true))
-            .apply_downloaded();
+            .apply_test_server_pack();
 
         assert!(model.pop(removed_id));
         assert!(!model.pop(resource_pack_id(11)));
@@ -4767,10 +5025,10 @@ mod tests {
 
         model
             .receive(server_pack_request(resource_pack_id(12), true))
-            .apply_downloaded();
+            .apply_test_server_pack();
         model
             .receive(server_pack_request(resource_pack_id(13), true))
-            .apply_downloaded();
+            .apply_test_server_pack();
 
         assert!(model.pop_all());
         assert!(!model.pop_all());
@@ -6683,6 +6941,21 @@ mod tests {
             required,
             None,
         )
+    }
+
+    trait ServerResourcePackApplyStateTestExt {
+        fn apply_test_server_pack(&mut self) -> ServerResourcePackAck;
+    }
+
+    impl ServerResourcePackApplyStateTestExt for ServerResourcePackApplyState {
+        fn apply_test_server_pack(&mut self) -> ServerResourcePackAck {
+            self.start_download();
+            self.download_bytes_succeeded(b"test server pack")
+                .expect("test request has no enforced sha1");
+            self.open_downloaded()
+                .expect("downloaded test bytes should open");
+            self.apply_opened()
+        }
     }
 
     impl TempPack {
