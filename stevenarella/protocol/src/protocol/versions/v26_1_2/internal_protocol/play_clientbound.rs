@@ -14,6 +14,7 @@ mod custom_report_details;
 mod dialog;
 mod entity;
 mod scoreboard;
+mod server_links;
 mod set_time;
 mod sound;
 mod text;
@@ -65,6 +66,11 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        server_links::read_server_links_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::Disconnect => {
@@ -102,24 +108,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
             read_empty_play_item_stack_marker(buf, "set_player_inventory")?;
             return Ok(Some(Packet::PlaySetPlayerInventoryClientbound(
                 packet::play::clientbound::PlaySetPlayerInventoryClientbound { slot, item: None },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlayServerLinksClientbound => {
-            let link_count = VarInt::read_from(buf)?;
-            if link_count.0 < 0 {
-                return Err(Error::Err(format!(
-                    "negative Play server_links link count {}",
-                    link_count.0
-                )));
-            }
-            if link_count.0 != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty Play server_links list count {}",
-                    link_count.0
-                )));
-            }
-            return Ok(Some(Packet::PlayServerLinksClientbound(
-                packet::play::clientbound::PlayServerLinksClientbound { link_count },
             )));
         }
         packet::play::clientbound::internal_ids::PlayTagQueryClientbound => {
