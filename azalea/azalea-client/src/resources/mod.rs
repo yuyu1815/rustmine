@@ -87,11 +87,7 @@ const DEFAULT_SHADER_INCLUDE_SOURCES: &[&str] = &[
     "assets/minecraft/shaders/include/projection.glsl",
     "assets/minecraft/shaders/include/sample_lightmap.glsl",
 ];
-const DEFAULT_FONT_DEFINITIONS: &[&str] = &[
-    "assets/minecraft/font/default.json",
-    "assets/minecraft/font/uniform.json",
-    "assets/minecraft/font/alt.json",
-];
+const FONT_DEFINITION_ROOT_DIR: &str = "assets/minecraft/font";
 const DEFAULT_PARTICLE_MANIFEST_IDS: &[&str] = &["rain", "firework", "splash"];
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
 const VANILLA_EXCLUDED_SPLASH_JAVA_HASH: i32 = 125_780_783;
@@ -3637,7 +3633,7 @@ impl ClientFontDefinitionSet {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientFontDefinition {
     resource: ClientJsonResource,
-    provider_count: usize,
+    providers: Vec<ClientFontProviderDefinition>,
 }
 
 impl ClientFontDefinition {
@@ -3645,22 +3641,56 @@ impl ClientFontDefinition {
         &self.resource
     }
 
+    pub fn providers(&self) -> &[ClientFontProviderDefinition] {
+        &self.providers
+    }
+
     pub fn provider_count(&self) -> usize {
-        self.provider_count
+        self.providers.len()
+    }
+
+    pub fn provider_types(&self) -> impl Iterator<Item = &str> {
+        self.providers
+            .iter()
+            .map(ClientFontProviderDefinition::provider_type)
     }
 
     fn report(&self) -> ClientFontDefinitionReloadReport<'_> {
         ClientFontDefinitionReloadReport {
             resource: self.resource.report(),
-            provider_count: self.provider_count,
+            providers: &self.providers,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontProviderDefinition {
+    provider_type: String,
+}
+
+impl ClientFontProviderDefinition {
+    pub fn provider_type(&self) -> &str {
+        &self.provider_type
+    }
+}
+
+#[derive(Deserialize)]
+struct RawClientFontDefinition {
+    providers: Vec<RawClientFontProviderDefinition>,
+}
+
+#[derive(Deserialize)]
+struct RawClientFontProviderDefinition {
+    #[serde(rename = "type")]
+    provider_type: String,
+    #[serde(flatten)]
+    fields: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClientFontDefinitionReloadReport<'a> {
     resource: &'a ClientJsonResourceReloadReport,
-    provider_count: usize,
+    providers: &'a [ClientFontProviderDefinition],
 }
 
 impl ClientFontDefinitionReloadReport<'_> {
@@ -3669,7 +3699,13 @@ impl ClientFontDefinitionReloadReport<'_> {
     }
 
     pub fn provider_count(&self) -> usize {
-        self.provider_count
+        self.providers.len()
+    }
+
+    pub fn provider_types(&self) -> impl Iterator<Item = &str> {
+        self.providers
+            .iter()
+            .map(ClientFontProviderDefinition::provider_type)
     }
 }
 
@@ -3699,7 +3735,9 @@ impl FontDefinitionsReloadListener {
 
 impl Default for FontDefinitionsReloadListener {
     fn default() -> Self {
-        Self::new(DEFAULT_FONT_DEFINITIONS.iter().copied())
+        Self {
+            definitions: Vec::new(),
+        }
     }
 }
 
@@ -3712,11 +3750,9 @@ impl ResourceReloadListener for FontDefinitionsReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        for definition in &self.definitions {
-            stack.require_resource(definition)?;
-        }
-
-        Ok(ResourceReloadTaskReport::new(self.definitions.clone()))
+        Ok(ResourceReloadTaskReport::new(
+            self.font_definition_resources(stack)?,
+        ))
     }
 
     fn reload(
@@ -3730,19 +3766,47 @@ impl ResourceReloadListener for FontDefinitionsReloadListener {
     }
 }
 
+impl FontDefinitionsReloadListener {
+    fn font_definition_resources(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<Vec<String>> {
+        if self.definitions.is_empty() {
+            discover_font_definition_resources(stack)
+        } else {
+            for definition in &self.definitions {
+                stack.require_resource(definition)?;
+            }
+            Ok(self.definitions.clone())
+        }
+    }
+}
+
 pub fn load_client_font_definitions(
     stack: &ClientResourceStack,
     definitions: &[String],
 ) -> ResourceReloadResult<ClientFontDefinitionSet> {
-    let mut loaded = Vec::with_capacity(definitions.len());
+    let definitions = if definitions.is_empty() {
+        discover_font_definition_resources(stack)?
+    } else {
+        definitions.to_vec()
+    };
+    let mut loaded = Vec::new();
 
-    for definition in definitions {
-        let resource = load_client_json_resource(stack, definition)?;
-        let provider_count = validate_font_definition(&resource)?;
-        loaded.push(ClientFontDefinition {
-            resource,
-            provider_count,
-        });
+    for definition in &definitions {
+        let locations = stack.resource_stack(definition);
+        if locations.is_empty() {
+            return Err(ResourceReloadError::MissingResource(definition.clone()));
+        }
+
+        for location in locations {
+            let resource = read_client_json_resource(Path::new(definition), &location)?;
+            let providers = parse_font_definition_providers(&resource)?;
+            loaded.push(ClientFontDefinition {
+                resource,
+                providers,
+            });
+        }
     }
 
     Ok(ClientFontDefinitionSet {
@@ -3750,7 +3814,78 @@ pub fn load_client_font_definitions(
     })
 }
 
-fn validate_font_definition(resource: &ClientJsonResource) -> ResourceReloadResult<usize> {
+fn discover_font_definition_resources(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<Vec<String>> {
+    let mut resources = BTreeSet::new();
+
+    for pack in stack.packs() {
+        let font_directory = pack.resource_path(FONT_DEFINITION_ROOT_DIR);
+        if !font_directory.exists() {
+            continue;
+        }
+        collect_font_definition_resources(
+            FONT_DEFINITION_ROOT_DIR,
+            &font_directory,
+            &font_directory,
+            &mut resources,
+        )?;
+    }
+
+    if resources.is_empty() {
+        return Err(ResourceReloadError::MissingResource(format!(
+            "{FONT_DEFINITION_ROOT_DIR}/**/*.json"
+        )));
+    }
+
+    Ok(resources.into_iter().collect())
+}
+
+fn collect_font_definition_resources(
+    resource_root: &str,
+    root: &Path,
+    directory: &Path,
+    resources: &mut BTreeSet<String>,
+) -> ResourceReloadResult<()> {
+    let entries = fs::read_dir(directory).map_err(|source| ResourceReloadError::ReadResource {
+        resource: resource_root.to_owned(),
+        path: directory.to_owned(),
+        source,
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource_root.to_owned(),
+            path: directory.to_owned(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_font_definition_resources(resource_root, root, &path, resources)?;
+            continue;
+        }
+        if !path.is_file()
+            || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+        {
+            continue;
+        }
+
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        let resource = Path::new(resource_root)
+            .join(relative)
+            .to_string_lossy()
+            .replace('\\', "/");
+        resources.insert(resource);
+    }
+
+    Ok(())
+}
+
+fn parse_font_definition_providers(
+    resource: &ClientJsonResource,
+) -> ResourceReloadResult<Vec<ClientFontProviderDefinition>> {
     let providers = resource
         .value()
         .get("providers")
@@ -3764,7 +3899,212 @@ fn validate_font_definition(resource: &ClientJsonResource) -> ResourceReloadResu
         ));
     }
 
-    Ok(providers.len())
+    let definition: RawClientFontDefinition = serde_json::from_value(resource.value().clone())
+        .map_err(|source| {
+            invalid_font_definition(resource, format!("invalid provider definition: {source}"))
+        })?;
+
+    definition
+        .providers
+        .into_iter()
+        .enumerate()
+        .map(|(index, provider)| {
+            validate_font_provider_definition(resource, index, &provider)?;
+            Ok(ClientFontProviderDefinition {
+                provider_type: provider.provider_type,
+            })
+        })
+        .collect()
+}
+
+fn validate_font_provider_definition(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<()> {
+    validate_font_provider_filter(resource, index, provider)?;
+
+    match provider.provider_type.as_str() {
+        "reference" => require_font_provider_string_field(resource, index, provider, "id"),
+        "bitmap" => {
+            require_font_provider_string_field(resource, index, provider, "file")?;
+            require_font_provider_i64_field(resource, index, provider, "ascent")?;
+            validate_bitmap_font_provider_chars(resource, index, provider)
+        }
+        "space" => require_font_provider_object_field(resource, index, provider, "advances")
+            .and_then(|advances| {
+                if advances.values().all(serde_json::Value::is_number) {
+                    Ok(())
+                } else {
+                    Err(invalid_font_definition(
+                        resource,
+                        format!("provider {index} space advances must be numbers"),
+                    ))
+                }
+            }),
+        "ttf" => {
+            require_font_provider_string_field(resource, index, provider, "file")?;
+            if let Some(shift) = provider.fields.get("shift") {
+                let Some(shift) = shift.as_array() else {
+                    return Err(invalid_font_definition(
+                        resource,
+                        format!("provider {index} ttf shift must be an array"),
+                    ));
+                };
+                if shift.len() != 2 || !shift.iter().all(serde_json::Value::is_number) {
+                    return Err(invalid_font_definition(
+                        resource,
+                        format!("provider {index} ttf shift must contain 2 numbers"),
+                    ));
+                }
+            }
+            Ok(())
+        }
+        "unihex" => require_font_provider_string_field(resource, index, provider, "hex_file"),
+        other => Err(invalid_font_definition(
+            resource,
+            format!("provider {index} has unsupported type `{other}`"),
+        )),
+    }
+}
+
+fn validate_font_provider_filter(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<()> {
+    let Some(filter) = provider.fields.get("filter") else {
+        return Ok(());
+    };
+    let Some(filter) = filter.as_object() else {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} filter must be an object"),
+        ));
+    };
+    for (key, value) in filter {
+        if !matches!(key.as_str(), "uniform" | "jp") {
+            return Err(invalid_font_definition(
+                resource,
+                format!("provider {index} filter has unsupported option `{key}`"),
+            ));
+        }
+        if !value.is_boolean() {
+            return Err(invalid_font_definition(
+                resource,
+                format!("provider {index} filter `{key}` must be a boolean"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_bitmap_font_provider_chars(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+) -> ResourceReloadResult<()> {
+    let Some(chars) = provider
+        .fields
+        .get("chars")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} bitmap chars must be an array"),
+        ));
+    };
+    if chars.is_empty() {
+        return Err(invalid_font_definition(
+            resource,
+            format!("provider {index} bitmap chars must not be empty"),
+        ));
+    }
+
+    let mut row_width = None;
+    for row in chars {
+        let Some(row) = row.as_str() else {
+            return Err(invalid_font_definition(
+                resource,
+                format!("provider {index} bitmap chars rows must be strings"),
+            ));
+        };
+        let width = row.chars().count();
+        if width == 0 {
+            return Err(invalid_font_definition(
+                resource,
+                format!("provider {index} bitmap chars rows must not be empty"),
+            ));
+        }
+        match row_width {
+            Some(expected) if expected != width => {
+                return Err(invalid_font_definition(
+                    resource,
+                    format!("provider {index} bitmap chars rows must have equal width"),
+                ));
+            }
+            Some(_) => {}
+            None => row_width = Some(width),
+        }
+    }
+
+    Ok(())
+}
+
+fn require_font_provider_string_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+    field: &str,
+) -> ResourceReloadResult<()> {
+    provider
+        .fields
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(|_| ())
+        .ok_or_else(|| {
+            invalid_font_definition(
+                resource,
+                format!("provider {index} `{field}` must be a string"),
+            )
+        })
+}
+
+fn require_font_provider_i64_field(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &RawClientFontProviderDefinition,
+    field: &str,
+) -> ResourceReloadResult<()> {
+    provider
+        .fields
+        .get(field)
+        .and_then(serde_json::Value::as_i64)
+        .map(|_| ())
+        .ok_or_else(|| {
+            invalid_font_definition(
+                resource,
+                format!("provider {index} `{field}` must be an integer"),
+            )
+        })
+}
+
+fn require_font_provider_object_field<'a>(
+    resource: &ClientJsonResource,
+    index: usize,
+    provider: &'a RawClientFontProviderDefinition,
+    field: &str,
+) -> ResourceReloadResult<&'a serde_json::Map<String, serde_json::Value>> {
+    provider
+        .fields
+        .get(field)
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            invalid_font_definition(
+                resource,
+                format!("provider {index} `{field}` must be an object"),
+            )
+        })
 }
 
 fn invalid_font_definition(
@@ -3779,10 +4119,12 @@ fn invalid_font_definition(
 }
 
 fn font_definition_report_item(report: ClientFontDefinitionReloadReport<'_>) -> String {
+    let provider_types = report.provider_types().collect::<Vec<_>>().join(",");
     format!(
-        "{}:providers:{}",
+        "{}:providers:{}:types:{}",
         report.resource().loaded_resource_pack(),
-        report.provider_count()
+        report.provider_count(),
+        provider_types
     )
 }
 
@@ -6896,7 +7238,7 @@ mod tests {
     }
 
     #[test]
-    fn font_definition_listener_reports_priority_pack_and_provider_count() {
+    fn font_definition_listener_reports_priority_pack_and_provider_types() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
         base.write(
@@ -6913,13 +7255,37 @@ mod tests {
         );
         override_pack.write(
             "assets/minecraft/font/default.json",
-            r#"{"providers":[{"type":"reference","id":"minecraft:include/space"},{"type":"reference","id":"minecraft:include/default"}]}"#,
+            r#"{"providers":[{"type":"reference","id":"minecraft:include/space"},{"type":"bitmap","file":"minecraft:font/ascii.png","ascent":7,"chars":["abc"]}]}"#,
         );
 
         let stack = ClientResourceStack::new(vec![
             ClientResourcePack::new("base", base.path()),
             ClientResourcePack::new("override", override_pack.path()),
         ]);
+        let definitions = FontDefinitionsReloadListener::default()
+            .load(&stack)
+            .expect("font definitions should load");
+        let default_definition = definitions
+            .definitions()
+            .iter()
+            .find(|definition| {
+                definition.resource().report().loaded_resource_pack()
+                    == "assets/minecraft/font/default.json@override"
+            })
+            .expect("override default font definition should load");
+        assert_eq!(
+            default_definition
+                .resource()
+                .report()
+                .loaded_resource_pack(),
+            "assets/minecraft/font/default.json@override"
+        );
+        assert_eq!(default_definition.provider_count(), 2);
+        assert_eq!(
+            default_definition.provider_types().collect::<Vec<_>>(),
+            ["reference", "bitmap"]
+        );
+
         let report = ResourceReloadManager::new(stack)
             .with_listener(FontDefinitionsReloadListener::default())
             .run()
@@ -6927,13 +7293,22 @@ mod tests {
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "font_definitions");
-        assert_eq!(listener.preparation.items(), DEFAULT_FONT_DEFINITIONS);
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/font/alt.json".to_owned(),
+                "assets/minecraft/font/default.json".to_owned(),
+                "assets/minecraft/font/uniform.json".to_owned(),
+            ]
+        );
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/font/default.json@override:providers:2".to_owned(),
-                "assets/minecraft/font/uniform.json@base:providers:1".to_owned(),
-                "assets/minecraft/font/alt.json@base:providers:1".to_owned(),
+                "assets/minecraft/font/alt.json@base:providers:1:types:reference".to_owned(),
+                "assets/minecraft/font/default.json@base:providers:1:types:reference".to_owned(),
+                "assets/minecraft/font/default.json@override:providers:2:types:reference,bitmap"
+                    .to_owned(),
+                "assets/minecraft/font/uniform.json@base:providers:1:types:reference".to_owned(),
             ]
         );
     }
@@ -6947,14 +7322,54 @@ mod tests {
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "font_definitions");
-        assert_eq!(listener.preparation.items(), DEFAULT_FONT_DEFINITIONS);
+        assert_eq!(
+            listener.preparation.items(),
+            [
+                "assets/minecraft/font/alt.json".to_owned(),
+                "assets/minecraft/font/default.json".to_owned(),
+                "assets/minecraft/font/illageralt.json".to_owned(),
+                "assets/minecraft/font/include/default.json".to_owned(),
+                "assets/minecraft/font/include/space.json".to_owned(),
+                "assets/minecraft/font/include/unifont.json".to_owned(),
+                "assets/minecraft/font/uniform.json".to_owned(),
+            ]
+        );
         assert_eq!(
             listener.reload.items(),
             [
-                "assets/minecraft/font/default.json@vanilla:providers:3".to_owned(),
-                "assets/minecraft/font/uniform.json@vanilla:providers:2".to_owned(),
-                "assets/minecraft/font/alt.json@vanilla:providers:2".to_owned(),
+                "assets/minecraft/font/alt.json@vanilla:providers:2:types:reference,bitmap"
+                    .to_owned(),
+                "assets/minecraft/font/default.json@vanilla:providers:3:types:reference,reference,reference"
+                    .to_owned(),
+                "assets/minecraft/font/illageralt.json@vanilla:providers:2:types:reference,bitmap"
+                    .to_owned(),
+                "assets/minecraft/font/include/default.json@vanilla:providers:3:types:bitmap,bitmap,bitmap"
+                    .to_owned(),
+                "assets/minecraft/font/include/space.json@vanilla:providers:1:types:space"
+                    .to_owned(),
+                "assets/minecraft/font/include/unifont.json@vanilla:providers:0:types:"
+                    .to_owned(),
+                "assets/minecraft/font/uniform.json@vanilla:providers:2:types:reference,reference"
+                    .to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn font_definition_reload_rejects_invalid_provider_type() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/font/default.json",
+            r#"{"providers":[{"type":"bogus"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = FontDefinitionsReloadListener::new(["assets/minecraft/font/default.json"])
+            .load(&stack)
+            .expect_err("unsupported font provider type should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidFontDefinition { resource, reason, .. } if resource == "assets/minecraft/font/default.json" && reason == "provider 0 has unsupported type `bogus`")
         );
     }
 
