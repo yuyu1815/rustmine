@@ -13,6 +13,7 @@ use super::super::translate_internal_packet_id;
 mod dialog;
 mod entity;
 mod scoreboard;
+mod set_time;
 mod sound;
 mod text;
 mod update;
@@ -47,6 +48,11 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         waypoint::read_waypoint_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        set_time::read_set_time_play_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
     }
@@ -87,28 +93,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
             read_empty_play_item_stack_marker(buf, "set_player_inventory")?;
             return Ok(Some(Packet::PlaySetPlayerInventoryClientbound(
                 packet::play::clientbound::PlaySetPlayerInventoryClientbound { slot, item: None },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetTimeClientbound => {
-            let game_time = i64::read_from(buf)?;
-            let clock_update_count = VarInt::read_from(buf)?;
-            if clock_update_count.0 < 0 {
-                return Err(Error::Err(format!(
-                    "negative Play set_time clock update count {}",
-                    clock_update_count.0
-                )));
-            }
-            if clock_update_count.0 != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty Play set_time clock update count {}",
-                    clock_update_count.0
-                )));
-            }
-            return Ok(Some(Packet::PlaySetTimeClientbound(
-                packet::play::clientbound::PlaySetTimeClientbound {
-                    game_time,
-                    clock_update_count,
-                },
             )));
         }
         packet::play::clientbound::internal_ids::PlayCustomReportDetailsClientbound => {
