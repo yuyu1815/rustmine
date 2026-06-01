@@ -7,10 +7,10 @@ startup stays cheap.
 
 | Field | Value |
 |---|---|
-| Area | Protocol 775 Play CLIENTBOUND packet support |
-| Current task | The parked-row follow-up batches promoted `0x62`, `0x6e`, `0x71`, `0x86`, simple Component text rows `0x70`, `0x72`, `0x79`, `0x7a`, empty ItemStack rows `0x60`, `0x66`, `0x6c`, entity/runtime rows `0x63`, `0x83`, `0x87`, scoped default-spawn/scoreboard/NBT/game-test rows `0x61`, `0x6a`, `0x6d`, `0x7b`, `0x7e`, scoped empty/movement rows `0x7d`, `0x82`, `0x85`, `0x8a`, combined registry-holder rows `0x75`, `0x84`, `0x8c`, and final GameTest entity fixture rows `0x64`, `0x6b`, `0x74` into jar-backed oracle packages and Stevenarella dispatch mappings. The official Protocol 775 Play CLIENTBOUND table currently ends at `0x8c`; all rows now have a classification and all safe/proven packet-support rows have scoped implementations. |
-| Last touched | `docs/analysis/protocol/versions/775/`, `oracle/harness/java/`, `oracle/`, `stevenarella/protocol/src/protocol/versions/v26_1_2.rs`, `docs/next/` |
-| Stop boundary | Do not implement YELLOW rows from names or previous-version witnesses. Do not stage unrelated logs or timestamp-only answer regeneration. |
+| Area | Stevenarella 26-only readability cleanup |
+| Current task | Re-started from `main` on `codex/stevenarella-26-kiss` to make the current 26 target easier to read without building a generic multi-version structure. Current slices keep behavior unchanged and move cohesive feature groups only: Configuration packet family to `protocol/packet/configuration.rs`, inventory send helpers to `protocol/packet/inventory.rs`, and packet-to-mapped conversion to `protocol/mapped_packet/packet_to_mapped.rs`. This is not a packet-by-packet or one-function-per-file split. |
+| Last touched | `docs/next/`, `docs/analysis/current-evidence/structural-scan.md`, `stevenarella/protocol/src/protocol/packet.rs`, `stevenarella/protocol/src/protocol/packet/configuration.rs`, `stevenarella/protocol/src/protocol/packet/inventory.rs`, `stevenarella/protocol/src/protocol/mapped_packet.rs`, `stevenarella/protocol/src/protocol/mapped_packet/packet_to_mapped.rs` |
+| Stop boundary | Prioritize 26 working/readable paths over generic version abstraction. Do not reorganize `versions.rs` / `versions/` in this slice. Do not split one packet or one function into its own file unless it is already a coherent feature boundary. Do not change packet IDs, codecs, packet shapes, or protocol behavior. |
 
 ## Read Next
 
@@ -19,23 +19,25 @@ AGENTS.md
   -> docs/ai/README.md
   -> docs/ai/agent-ops.md
   -> docs/next/README.md
-  -> docs/analysis/protocol/README.md
-  -> docs/analysis/protocol/versions/775/README.md
-  -> docs/analysis/protocol/versions/775/play-clientbound-deferred.md
+  -> docs/analysis/responsibility/README.md
+  -> docs/analysis/responsibility/checkout-under-test.md
+  -> docs/analysis/current-evidence/structural-scan.md
+  -> stevenarella/protocol/src/protocol/
 ```
 
 ## Immediate Next Action
 
 ```text
-For the next Protocol 775 Play CLIENTBOUND task:
-  -> do not continue broad packet insertion from row names; the official table is classified through `0x8c`
-  -> use `oracle/harness/java/scripts/run_entity_fixture_policy_probe.sh <tmp-jsonl>` only when extending the official initialized entity fixture family
-  -> create new oracle packages before any future Rust expansion of unsupported branches
-  -> there are no further Play CLIENTBOUND rows after `0x8c` in the official table
-  -> no parked packet rows remain; non-promoted branches of `0x61`, `0x64`, `0x6a`, `0x6b`, `0x6d`, `0x74`, `0x75`, `0x7b`, `0x7d`, `0x7e`, `0x82`, `0x84`, `0x85`, `0x8a`, and `0x8c` remain unsupported
-  -> choose the next route from client-load/playability evidence, not more Protocol 775 Play CLIENTBOUND row completion
+For the next 26-only readability-cleanup slice:
+  -> keep the route simple: 26 entry -> login -> configuration -> play -> packet families -> helpers
+  -> use SRP as "one coherent reason to change", not "one function per file"
+  -> use KISS to avoid extra module hops when related code is already easier to read together
+  -> split by feature family such as configuration, play, movement, inventory, or entity
+  -> prefer one cohesive feature group per commit with behavior unchanged
+  -> for remaining thousand-line files, next folder choices should improve the 26 route map before reducing line count
+  -> leave `versions.rs` and generic version-router structure alone unless 26 runtime work proves that area is the smallest necessary owner
+  -> run `cargo fmt --check`, `cargo check`, and `cargo test` after each Rust slice
   -> after consuming any planner, implementation, oracle, docs, mapper, or review result, delete/clear or discard that agent session and cache; never reuse it for the next batch
-  -> avoid editing unrelated oracle/log changes already in the worktree
 ```
 
 ## Recovery Rule

@@ -25,6 +25,26 @@ scan output
 The scan can help find code. It cannot prove implementation, compatibility, or
 phase completion.
 
+## SRP / KISS Readability Rule
+
+For 26-only readability cleanup, use this map before moving Rust code:
+
+```text
+same feature / same reason to change
+  -> keep together
+
+different lifecycle step or feature family
+  -> split at that boundary
+
+one function or one packet only
+  -> not enough reason by itself
+```
+
+Single responsibility means a cohesive reason to change. It does not mean
+one function per file. KISS means avoiding module hops that make the 26 load
+path harder to follow. Prefer feature-family files such as configuration,
+play, movement, inventory, or entity when they make the route easier to scan.
+
 ## Reset Boundary
 
 `stevenarella/` is a reset-prone checkout under test. Do not store persistent
