@@ -12,6 +12,7 @@ mod dialog;
 mod entity;
 mod scoreboard;
 mod server_links;
+mod set_cursor_item;
 mod set_default_spawn_position;
 mod set_time;
 mod sound;
@@ -77,6 +78,14 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        set_cursor_item::read_set_cursor_item_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
         packet::play::clientbound::internal_ids::Disconnect => {
@@ -84,12 +93,6 @@ pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
                 packet::play::clientbound::Disconnect {
                     reason: read_nbt_string_component(buf)?,
                 },
-            )));
-        }
-        packet::play::clientbound::internal_ids::PlaySetCursorItemClientbound => {
-            read_empty_play_item_stack_marker(buf, "set_cursor_item")?;
-            return Ok(Some(Packet::PlaySetCursorItemClientbound(
-                packet::play::clientbound::PlaySetCursorItemClientbound { item: None },
             )));
         }
         packet::play::clientbound::internal_ids::PlaySetPlayerInventoryClientbound => {
