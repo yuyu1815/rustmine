@@ -57,11 +57,25 @@ fn accept_resource_pack(
             event.required,
             event.prompt.clone(),
         ));
-        let acks = [pack.accept(), {
-            pack.start_download();
-            pack.download_succeeded();
-            pack.apply_downloaded()
-        }];
+
+        if pack.validate_url().is_err() {
+            send_resource_pack_ack(
+                &mut commands,
+                event.entity,
+                in_config_state_option.is_some(),
+                pack.invalid_url(),
+            );
+            continue;
+        }
+
+        let acks = [
+            pack.accept(),
+            {
+                pack.start_download();
+                pack.download_succeeded()
+            },
+            { pack.apply_downloaded() },
+        ];
 
         for ack in acks {
             send_resource_pack_ack(
@@ -111,6 +125,7 @@ fn config_resource_pack_ack_action(
             config::s_resource_pack::Action::FailedDownload
         }
         ServerResourcePackAckAction::Accepted => config::s_resource_pack::Action::Accepted,
+        ServerResourcePackAckAction::Downloaded => config::s_resource_pack::Action::Downloaded,
         ServerResourcePackAckAction::InvalidUrl => config::s_resource_pack::Action::InvalidUrl,
         ServerResourcePackAckAction::FailedReload => config::s_resource_pack::Action::FailedReload,
         ServerResourcePackAckAction::Discarded => config::s_resource_pack::Action::Discarded,
@@ -125,6 +140,7 @@ fn game_resource_pack_ack_action(action: ServerResourcePackAckAction) -> s_resou
         ServerResourcePackAckAction::Declined => s_resource_pack::Action::Declined,
         ServerResourcePackAckAction::FailedDownload => s_resource_pack::Action::FailedDownload,
         ServerResourcePackAckAction::Accepted => s_resource_pack::Action::Accepted,
+        ServerResourcePackAckAction::Downloaded => s_resource_pack::Action::Downloaded,
         ServerResourcePackAckAction::InvalidUrl => s_resource_pack::Action::InvalidUrl,
         ServerResourcePackAckAction::FailedReload => s_resource_pack::Action::FailedReload,
         ServerResourcePackAckAction::Discarded => s_resource_pack::Action::Discarded,

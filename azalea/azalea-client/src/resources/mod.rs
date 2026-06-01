@@ -206,6 +206,112 @@ impl ServerResourcePackRequest {
     pub fn prompt(&self) -> Option<&FormattedText> {
         self.prompt.as_ref()
     }
+
+    pub fn validate_url(&self) -> Result<(), ServerResourcePackValidationError> {
+        validate_server_resource_pack_url(&self.url)
+    }
+
+    pub fn parsed_sha1_hash(&self) -> Option<String> {
+        parse_server_resource_pack_sha1_hash(&self.hash)
+    }
+
+    pub fn validation(&self) -> ServerResourcePackValidation {
+        ServerResourcePackValidation {
+            url: self.validate_url(),
+            sha1_hash: self.parsed_sha1_hash(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackValidation {
+    pub url: Result<(), ServerResourcePackValidationError>,
+    pub sha1_hash: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackValidationError {
+    InvalidUrl,
+}
+
+fn validate_server_resource_pack_url(url: &str) -> Result<(), ServerResourcePackValidationError> {
+    if is_valid_server_resource_pack_url(url) {
+        Ok(())
+    } else {
+        Err(ServerResourcePackValidationError::InvalidUrl)
+    }
+}
+
+fn is_valid_server_resource_pack_url(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return false;
+    };
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return false;
+    }
+    if rest.is_empty()
+        || rest
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || byte < 0x20)
+    {
+        return false;
+    }
+
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    is_valid_server_resource_pack_authority(authority)
+}
+
+fn is_valid_server_resource_pack_authority(authority: &str) -> bool {
+    if authority.is_empty() {
+        return false;
+    }
+
+    if let Some(authority) = authority.strip_prefix('[') {
+        let Some((host, rest)) = authority.split_once(']') else {
+            return false;
+        };
+        let port_is_valid = if rest.is_empty() {
+            true
+        } else if let Some(port) = rest.strip_prefix(':') {
+            is_valid_server_resource_pack_port(port)
+        } else {
+            false
+        };
+        return !host.is_empty()
+            && !host
+                .bytes()
+                .any(|byte| byte.is_ascii_whitespace() || byte < 0x20)
+            && port_is_valid;
+    }
+
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    !host.is_empty()
+        && !host.starts_with('.')
+        && !host.ends_with('.')
+        && !host.bytes().any(|byte| {
+            byte.is_ascii_whitespace()
+                || byte < 0x20
+                || matches!(byte, b'/' | b'?' | b'#' | b'[' | b']')
+        })
+        && port.map(is_valid_server_resource_pack_port).unwrap_or(true)
+}
+
+fn is_valid_server_resource_pack_port(port: &str) -> bool {
+    !port.is_empty()
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
+}
+
+fn parse_server_resource_pack_sha1_hash(hash: &str) -> Option<String> {
+    if hash.len() == 40 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(hash.to_ascii_lowercase())
+    } else {
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -233,6 +339,7 @@ pub enum ServerResourcePackAckAction {
     Declined,
     FailedDownload,
     Accepted,
+    Downloaded,
     InvalidUrl,
     FailedReload,
     Discarded,
@@ -266,6 +373,18 @@ impl ServerResourcePackApplyState {
         self.status
     }
 
+    pub fn validate_url(&self) -> Result<(), ServerResourcePackValidationError> {
+        self.request.validate_url()
+    }
+
+    pub fn parsed_sha1_hash(&self) -> Option<String> {
+        self.request.parsed_sha1_hash()
+    }
+
+    pub fn validation(&self) -> ServerResourcePackValidation {
+        self.request.validation()
+    }
+
     pub fn accept(&mut self) -> ServerResourcePackAck {
         self.status = ServerResourcePackStatus::Accepted;
         self.ack(ServerResourcePackAckAction::Accepted)
@@ -286,8 +405,9 @@ impl ServerResourcePackApplyState {
         self.status = ServerResourcePackStatus::Downloading;
     }
 
-    pub fn download_succeeded(&mut self) {
+    pub fn download_succeeded(&mut self) -> ServerResourcePackAck {
         self.status = ServerResourcePackStatus::Downloaded;
+        self.ack(ServerResourcePackAckAction::Downloaded)
     }
 
     pub fn apply_downloaded(&mut self) -> ServerResourcePackAck {
@@ -2250,21 +2370,140 @@ mod tests {
     }
 
     #[test]
+    fn server_pack_request_validation_distinguishes_url_states() {
+        let id = resource_pack_id(20);
+        let lowercase_hash = "0123456789abcdef0123456789abcdef01234567";
+        let valid_http = ServerResourcePackRequest::new(
+            id,
+            "http://example.test/resource-pack.zip",
+            lowercase_hash,
+            false,
+            None,
+        );
+        let valid_https = ServerResourcePackRequest::new(
+            id,
+            "https://example.test:8080/resource-pack.zip?sha1=known",
+            lowercase_hash,
+            false,
+            None,
+        );
+        let invalid = ServerResourcePackRequest::new(id, "https://", lowercase_hash, false, None);
+        let unsupported_scheme = ServerResourcePackRequest::new(
+            id,
+            "ftp://example.test/resource-pack.zip",
+            lowercase_hash,
+            false,
+            None,
+        );
+
+        assert_eq!(valid_http.validate_url(), Ok(()));
+        assert_eq!(valid_https.validate_url(), Ok(()));
+        assert_eq!(
+            invalid.validate_url(),
+            Err(ServerResourcePackValidationError::InvalidUrl)
+        );
+        assert_eq!(
+            unsupported_scheme.validate_url(),
+            Err(ServerResourcePackValidationError::InvalidUrl)
+        );
+    }
+
+    #[test]
+    fn server_pack_request_validation_distinguishes_hash_states() {
+        let id = resource_pack_id(21);
+        let valid_lowercase = ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "0123456789abcdef0123456789abcdef01234567",
+            false,
+            None,
+        );
+        let valid_uppercase = ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "0123456789ABCDEF0123456789ABCDEF01234567",
+            false,
+            None,
+        );
+        let empty = ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "",
+            false,
+            None,
+        );
+        let invalid = ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "not-a-sha1",
+            false,
+            None,
+        );
+
+        assert_eq!(
+            valid_lowercase.parsed_sha1_hash(),
+            Some("0123456789abcdef0123456789abcdef01234567".to_owned())
+        );
+        assert_eq!(
+            valid_uppercase.parsed_sha1_hash(),
+            Some("0123456789abcdef0123456789abcdef01234567".to_owned())
+        );
+        assert_eq!(empty.parsed_sha1_hash(), None);
+        assert_eq!(invalid.parsed_sha1_hash(), None);
+    }
+
+    #[test]
+    fn server_pack_apply_state_exposes_request_validation_without_status_change() {
+        let id = resource_pack_id(22);
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "not a url",
+            "",
+            false,
+            None,
+        ));
+
+        assert_eq!(
+            pack.validation(),
+            ServerResourcePackValidation {
+                url: Err(ServerResourcePackValidationError::InvalidUrl),
+                sha1_hash: None,
+            }
+        );
+        assert_eq!(pack.status(), ServerResourcePackStatus::Pending);
+
+        pack.invalid_url();
+
+        assert_eq!(
+            pack.validate_url(),
+            Err(ServerResourcePackValidationError::InvalidUrl)
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::InvalidUrl)
+        );
+    }
+
+    #[test]
     fn accepted_server_pack_reports_downloaded_then_applied_ack_sequence() {
         let id = resource_pack_id(3);
         let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
 
         let accepted = pack.accept();
         pack.start_download();
-        pack.download_succeeded();
+        let downloaded = pack.download_succeeded();
         let loaded = pack.apply_downloaded();
 
         assert_eq!(
-            [accepted, loaded],
+            [accepted, downloaded, loaded],
             [
                 ServerResourcePackAck {
                     id,
                     action: ServerResourcePackAckAction::Accepted,
+                },
+                ServerResourcePackAck {
+                    id,
+                    action: ServerResourcePackAckAction::Downloaded,
                 },
                 ServerResourcePackAck {
                     id,
@@ -2291,8 +2530,8 @@ mod tests {
         let reload_acks = {
             let accepted = reload_failure.accept();
             reload_failure.start_download();
-            reload_failure.download_succeeded();
-            [accepted, reload_failure.reload_failed()]
+            let downloaded = reload_failure.download_succeeded();
+            [accepted, downloaded, reload_failure.reload_failed()]
         };
 
         assert_eq!(
@@ -2314,6 +2553,10 @@ mod tests {
                 ServerResourcePackAck {
                     id: reload_id,
                     action: ServerResourcePackAckAction::Accepted,
+                },
+                ServerResourcePackAck {
+                    id: reload_id,
+                    action: ServerResourcePackAckAction::Downloaded,
                 },
                 ServerResourcePackAck {
                     id: reload_id,
