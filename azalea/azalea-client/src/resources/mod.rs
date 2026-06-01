@@ -468,6 +468,42 @@ impl ServerResourcePackApplyState {
         Ok(self.download_succeeded())
     }
 
+    pub fn deterministic_cache_path(
+        &self,
+        cache_dir: impl AsRef<Path>,
+        actual_sha1: &str,
+    ) -> PathBuf {
+        cache_dir
+            .as_ref()
+            .join("server-resource-packs")
+            .join(self.request.id.simple().to_string())
+            .join(format!("{actual_sha1}.zip"))
+    }
+
+    pub fn cache_downloaded_bytes(
+        &mut self,
+        cache_dir: impl AsRef<Path>,
+        bytes: &[u8],
+    ) -> Result<ServerResourcePackAck, ServerResourcePackCacheError> {
+        let actual_sha1 = server_resource_pack_sha1_hex(bytes);
+        if !self.hash_matches(&actual_sha1) {
+            return Err(ServerResourcePackCacheError::Rejected(self.hash_mismatch()));
+        }
+
+        let path = self.deterministic_cache_path(cache_dir, &actual_sha1);
+        if let Err(source) = write_server_resource_pack_cache_file(&path, bytes) {
+            let ack = self.download_failed();
+            return Err(ServerResourcePackCacheError::Io { ack, source });
+        }
+
+        self.downloaded = Some(ServerResourcePackDownload::Path {
+            path,
+            len: bytes.len(),
+            sha1: actual_sha1,
+        });
+        Ok(self.download_succeeded())
+    }
+
     pub fn download_path_succeeded(
         &mut self,
         path: impl Into<PathBuf>,
@@ -590,6 +626,23 @@ pub enum ServerResourcePackApplyError {
     RequiredPackCannotBeDeclined { id: Uuid },
 }
 
+#[derive(Debug)]
+pub enum ServerResourcePackCacheError {
+    Rejected(ServerResourcePackAck),
+    Io {
+        ack: ServerResourcePackAck,
+        source: io::Error,
+    },
+}
+
+impl ServerResourcePackCacheError {
+    pub fn ack(&self) -> ServerResourcePackAck {
+        match self {
+            Self::Rejected(ack) | Self::Io { ack, .. } => *ack,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServerResourcePackDownload {
     Bytes {
@@ -640,6 +693,13 @@ fn server_resource_pack_sha1_hex(bytes: &[u8]) -> String {
         .collect::<String>()
 }
 
+fn write_server_resource_pack_cache_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, bytes)
+}
+
 impl fmt::Display for ServerResourcePackApplyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -651,6 +711,32 @@ impl fmt::Display for ServerResourcePackApplyError {
 }
 
 impl std::error::Error for ServerResourcePackApplyError {}
+
+impl fmt::Display for ServerResourcePackCacheError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rejected(ack) => write!(
+                f,
+                "server resource pack `{}` rejected cache write with {:?}",
+                ack.id, ack.action
+            ),
+            Self::Io { ack, source } => write!(
+                f,
+                "server resource pack `{}` cache write failed with {:?}: {source}",
+                ack.id, ack.action
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ServerResourcePackCacheError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Rejected(_) => None,
+            Self::Io { source, .. } => Some(source),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServerResourcePackApplyModel {
@@ -4859,6 +4945,174 @@ mod tests {
             ServerResourcePackStatus::Failed(ServerResourcePackFailure::HashMismatch)
         );
         assert_eq!(pack.downloaded(), None);
+    }
+
+    #[test]
+    fn server_pack_cache_write_marks_downloaded_with_path_metadata() {
+        let id = resource_pack_id(26);
+        let bytes = b"cached server pack";
+        let expected_sha1 = server_resource_pack_sha1_hex(bytes);
+        let cache = TempPack::new();
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            &expected_sha1,
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        let ack = pack
+            .cache_downloaded_bytes(cache.path(), bytes)
+            .expect("matching pack bytes should write to cache");
+
+        let expected_path = cache
+            .path()
+            .join("server-resource-packs")
+            .join(id.simple().to_string())
+            .join(format!("{expected_sha1}.zip"));
+        assert_eq!(
+            ack,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::Downloaded,
+            }
+        );
+        assert_eq!(pack.status(), ServerResourcePackStatus::Downloaded);
+        assert_eq!(
+            fs::read(&expected_path).expect("cached pack bytes should be readable"),
+            bytes
+        );
+        assert_eq!(
+            pack.downloaded(),
+            Some(&ServerResourcePackDownload::Path {
+                path: expected_path,
+                len: bytes.len(),
+                sha1: expected_sha1,
+            })
+        );
+    }
+
+    #[test]
+    fn server_pack_cache_write_rejects_hash_mismatch_without_file() {
+        let id = resource_pack_id(27);
+        let bytes = b"cached server pack";
+        let cache = TempPack::new();
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "0000000000000000000000000000000000000000",
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        let err = pack
+            .cache_downloaded_bytes(cache.path(), bytes)
+            .expect_err("wrong sha1 should reject cached bytes");
+
+        assert_eq!(
+            err.ack(),
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedDownload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::HashMismatch)
+        );
+        assert_eq!(pack.downloaded(), None);
+        assert!(!cache.path().join("server-resource-packs").exists());
+    }
+
+    #[test]
+    fn server_pack_cache_write_reports_invalid_cache_dir() {
+        let id = resource_pack_id(28);
+        let bytes = b"cached server pack";
+        let cache = TempPack::new();
+        cache.write("not-a-directory", "");
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        let err = pack
+            .cache_downloaded_bytes(cache.path().join("not-a-directory"), bytes)
+            .expect_err("file cache root should fail before writing");
+
+        assert_eq!(
+            err.ack(),
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedDownload,
+            }
+        );
+        assert!(matches!(err, ServerResourcePackCacheError::Io { .. }));
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download)
+        );
+        assert_eq!(pack.downloaded(), None);
+    }
+
+    #[test]
+    fn server_pack_cache_path_is_deterministic() {
+        let id = resource_pack_id(29);
+        let cache = TempPack::new();
+        let request_hash = "0123456789ABCDEF0123456789ABCDEF01234567";
+        let actual_hash = "fedcba9876543210fedcba9876543210fedcba98";
+        let pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            request_hash,
+            true,
+            None,
+        ));
+
+        let first = pack.deterministic_cache_path(cache.path(), actual_hash);
+        let second = pack.deterministic_cache_path(cache.path(), actual_hash);
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            cache
+                .path()
+                .join("server-resource-packs")
+                .join(id.simple().to_string())
+                .join(format!("{actual_hash}.zip"))
+        );
+    }
+
+    #[test]
+    fn server_pack_cache_without_declared_hash_uses_computed_sha1_path() {
+        let id = resource_pack_id(30);
+        let bytes = b"cached server pack without declared hash";
+        let expected_sha1 = server_resource_pack_sha1_hex(bytes);
+        let cache = TempPack::new();
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            "",
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        pack.cache_downloaded_bytes(cache.path(), bytes)
+            .expect("pack bytes without declared hash should write to cache");
+
+        let expected_path = cache
+            .path()
+            .join("server-resource-packs")
+            .join(id.simple().to_string())
+            .join(format!("{expected_sha1}.zip"));
+        assert_eq!(
+            pack.downloaded().and_then(ServerResourcePackDownload::path),
+            Some(expected_path.as_path())
+        );
     }
 
     #[test]
