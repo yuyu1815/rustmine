@@ -10,6 +10,14 @@ pub(crate) fn read_update_clientbound_packet_by_internal_id<R: io::Read>(
     buf: &mut R,
 ) -> Result<Option<Packet>, Error> {
     if let Some(packet) =
+        super::update_attributes::read_update_attributes_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
         super::update_tags::read_update_tags_clientbound_packet_by_internal_id(internal_id, buf)?
     {
         return Ok(Some(packet));
@@ -24,28 +32,6 @@ pub(crate) fn read_update_clientbound_packet_by_internal_id<R: io::Read>(
     }
 
     match internal_id {
-        packet::play::clientbound::internal_ids::PlayUpdateAttributesClientbound => {
-            let entity_id = VarInt::read_from(buf)?;
-            let attribute_count = VarInt::read_from(buf)?;
-            if attribute_count.0 < 0 {
-                return Err(Error::Err(format!(
-                    "negative Play update_attributes attribute count {}",
-                    attribute_count.0
-                )));
-            }
-            if attribute_count.0 != 0 {
-                return Err(Error::Err(format!(
-                    "unsupported non-empty Play update_attributes attribute count {}",
-                    attribute_count.0
-                )));
-            }
-            Ok(Some(Packet::PlayUpdateAttributesClientbound(
-                packet::play::clientbound::PlayUpdateAttributesClientbound {
-                    entity_id,
-                    attribute_count,
-                },
-            )))
-        }
         packet::play::clientbound::internal_ids::PlayUpdateAdvancementsClientbound => {
             let reset = bool::read_from(buf)?;
             let added_count = VarInt::read_from(buf)?;
