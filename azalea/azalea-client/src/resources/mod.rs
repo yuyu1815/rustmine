@@ -62,6 +62,27 @@ const DEFAULT_REPRESENTATIVE_TEXTURES: &[&str] = &[
     "assets/minecraft/textures/misc/pumpkinblur.png",
     "assets/minecraft/textures/gui/title/mojangstudios.png",
 ];
+const INITIAL_SIMPLE_TEXTURES: &[(&str, &str)] = &[
+    (
+        "minecraft:textures/gui/title/minecraft.png",
+        "assets/minecraft/textures/gui/title/minecraft.png",
+    ),
+    (
+        "minecraft:textures/gui/title/edition.png",
+        "assets/minecraft/textures/gui/title/edition.png",
+    ),
+    (
+        "minecraft:textures/gui/title/background/panorama_overlay.png",
+        "assets/minecraft/textures/gui/title/background/panorama_overlay.png",
+    ),
+];
+const INITIAL_MOJANG_LOGO_ID: &str = "minecraft:textures/gui/title/mojangstudios.png";
+const INITIAL_MOJANG_LOGO_RESOURCE: &str = "assets/minecraft/textures/gui/title/mojangstudios.png";
+const INITIAL_CUBEMAP_ID: &str = "minecraft:textures/gui/title/background/panorama";
+const INITIAL_CUBEMAP_RESOURCE_PREFIX: &str =
+    "assets/minecraft/textures/gui/title/background/panorama";
+const INITIAL_CUBEMAP_SUFFIXES: &[&str] =
+    &["_1.png", "_3.png", "_5.png", "_4.png", "_0.png", "_2.png"];
 const DEFAULT_MODEL_SMOKE_RESOURCES: &[&str] = &[
     "assets/minecraft/models/block/stone.json",
     "assets/minecraft/models/item/stick.json",
@@ -1845,6 +1866,7 @@ impl ResourceReloadManager {
         let mut manager = Self::new(stack)
             .with_listener(ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE))
             .with_listener(TextureMetadataReloadListener::default())
+            .with_listener(InitialTextureReloadListener::default())
             .with_listener(HeadlessShaderSourceReloadListener::default());
 
         if has_sound_events {
@@ -7228,6 +7250,576 @@ fn texture_metadata_report_item(texture: &ClientTextureMetadataResource) -> Stri
     )
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InitialTextureReloadListener {
+    name: String,
+}
+
+impl InitialTextureReloadListener {
+    pub fn new() -> Self {
+        Self {
+            name: "initial_textures".to_owned(),
+        }
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<InitialTextureReloadReport> {
+        load_initial_textures(stack)
+    }
+}
+
+impl Default for InitialTextureReloadListener {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ResourceReloadListener for InitialTextureReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        for (_, resource) in INITIAL_SIMPLE_TEXTURES {
+            stack.require_resource(resource)?;
+        }
+        require_resource_from_pack(stack, INITIAL_MOJANG_LOGO_RESOURCE, VANILLA_PACK_ID)?;
+        for resource in initial_cubemap_resources() {
+            stack.require_resource(resource)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(
+            initial_texture_prepare_items(),
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            self.load(stack)?
+                .items()
+                .iter()
+                .map(initial_texture_report_item),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InitialTextureReloadReport {
+    items: Vec<InitialTextureReportItem>,
+}
+
+impl InitialTextureReloadReport {
+    pub fn items(&self) -> &[InitialTextureReportItem] {
+        &self.items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InitialTextureReportItem {
+    registered_id: String,
+    loader_kind: InitialTextureLoaderKind,
+    loaded_resource_paths: Vec<String>,
+    pack_ids: Vec<String>,
+    byte_counts: Vec<usize>,
+    width: u32,
+    height: u32,
+    depth: u32,
+    metadata: InitialTextureMetadata,
+}
+
+impl InitialTextureReportItem {
+    pub fn registered_id(&self) -> &str {
+        &self.registered_id
+    }
+
+    pub fn loader_kind(&self) -> InitialTextureLoaderKind {
+        self.loader_kind
+    }
+
+    pub fn loaded_resource_paths(&self) -> &[String] {
+        &self.loaded_resource_paths
+    }
+
+    pub fn pack_ids(&self) -> &[String] {
+        &self.pack_ids
+    }
+
+    pub fn byte_counts(&self) -> &[usize] {
+        &self.byte_counts
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    pub fn metadata(&self) -> &InitialTextureMetadata {
+        &self.metadata
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialTextureLoaderKind {
+    SimpleTexture,
+    MojangLogo,
+    Cubemap,
+}
+
+impl InitialTextureLoaderKind {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::SimpleTexture => "simple_texture",
+            Self::MojangLogo => "mojang_logo",
+            Self::Cubemap => "cubemap",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InitialTextureMetadata {
+    source: InitialTextureMetadataSource,
+    blur: bool,
+    clamp: bool,
+    mipmap_strategy: InitialTextureMipmapStrategy,
+    alpha_cutoff_bias: String,
+}
+
+impl InitialTextureMetadata {
+    fn default_source(source: InitialTextureMetadataSource) -> Self {
+        Self {
+            source,
+            blur: false,
+            clamp: false,
+            mipmap_strategy: InitialTextureMipmapStrategy::Auto,
+            alpha_cutoff_bias: "0.0".to_owned(),
+        }
+    }
+
+    fn synthetic(blur: bool, clamp: bool) -> Self {
+        Self {
+            source: InitialTextureMetadataSource::Synthetic,
+            blur,
+            clamp,
+            mipmap_strategy: InitialTextureMipmapStrategy::Mean,
+            alpha_cutoff_bias: "0.0".to_owned(),
+        }
+    }
+
+    pub fn source(&self) -> &InitialTextureMetadataSource {
+        &self.source
+    }
+
+    pub fn blur(&self) -> bool {
+        self.blur
+    }
+
+    pub fn clamp(&self) -> bool {
+        self.clamp
+    }
+
+    pub fn mipmap_strategy(&self) -> InitialTextureMipmapStrategy {
+        self.mipmap_strategy
+    }
+
+    pub fn alpha_cutoff_bias(&self) -> &str {
+        &self.alpha_cutoff_bias
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InitialTextureMetadataSource {
+    Synthetic,
+    Default,
+    Resource { resource: String, pack_id: String },
+}
+
+impl InitialTextureMetadataSource {
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::Synthetic => "synthetic".to_owned(),
+            Self::Default => "default".to_owned(),
+            Self::Resource { resource, pack_id } => format!("resource:{resource}@{pack_id}"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialTextureMipmapStrategy {
+    Auto,
+    Mean,
+    Cutout,
+    StrictCutout,
+    DarkCutout,
+}
+
+impl InitialTextureMipmapStrategy {
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "mean" => Some(Self::Mean),
+            "cutout" => Some(Self::Cutout),
+            "strict_cutout" => Some(Self::StrictCutout),
+            "dark_cutout" => Some(Self::DarkCutout),
+            _ => None,
+        }
+    }
+
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Mean => "mean",
+            Self::Cutout => "cutout",
+            Self::StrictCutout => "strict_cutout",
+            Self::DarkCutout => "dark_cutout",
+        }
+    }
+}
+
+fn load_initial_textures(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<InitialTextureReloadReport> {
+    let mut items = Vec::with_capacity(INITIAL_SIMPLE_TEXTURES.len() + 2);
+
+    for (registered_id, resource) in INITIAL_SIMPLE_TEXTURES {
+        items.push(load_initial_simple_texture(stack, registered_id, resource)?);
+    }
+    items.push(load_initial_mojang_logo(stack)?);
+    items.push(load_initial_cubemap(stack)?);
+
+    Ok(InitialTextureReloadReport { items })
+}
+
+fn load_initial_simple_texture(
+    stack: &ClientResourceStack,
+    registered_id: &str,
+    resource: &str,
+) -> ResourceReloadResult<InitialTextureReportItem> {
+    let (pack_index, location) = require_resource_with_pack_index(stack, resource)?;
+    let bytes = read_resource_bytes(resource, &location)?;
+    let image = decode_png_dimensions(resource, &location, &bytes)?;
+    let metadata = load_initial_texture_metadata(stack, resource, pack_index)?;
+
+    Ok(InitialTextureReportItem {
+        registered_id: registered_id.to_owned(),
+        loader_kind: InitialTextureLoaderKind::SimpleTexture,
+        loaded_resource_paths: vec![resource.to_owned()],
+        pack_ids: vec![location.pack_id],
+        byte_counts: vec![bytes.len()],
+        width: image.width,
+        height: image.height,
+        depth: 1,
+        metadata,
+    })
+}
+
+fn load_initial_mojang_logo(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<InitialTextureReportItem> {
+    let location =
+        require_resource_from_pack(stack, INITIAL_MOJANG_LOGO_RESOURCE, VANILLA_PACK_ID)?;
+    let bytes = read_resource_bytes(INITIAL_MOJANG_LOGO_RESOURCE, &location)?;
+    let image = decode_png_dimensions(INITIAL_MOJANG_LOGO_RESOURCE, &location, &bytes)?;
+
+    Ok(InitialTextureReportItem {
+        registered_id: INITIAL_MOJANG_LOGO_ID.to_owned(),
+        loader_kind: InitialTextureLoaderKind::MojangLogo,
+        loaded_resource_paths: vec![INITIAL_MOJANG_LOGO_RESOURCE.to_owned()],
+        pack_ids: vec![location.pack_id],
+        byte_counts: vec![bytes.len()],
+        width: image.width,
+        height: image.height,
+        depth: 1,
+        metadata: InitialTextureMetadata::synthetic(true, true),
+    })
+}
+
+fn load_initial_cubemap(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<InitialTextureReportItem> {
+    let resources = initial_cubemap_resources();
+    let mut pack_ids = Vec::with_capacity(resources.len());
+    let mut byte_counts = Vec::with_capacity(resources.len());
+    let mut width = None;
+    let mut height = None;
+
+    for resource in &resources {
+        let location = stack.require_resource(resource)?;
+        let bytes = read_resource_bytes(resource, &location)?;
+        let image = decode_png_dimensions(resource, &location, &bytes)?;
+
+        match (width, height) {
+            (None, None) => {
+                width = Some(image.width);
+                height = Some(image.height);
+            }
+            (Some(expected_width), Some(expected_height))
+                if expected_width == image.width && expected_height == image.height => {}
+            _ => {
+                return Err(ResourceReloadError::InvalidInitialTexture {
+                    registered_id: INITIAL_CUBEMAP_ID.to_owned(),
+                    resource: resource.clone(),
+                    reason: format!(
+                        "cubemap face dimensions {}x{} do not match {}x{}",
+                        image.width,
+                        image.height,
+                        width.unwrap_or(image.width),
+                        height.unwrap_or(image.height)
+                    ),
+                });
+            }
+        }
+
+        pack_ids.push(location.pack_id);
+        byte_counts.push(bytes.len());
+    }
+
+    Ok(InitialTextureReportItem {
+        registered_id: INITIAL_CUBEMAP_ID.to_owned(),
+        loader_kind: InitialTextureLoaderKind::Cubemap,
+        loaded_resource_paths: resources,
+        pack_ids,
+        byte_counts,
+        width: width.unwrap_or(0),
+        height: height.unwrap_or(0),
+        depth: INITIAL_CUBEMAP_SUFFIXES.len() as u32,
+        metadata: InitialTextureMetadata::synthetic(true, false),
+    })
+}
+
+fn initial_cubemap_resources() -> Vec<String> {
+    INITIAL_CUBEMAP_SUFFIXES
+        .iter()
+        .map(|suffix| format!("{INITIAL_CUBEMAP_RESOURCE_PREFIX}{suffix}"))
+        .collect()
+}
+
+fn initial_texture_prepare_items() -> Vec<String> {
+    let mut items = INITIAL_SIMPLE_TEXTURES
+        .iter()
+        .map(|(_, resource)| (*resource).to_owned())
+        .collect::<Vec<_>>();
+    items.push(INITIAL_MOJANG_LOGO_RESOURCE.to_owned());
+    items.extend(initial_cubemap_resources());
+    items
+}
+
+fn initial_texture_report_item(item: &InitialTextureReportItem) -> String {
+    format!(
+        "{} kind:{} resources:{} packs:{} bytes:{} size:{}x{}x{} metadata:{} blur:{} clamp:{} mipmap_strategy:{} alpha_cutoff_bias:{}",
+        item.registered_id,
+        item.loader_kind.report_fragment(),
+        item.loaded_resource_paths.join(","),
+        item.pack_ids.join(","),
+        item.byte_counts
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        item.width,
+        item.height,
+        item.depth,
+        item.metadata.source.report_fragment(),
+        item.metadata.blur,
+        item.metadata.clamp,
+        item.metadata.mipmap_strategy.report_fragment(),
+        item.metadata.alpha_cutoff_bias,
+    )
+}
+
+fn load_initial_texture_metadata(
+    stack: &ClientResourceStack,
+    texture_resource: &str,
+    texture_pack_index: usize,
+) -> ResourceReloadResult<InitialTextureMetadata> {
+    let metadata_resource = format!("{texture_resource}.mcmeta");
+    for pack in stack
+        .packs
+        .iter()
+        .enumerate()
+        .rev()
+        .filter_map(|(index, pack)| {
+            (index >= texture_pack_index)
+                .then(|| pack.resource_location(Path::new(&metadata_resource)))
+                .flatten()
+        })
+    {
+        let metadata = read_initial_texture_metadata(&metadata_resource, &pack)?;
+        return Ok(InitialTextureMetadata {
+            source: InitialTextureMetadataSource::Resource {
+                resource: metadata_resource,
+                pack_id: pack.pack_id,
+            },
+            ..metadata
+        });
+    }
+
+    Ok(InitialTextureMetadata::default_source(
+        InitialTextureMetadataSource::Default,
+    ))
+}
+
+fn read_initial_texture_metadata(
+    metadata_resource: &str,
+    location: &ResourceLocation,
+) -> ResourceReloadResult<InitialTextureMetadata> {
+    let contents =
+        location
+            .read_to_string()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: metadata_resource.to_owned(),
+                path: location.path.clone(),
+                source,
+            })?;
+    let value = serde_json::from_str::<serde_json::Value>(&contents).map_err(|source| {
+        ResourceReloadError::ParseResourceJson {
+            resource: metadata_resource.to_owned(),
+            path: location.path.clone(),
+            source,
+        }
+    })?;
+    parse_initial_texture_metadata_value(metadata_resource, &location.pack_id, &value)
+}
+
+fn parse_initial_texture_metadata_value(
+    resource: &str,
+    pack_id: &str,
+    value: &serde_json::Value,
+) -> ResourceReloadResult<InitialTextureMetadata> {
+    let Some(root) = value.as_object() else {
+        return Err(invalid_initial_texture_metadata(
+            resource,
+            pack_id,
+            "top-level metadata is not an object",
+        ));
+    };
+    let Some(texture) = root.get("texture") else {
+        return Ok(InitialTextureMetadata::default_source(
+            InitialTextureMetadataSource::Default,
+        ));
+    };
+    let Some(texture) = texture.as_object() else {
+        return Err(invalid_initial_texture_metadata(
+            resource,
+            pack_id,
+            "texture section is not an object",
+        ));
+    };
+
+    let mut metadata =
+        InitialTextureMetadata::default_source(InitialTextureMetadataSource::Default);
+    if let Some(value) = texture.get("blur") {
+        metadata.blur = value.as_bool().ok_or_else(|| {
+            invalid_initial_texture_metadata(resource, pack_id, "texture.blur is not a bool")
+        })?;
+    }
+    if let Some(value) = texture.get("clamp") {
+        metadata.clamp = value.as_bool().ok_or_else(|| {
+            invalid_initial_texture_metadata(resource, pack_id, "texture.clamp is not a bool")
+        })?;
+    }
+    if let Some(value) = texture.get("mipmap_strategy") {
+        let value = value.as_str().ok_or_else(|| {
+            invalid_initial_texture_metadata(
+                resource,
+                pack_id,
+                "texture.mipmap_strategy is not a string",
+            )
+        })?;
+        metadata.mipmap_strategy =
+            InitialTextureMipmapStrategy::from_str(value).ok_or_else(|| {
+                invalid_initial_texture_metadata(
+                    resource,
+                    pack_id,
+                    format!("unknown texture.mipmap_strategy `{value}`"),
+                )
+            })?;
+    }
+    if let Some(value) = texture.get("alpha_cutoff_bias") {
+        let number = value.as_f64().ok_or_else(|| {
+            invalid_initial_texture_metadata(
+                resource,
+                pack_id,
+                "texture.alpha_cutoff_bias is not a number",
+            )
+        })?;
+        metadata.alpha_cutoff_bias = number.to_string();
+        if !metadata.alpha_cutoff_bias.contains('.') {
+            metadata.alpha_cutoff_bias.push_str(".0");
+        }
+    }
+
+    Ok(metadata)
+}
+
+fn invalid_initial_texture_metadata(
+    resource: &str,
+    pack_id: &str,
+    reason: impl Into<String>,
+) -> ResourceReloadError {
+    ResourceReloadError::InvalidInitialTextureMetadata {
+        resource: resource.to_owned(),
+        pack_id: pack_id.to_owned(),
+        reason: reason.into(),
+    }
+}
+
+fn require_resource_with_pack_index(
+    stack: &ClientResourceStack,
+    resource: &str,
+) -> ResourceReloadResult<(usize, ResourceLocation)> {
+    stack
+        .packs
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, pack)| {
+            pack.resource_location(Path::new(resource))
+                .map(|location| (index, location))
+        })
+        .ok_or_else(|| ResourceReloadError::MissingResource(resource.to_owned()))
+}
+
+fn require_resource_from_pack(
+    stack: &ClientResourceStack,
+    resource: &str,
+    pack_id: &str,
+) -> ResourceReloadResult<ResourceLocation> {
+    stack
+        .packs
+        .iter()
+        .find(|pack| pack.id() == pack_id)
+        .and_then(|pack| pack.resource_location(Path::new(resource)))
+        .ok_or_else(|| ResourceReloadError::MissingResource(format!("{resource}@{pack_id}")))
+}
+
+fn read_resource_bytes(
+    resource: &str,
+    location: &ResourceLocation,
+) -> ResourceReloadResult<Vec<u8>> {
+    location
+        .read_bytes()
+        .map_err(|source| ResourceReloadError::ReadResource {
+            resource: resource.to_owned(),
+            path: location.path.clone(),
+            source,
+        })
+}
+
 fn validate_png_signature(
     resource: &str,
     location: &ResourceLocation,
@@ -7255,6 +7847,37 @@ impl DecodedPngImage {
     fn pixel_count(&self) -> u64 {
         u64::from(self.width) * u64::from(self.height)
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DecodedPngDimensions {
+    width: u32,
+    height: u32,
+}
+
+fn decode_png_dimensions(
+    resource: &str,
+    location: &ResourceLocation,
+    bytes: &[u8],
+) -> ResourceReloadResult<DecodedPngDimensions> {
+    validate_png_signature(resource, location, bytes)?;
+
+    let decoder = png::Decoder::new(Cursor::new(bytes));
+    let mut reader = decoder
+        .read_info()
+        .map_err(|source| invalid_png_metadata(resource, location, source.to_string()))?;
+    let output_buffer_size = reader.output_buffer_size().ok_or_else(|| {
+        invalid_png_metadata(resource, location, "decoded png output buffer is too large")
+    })?;
+    let mut buffer = vec![0; output_buffer_size];
+    let output = reader
+        .next_frame(&mut buffer)
+        .map_err(|source| invalid_png_metadata(resource, location, source.to_string()))?;
+
+    Ok(DecodedPngDimensions {
+        width: output.width,
+        height: output.height,
+    })
 }
 
 fn decode_png_rgba_image(
@@ -7346,6 +7969,18 @@ pub enum ResourceReloadError {
     InvalidPngMetadata {
         resource: String,
         path: PathBuf,
+        reason: String,
+    },
+    #[error("invalid initial texture `{registered_id}` resource `{resource}`: {reason}")]
+    InvalidInitialTexture {
+        registered_id: String,
+        resource: String,
+        reason: String,
+    },
+    #[error("invalid initial texture metadata `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidInitialTextureMetadata {
+        resource: String,
+        pack_id: String,
         reason: String,
     },
     #[error("invalid font definition `{resource}` from pack `{pack_id}`: {reason}")]
@@ -8893,6 +9528,7 @@ mod tests {
             [
                 "client_languages",
                 "texture_metadata",
+                "initial_textures",
                 "headless_shader_sources",
                 "splashes",
                 "atlas_sources",
@@ -11298,6 +11934,173 @@ mod tests {
         assert!(
             pumpkinblur.ends_with(" bytes:png-signature-ok:mcmeta@vanilla:object keys:texture")
         );
+    }
+
+    #[test]
+    fn initial_texture_listener_uses_highest_texture_and_same_or_higher_metadata() {
+        let base = TempPack::new();
+        let texture_pack = TempPack::new();
+        let metadata_pack = TempPack::new();
+        let resource = INITIAL_SIMPLE_TEXTURES[0].1;
+        base.write_bytes(resource, MINIMAL_PNG);
+        base.write(
+            &format!("{resource}.mcmeta"),
+            r#"{"texture":{"blur":false,"clamp":false,"mipmap_strategy":"auto","alpha_cutoff_bias":0.0}}"#,
+        );
+        texture_pack.write_bytes(resource, OVERRIDE_MINIMAL_PNG);
+        metadata_pack.write(
+            &format!("{resource}.mcmeta"),
+            r#"{"texture":{"blur":true,"clamp":true,"mipmap_strategy":"cutout","alpha_cutoff_bias":0.25}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("texture", texture_pack.path()),
+            ClientResourcePack::new("metadata", metadata_pack.path()),
+        ]);
+        let item = load_initial_simple_texture(&stack, INITIAL_SIMPLE_TEXTURES[0].0, resource)
+            .expect("initial simple texture should load");
+
+        assert_eq!(item.pack_ids(), ["texture".to_owned()]);
+        assert_eq!(item.byte_counts(), [OVERRIDE_MINIMAL_PNG.len()]);
+        assert_eq!(
+            item.metadata().source(),
+            &InitialTextureMetadataSource::Resource {
+                resource: format!("{resource}.mcmeta"),
+                pack_id: "metadata".to_owned()
+            }
+        );
+        assert!(item.metadata().blur());
+        assert!(item.metadata().clamp());
+        assert_eq!(
+            item.metadata().mipmap_strategy(),
+            InitialTextureMipmapStrategy::Cutout
+        );
+        assert_eq!(item.metadata().alpha_cutoff_bias(), "0.25");
+    }
+
+    #[test]
+    fn initial_texture_listener_ignores_lower_priority_mcmeta_when_higher_texture_wins() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let resource = INITIAL_SIMPLE_TEXTURES[1].1;
+        base.write_bytes(resource, MINIMAL_PNG);
+        base.write(
+            &format!("{resource}.mcmeta"),
+            r#"{"texture":{"blur":true,"clamp":true,"mipmap_strategy":"mean","alpha_cutoff_bias":1.0}}"#,
+        );
+        override_pack.write_bytes(resource, OVERRIDE_MINIMAL_PNG);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let item = load_initial_simple_texture(&stack, INITIAL_SIMPLE_TEXTURES[1].0, resource)
+            .expect("initial simple texture should load");
+
+        assert_eq!(item.pack_ids(), ["override".to_owned()]);
+        assert_eq!(
+            item.metadata().source(),
+            &InitialTextureMetadataSource::Default
+        );
+        assert!(!item.metadata().blur());
+        assert!(!item.metadata().clamp());
+        assert_eq!(
+            item.metadata().mipmap_strategy(),
+            InitialTextureMipmapStrategy::Auto
+        );
+        assert_eq!(item.metadata().alpha_cutoff_bias(), "0.0");
+    }
+
+    #[test]
+    fn initial_texture_listener_rejects_invalid_texture_mcmeta_section() {
+        let temp = TempPack::new();
+        let resource = INITIAL_SIMPLE_TEXTURES[2].1;
+        let png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        temp.write_bytes(resource, &png);
+        temp.write(
+            &format!("{resource}.mcmeta"),
+            r#"{"texture":{"blur":"yes"}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = load_initial_simple_texture(&stack, INITIAL_SIMPLE_TEXTURES[2].0, resource)
+            .expect_err("invalid texture mcmeta should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidInitialTextureMetadata { resource: error_resource, pack_id, .. } if error_resource == format!("{resource}.mcmeta") && pack_id == "test")
+        );
+    }
+
+    #[test]
+    fn initial_texture_listener_rejects_corrupt_png() {
+        let temp = TempPack::new();
+        let resource = INITIAL_SIMPLE_TEXTURES[0].1;
+        temp.write_bytes(resource, b"not a png");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = load_initial_simple_texture(&stack, INITIAL_SIMPLE_TEXTURES[0].0, resource)
+            .expect_err("corrupt png should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidPngSignature { resource: error_resource, byte_count, .. } if error_resource == resource && byte_count == 9)
+        );
+    }
+
+    #[test]
+    fn initial_texture_cubemap_reports_suffix_order_and_rejects_dimension_mismatch() {
+        let temp = TempPack::new();
+        let resources = initial_cubemap_resources();
+        let png_2x2 = encode_test_rgba_png(2, 2, &[0, 0, 0, 255].repeat(4));
+        for resource in &resources {
+            temp.write_bytes(resource, &png_2x2);
+        }
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let item = load_initial_cubemap(&stack).expect("cubemap should load");
+        assert_eq!(item.loaded_resource_paths(), resources);
+        assert_eq!(item.width(), 2);
+        assert_eq!(item.height(), 2);
+        assert_eq!(item.depth(), 6);
+
+        let mismatch = TempPack::new();
+        let png_1x1 = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        for (index, resource) in resources.iter().enumerate() {
+            mismatch.write_bytes(resource, if index == 3 { &png_1x1 } else { &png_2x2 });
+        }
+        let stack =
+            ClientResourceStack::new(vec![ClientResourcePack::new("mismatch", mismatch.path())]);
+        let error = load_initial_cubemap(&stack).expect_err("mismatched cubemap should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidInitialTexture { registered_id, resource, .. } if registered_id == INITIAL_CUBEMAP_ID && resource.ends_with("_4.png"))
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_initial_texture_listener_loads_startup_texture_set() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(InitialTextureReloadListener::default())
+            .run()
+            .expect("committed vanilla initial texture set should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "initial_textures");
+        assert_eq!(
+            listener.preparation.items(),
+            initial_texture_prepare_items()
+        );
+        assert_eq!(
+            listener.reload.items().len(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.starts_with("minecraft:textures/gui/title/mojangstudios.png kind:mojang_logo")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.starts_with("minecraft:textures/gui/title/background/panorama kind:cubemap")
+                && item.contains("x6 metadata:synthetic")
+        }));
     }
 
     #[test]
