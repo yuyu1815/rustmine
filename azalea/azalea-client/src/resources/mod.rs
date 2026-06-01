@@ -5,11 +5,13 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt, fs, io,
+    fmt, fs,
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 
 use azalea_chat::FormattedText;
+use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -93,6 +95,8 @@ const DEFAULT_FONT_DEFINITIONS: &[&str] = &[
 const DEFAULT_PARTICLE_MANIFEST_IDS: &[&str] = &["rain", "firework", "splash"];
 const DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS: &[&str] = &["default", "bowtie"];
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+const PACK_MCMETA_RESOURCE: &str = "pack.mcmeta";
+const CLIENT_RESOURCE_PACK_FORMAT: u32 = 84;
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -809,9 +813,74 @@ impl ServerResourcePackDownload {
     fn is_openable(&self) -> bool {
         match self {
             Self::Bytes { .. } => true,
-            Self::Path { path, .. } if path.is_dir() => path.join("pack.mcmeta").is_file(),
-            Self::Path { path, .. } => path.is_file(),
+            Self::Path { path, .. } if path.is_dir() => {
+                server_resource_pack_directory_metadata_is_valid(path)
+            }
+            Self::Path { path, .. } => server_resource_pack_zip_metadata_is_valid(path),
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ClientResourcePackMetadata {
+    pack: ClientResourcePackMetadataSection,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClientResourcePackMetadataSection {
+    description: serde_json::Value,
+    min_format: u32,
+    max_format: u32,
+}
+
+fn server_resource_pack_directory_metadata_is_valid(path: &Path) -> bool {
+    fs::read_to_string(path.join(PACK_MCMETA_RESOURCE))
+        .ok()
+        .and_then(|metadata| validate_client_resource_pack_metadata(&metadata).ok())
+        .is_some()
+}
+
+fn server_resource_pack_zip_metadata_is_valid(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+        return false;
+    };
+    let Ok(mut metadata_file) = archive.by_name(PACK_MCMETA_RESOURCE) else {
+        return false;
+    };
+    let mut metadata = String::new();
+    if metadata_file.read_to_string(&mut metadata).is_err() {
+        return false;
+    }
+
+    validate_client_resource_pack_metadata(&metadata).is_ok()
+}
+
+fn validate_client_resource_pack_metadata(
+    metadata: &str,
+) -> Result<ClientResourcePackMetadata, ClientResourcePackMetadataError> {
+    let metadata = serde_json::from_str::<ClientResourcePackMetadata>(metadata)?;
+    let _ = &metadata.pack.description;
+    if metadata.pack.min_format > CLIENT_RESOURCE_PACK_FORMAT
+        || metadata.pack.max_format < CLIENT_RESOURCE_PACK_FORMAT
+        || metadata.pack.min_format > metadata.pack.max_format
+    {
+        return Err(ClientResourcePackMetadataError::UnsupportedFormat);
+    }
+    Ok(metadata)
+}
+
+#[derive(Debug)]
+enum ClientResourcePackMetadataError {
+    Json,
+    UnsupportedFormat,
+}
+
+impl From<serde_json::Error> for ClientResourcePackMetadataError {
+    fn from(_error: serde_json::Error) -> Self {
+        Self::Json
     }
 }
 
@@ -4605,6 +4674,7 @@ pub enum ResourceReloadError {
 mod tests {
     use std::{
         fs,
+        io::{Cursor, Write},
         path::{Path, PathBuf},
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
@@ -5440,7 +5510,7 @@ mod tests {
         let temp = TempPack::new();
         temp.write(
             "pack.mcmeta",
-            r#"{"pack":{"pack_format":1,"description":"test"}}"#,
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"test"}}"#,
         );
         let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
 
@@ -5490,6 +5560,181 @@ mod tests {
         let failed_reload = pack
             .open_downloaded()
             .expect_err("directory pack without pack.mcmeta should fail to open");
+
+        assert_eq!(
+            failed_reload,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedReload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open)
+        );
+    }
+
+    #[test]
+    fn server_pack_directory_open_requires_valid_pack_mcmeta_json() {
+        let id = resource_pack_id(2501);
+        let temp = TempPack::new();
+        temp.write("pack.mcmeta", r#"{"pack":"not an object"}"#);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("test request has no enforced sha1");
+        let failed_reload = pack
+            .open_downloaded()
+            .expect_err("directory pack with invalid pack metadata should fail to open");
+
+        assert_eq!(
+            failed_reload,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedReload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open)
+        );
+    }
+
+    #[test]
+    fn server_pack_directory_open_requires_pack_section() {
+        let id = resource_pack_id(2502);
+        let temp = TempPack::new();
+        temp.write("pack.mcmeta", r#"{"metadata":{}}"#);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("test request has no enforced sha1");
+        let failed_reload = pack
+            .open_downloaded()
+            .expect_err("directory pack without pack section should fail to open");
+
+        assert_eq!(
+            failed_reload,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedReload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open)
+        );
+    }
+
+    #[test]
+    fn server_pack_directory_open_requires_description() {
+        let id = resource_pack_id(2503);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("test request has no enforced sha1");
+        let failed_reload = pack
+            .open_downloaded()
+            .expect_err("directory pack without description should fail to open");
+
+        assert_eq!(
+            failed_reload,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedReload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open)
+        );
+    }
+
+    #[test]
+    fn server_pack_directory_open_requires_supported_client_format() {
+        let id = resource_pack_id(2504);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":1,"max_format":1,"description":"test"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("test request has no enforced sha1");
+        let failed_reload = pack
+            .open_downloaded()
+            .expect_err("directory pack with unsupported format should fail to open");
+
+        assert_eq!(
+            failed_reload,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::FailedReload,
+            }
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open)
+        );
+    }
+
+    #[test]
+    fn server_pack_cached_zip_open_requires_valid_pack_mcmeta() {
+        let id = resource_pack_id(2505);
+        let zip_bytes = server_pack_zip_bytes(
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"test"}}"#,
+        );
+        let expected_sha1 = server_resource_pack_sha1_hex(&zip_bytes);
+        let cache = TempPack::new();
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            &expected_sha1,
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        pack.cache_downloaded_bytes(cache.path(), &zip_bytes)
+            .expect("valid zip resource pack should cache");
+
+        pack.open_downloaded()
+            .expect("cached zip resource pack with pack.mcmeta should open");
+        assert_eq!(pack.status(), ServerResourcePackStatus::Opened);
+    }
+
+    #[test]
+    fn server_pack_directory_open_rejects_pack_format_without_modern_range() {
+        let id = resource_pack_id(2506);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"pack_format":84,"description":"test"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("test request has no enforced sha1");
+        let failed_reload = pack
+            .open_downloaded()
+            .expect_err("pack_format alone should not open for 26.1.2 client resources");
 
         assert_eq!(
             failed_reload,
@@ -7639,6 +7884,24 @@ mod tests {
             required,
             None,
         )
+    }
+
+    fn server_pack_zip_bytes(pack_metadata: &str) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                PACK_MCMETA_RESOURCE,
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )
+            .expect("pack.mcmeta zip entry should start");
+        writer
+            .write_all(pack_metadata.as_bytes())
+            .expect("pack.mcmeta zip entry should be written");
+        writer
+            .finish()
+            .expect("server pack zip should finish")
+            .into_inner()
     }
 
     trait ServerResourcePackApplyStateTestExt {
