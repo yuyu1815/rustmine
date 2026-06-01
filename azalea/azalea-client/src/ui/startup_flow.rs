@@ -267,6 +267,9 @@ impl VanillaLoadingOverlay {
             background: self.background,
             logo: VanillaLoadingLogoView::centered_mojang_studios(),
             text: VanillaLoadingTextView::fallback_loading_minecraft(),
+            progress_bar: VanillaLoadingProgressBarView::from_displayed_progress(
+                self.displayed_progress,
+            ),
             displayed_progress: self.displayed_progress,
             actual_progress,
             fade_alpha: self.fade_alpha(elapsed),
@@ -327,6 +330,14 @@ impl VanillaLoadingLogoView {
             split_texture_halves: true,
         }
     }
+
+    pub fn height_for_viewport(viewport_width: f32, viewport_height: f32) -> f32 {
+        (viewport_width * 0.75).min(viewport_height) * 0.25
+    }
+
+    pub fn width_for_viewport(viewport_width: f32, viewport_height: f32) -> f32 {
+        Self::height_for_viewport(viewport_width, viewport_height) * 4.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,10 +360,87 @@ pub struct VanillaLoadingOverlayView {
     pub background: VanillaLoadingBackground,
     pub logo: VanillaLoadingLogoView,
     pub text: VanillaLoadingTextView,
+    pub progress_bar: VanillaLoadingProgressBarView,
     pub displayed_progress: f32,
     pub actual_progress: f32,
     pub fade_alpha: f32,
     pub should_render: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VanillaLoadingProgressBarPlacement {
+    CenteredBottom,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VanillaLoadingProgressBarColor {
+    White,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VanillaLoadingProgressBarView {
+    pub placement: VanillaLoadingProgressBarPlacement,
+    pub color: VanillaLoadingProgressBarColor,
+    pub center_x_fraction: f32,
+    pub center_y_fraction: f32,
+    pub outer_height: f32,
+    pub border_width: f32,
+    pub fill_inset: f32,
+    pub displayed_progress: f32,
+}
+
+impl VanillaLoadingProgressBarView {
+    pub const CENTER_X_FRACTION: f32 = 0.5;
+    pub const CENTER_Y_FRACTION: f32 = 0.8325;
+    pub const OUTER_HEIGHT: f32 = 10.0;
+    pub const BORDER_WIDTH: f32 = 1.0;
+    pub const FILL_INSET: f32 = 2.0;
+
+    pub fn from_displayed_progress(displayed_progress: f32) -> Self {
+        let displayed_progress = displayed_progress.clamp(0.0, 1.0);
+        Self {
+            placement: VanillaLoadingProgressBarPlacement::CenteredBottom,
+            color: VanillaLoadingProgressBarColor::White,
+            center_x_fraction: Self::CENTER_X_FRACTION,
+            center_y_fraction: Self::CENTER_Y_FRACTION,
+            outer_height: Self::OUTER_HEIGHT,
+            border_width: Self::BORDER_WIDTH,
+            fill_inset: Self::FILL_INSET,
+            displayed_progress,
+        }
+    }
+
+    pub fn outer_rect(&self, viewport_width: f32, viewport_height: f32) -> VanillaLoadingRect {
+        let logo_width =
+            VanillaLoadingLogoView::width_for_viewport(viewport_width, viewport_height);
+        let x = viewport_width * self.center_x_fraction - logo_width / 2.0;
+        let y = viewport_height * self.center_y_fraction - self.outer_height / 2.0;
+        VanillaLoadingRect {
+            x,
+            y,
+            width: logo_width,
+            height: self.outer_height,
+        }
+    }
+
+    pub fn fill_rect(&self, viewport_width: f32, viewport_height: f32) -> VanillaLoadingRect {
+        let outer = self.outer_rect(viewport_width, viewport_height);
+        let width = ((outer.width - self.fill_inset * 2.0) * self.displayed_progress).ceil();
+        VanillaLoadingRect {
+            x: outer.x + self.fill_inset,
+            y: outer.y + self.fill_inset,
+            width,
+            height: (outer.height - self.fill_inset * 2.0).max(0.0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VanillaLoadingRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1042,6 +1130,77 @@ mod tests {
         assert_eq!(
             overlay.view(0.0, Duration::ZERO).background,
             VanillaLoadingBackground::Black
+        );
+    }
+
+    #[test]
+    fn vanilla_overlay_progress_bar_uses_displayed_progress_for_stable_geometry() {
+        let mut overlay = VanillaLoadingOverlay::new();
+
+        let zero = overlay.view(1.0, Duration::ZERO).progress_bar;
+        assert_eq!(
+            zero,
+            VanillaLoadingProgressBarView {
+                placement: VanillaLoadingProgressBarPlacement::CenteredBottom,
+                color: VanillaLoadingProgressBarColor::White,
+                center_x_fraction: 0.5,
+                center_y_fraction: 0.8325,
+                outer_height: 10.0,
+                border_width: 1.0,
+                fill_inset: 2.0,
+                displayed_progress: 0.0,
+            }
+        );
+        let zero_outer = zero.outer_rect(1280.0, 960.0);
+        assert_eq!(zero_outer.x, 160.0);
+        assert!((zero_outer.y - 794.2).abs() < 0.001);
+        assert_eq!(zero_outer.width, 960.0);
+        assert_eq!(zero_outer.height, 10.0);
+
+        let zero_fill = zero.fill_rect(1280.0, 960.0);
+        assert_eq!(zero_fill.x, 162.0);
+        assert!((zero_fill.y - 796.2).abs() < 0.001);
+        assert_eq!(zero_fill.width, 0.0);
+        assert_eq!(zero_fill.height, 6.0);
+
+        overlay.displayed_progress = 0.5;
+        let half = overlay.view(1.0, Duration::ZERO).progress_bar;
+        assert_eq!(half.outer_height, zero.outer_height);
+        assert_eq!(half.center_x_fraction, zero.center_x_fraction);
+        assert_eq!(half.center_y_fraction, zero.center_y_fraction);
+        assert_eq!(half.fill_rect(1280.0, 960.0).width, 478.0);
+
+        overlay.displayed_progress = 1.0;
+        let full = overlay.view(1.0, Duration::ZERO).progress_bar;
+        assert_eq!(full.outer_height, zero.outer_height);
+        assert_eq!(full.fill_rect(1280.0, 960.0).width, 956.0);
+        let wide_outer = full.outer_rect(1920.0, 1080.0);
+        assert_eq!(wide_outer.x, 420.0);
+        assert!((wide_outer.y - 894.1).abs() < 0.001);
+        assert_eq!(wide_outer.width, 1080.0);
+        assert_eq!(wide_outer.height, 10.0);
+    }
+
+    #[test]
+    fn vanilla_overlay_progress_bar_does_not_change_background_text_or_logo() {
+        let mut overlay =
+            VanillaLoadingOverlay::new().with_background(VanillaLoadingBackground::Black);
+        overlay.displayed_progress = 1.0;
+
+        let view = overlay.view(0.0, Duration::ZERO);
+
+        assert_eq!(view.background, VanillaLoadingBackground::Black);
+        assert_eq!(
+            view.logo,
+            VanillaLoadingLogoView {
+                kind: VanillaLoadingLogoKind::MojangStudios,
+                placement: VanillaLoadingLogoPlacement::Centered,
+                split_texture_halves: true,
+            }
+        );
+        assert_eq!(
+            view.text,
+            VanillaLoadingTextView::fallback_loading_minecraft()
         );
     }
 
