@@ -2358,8 +2358,8 @@ impl RegionalComplianciesReloadListener {
         }
     }
 
-    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientJsonResource> {
-        load_client_json_resource(stack, &self.resource)
+    pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<RegionalCompliancies> {
+        load_regional_compliancies_resource(stack, &self.resource)
     }
 }
 
@@ -2386,13 +2386,262 @@ impl ResourceReloadListener for RegionalComplianciesReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let resource = self.load(stack)?;
+        let compliancies = self.load(stack)?;
         Ok(ResourceReloadTaskReport::new([format!(
             "{}:{}",
-            resource.report().loaded_resource_pack(),
-            resource.report().top_level_shape().report_fragment()
+            compliancies.report().loaded_resource_pack(),
+            compliancies.report().summary_fragment()
         )]))
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegionalCompliancies {
+    countries: BTreeMap<String, Vec<RegionalComplianceNotification>>,
+    report: RegionalComplianciesReloadReport,
+}
+
+impl RegionalCompliancies {
+    pub fn countries(&self) -> &BTreeMap<String, Vec<RegionalComplianceNotification>> {
+        &self.countries
+    }
+
+    pub fn report(&self) -> &RegionalComplianciesReloadReport {
+        &self.report
+    }
+
+    pub fn select_notifications(&self, iso3_country: &str) -> &[RegionalComplianceNotification] {
+        let country = iso3_country.to_ascii_uppercase();
+        self.countries
+            .get(&country)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn scheduling_plan(&self, iso3_country: &str) -> RegionalComplianceSchedulingPlan {
+        regional_compliance_scheduling_plan(self.select_notifications(iso3_country))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegionalComplianceNotification {
+    delay: i64,
+    period: i64,
+    title: String,
+    message: String,
+}
+
+impl RegionalComplianceNotification {
+    pub fn delay(&self) -> i64 {
+        self.delay
+    }
+
+    pub fn period(&self) -> i64 {
+        self.period
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegionalComplianciesReloadStatus {
+    Loaded,
+}
+
+impl RegionalComplianciesReloadStatus {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegionalComplianciesReloadReport {
+    resource: String,
+    pack_id: String,
+    status: RegionalComplianciesReloadStatus,
+    country_count: usize,
+    notification_count: usize,
+    zero_period_count: usize,
+    country_keys: Vec<String>,
+}
+
+impl RegionalComplianciesReloadReport {
+    fn new(
+        resource: impl Into<String>,
+        pack_id: impl Into<String>,
+        countries: &BTreeMap<String, Vec<RegionalComplianceNotification>>,
+    ) -> Self {
+        let country_keys = countries.keys().cloned().collect::<Vec<_>>();
+        let notification_count = countries.values().map(Vec::len).sum();
+        let zero_period_count = countries
+            .values()
+            .flatten()
+            .filter(|notification| notification.period == 0)
+            .count();
+
+        Self {
+            resource: resource.into(),
+            pack_id: pack_id.into(),
+            status: RegionalComplianciesReloadStatus::Loaded,
+            country_count: country_keys.len(),
+            notification_count,
+            zero_period_count,
+            country_keys,
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+
+    pub fn status(&self) -> RegionalComplianciesReloadStatus {
+        self.status
+    }
+
+    pub fn country_count(&self) -> usize {
+        self.country_count
+    }
+
+    pub fn notification_count(&self) -> usize {
+        self.notification_count
+    }
+
+    pub fn zero_period_count(&self) -> usize {
+        self.zero_period_count
+    }
+
+    pub fn country_keys(&self) -> &[String] {
+        &self.country_keys
+    }
+
+    fn summary_fragment(&self) -> String {
+        format!(
+            "status:{} countries:{} notifications:{} zero_periods:{} keys:{}",
+            self.status.report_fragment(),
+            self.country_count,
+            self.notification_count,
+            self.zero_period_count,
+            self.country_keys.join(",")
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegionalComplianceSchedulingPlan {
+    Disabled,
+    Enabled {
+        initial_delay: i64,
+        optimal_period: i64,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct RegionalComplianceNotificationDefinition {
+    #[serde(default)]
+    delay: i64,
+    period: i64,
+    title: String,
+    message: String,
+}
+
+impl From<RegionalComplianceNotificationDefinition> for RegionalComplianceNotification {
+    fn from(definition: RegionalComplianceNotificationDefinition) -> Self {
+        Self {
+            delay: definition.delay,
+            period: definition.period,
+            title: definition.title,
+            message: definition.message,
+        }
+    }
+}
+
+fn load_regional_compliancies_resource(
+    stack: &ClientResourceStack,
+    resource: impl AsRef<Path>,
+) -> ResourceReloadResult<RegionalCompliancies> {
+    let resource = resource.as_ref();
+    let json = load_client_json_resource(stack, resource)?;
+    let definitions: BTreeMap<String, Vec<RegionalComplianceNotificationDefinition>> =
+        serde_json::from_value(json.value().clone()).map_err(|source| {
+            ResourceReloadError::InvalidRegionalCompliancies {
+                resource: json.report().resource().to_owned(),
+                pack_id: json.report().pack_id().to_owned(),
+                reason: source.to_string(),
+            }
+        })?;
+    let countries = definitions
+        .into_iter()
+        .map(|(country, notifications)| {
+            (
+                country,
+                notifications
+                    .into_iter()
+                    .map(RegionalComplianceNotification::from)
+                    .collect(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let report = RegionalComplianciesReloadReport::new(
+        json.report().resource(),
+        json.report().pack_id(),
+        &countries,
+    );
+
+    Ok(RegionalCompliancies { countries, report })
+}
+
+pub fn regional_compliance_scheduling_plan(
+    notifications: &[RegionalComplianceNotification],
+) -> RegionalComplianceSchedulingPlan {
+    if notifications.is_empty()
+        || notifications
+            .iter()
+            .any(|notification| notification.period == 0)
+    {
+        return RegionalComplianceSchedulingPlan::Disabled;
+    }
+
+    let initial_delay = notifications
+        .iter()
+        .map(|notification| notification.delay)
+        .min()
+        .expect("notifications are not empty");
+    let optimal_period = notifications.iter().fold(0, |acc, notification| {
+        let offset = notification.delay.saturating_sub(initial_delay);
+        gcd_i64(gcd_i64(acc, offset), notification.period)
+    });
+
+    RegionalComplianceSchedulingPlan::Enabled {
+        initial_delay,
+        optimal_period,
+    }
+}
+
+fn gcd_i64(left: i64, right: i64) -> i64 {
+    let mut a = left.unsigned_abs();
+    let mut b = right.unsigned_abs();
+    while b != 0 {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    i64::try_from(a).unwrap_or(i64::MAX)
 }
 
 pub fn load_client_json_resource(
@@ -6529,6 +6778,12 @@ pub enum ResourceReloadError {
         pack_id: String,
         reason: String,
     },
+    #[error("invalid regional compliancies `{resource}` from pack `{pack_id}`: {reason}")]
+    InvalidRegionalCompliancies {
+        resource: String,
+        pack_id: String,
+        reason: String,
+    },
     #[error(
         "invalid gpu warnlist regex `{pattern}` in `{category}` for `{resource}` from pack `{pack_id}`: {reason}"
     )]
@@ -8736,10 +8991,104 @@ mod tests {
         );
         assert_eq!(compliancies.report().pack_id(), "override");
         assert_eq!(
-            compliancies.report().top_level_shape(),
-            &ClientJsonTopLevelShape::Object {
-                keys: vec!["OVERRIDE".to_owned()],
+            compliancies.report().resource(),
+            REGIONAL_COMPLIANCIES_RESOURCE
+        );
+        assert_eq!(
+            compliancies.report().status(),
+            RegionalComplianciesReloadStatus::Loaded
+        );
+        assert_eq!(compliancies.report().country_count(), 1);
+        assert_eq!(compliancies.report().notification_count(), 0);
+        assert_eq!(compliancies.report().zero_period_count(), 0);
+        assert_eq!(
+            compliancies.report().country_keys(),
+            ["OVERRIDE".to_owned()]
+        );
+    }
+
+    #[test]
+    fn regional_compliancies_parse_vanilla_shape_with_default_delay() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"period":60,"title":"title.key","message":"message.key"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect("regional compliancies should parse");
+        let selected = compliancies.select_notifications("USA");
+
+        assert_eq!(compliancies.report().country_keys(), ["USA".to_owned()]);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].delay(), 0);
+        assert_eq!(selected[0].period(), 60);
+        assert_eq!(selected[0].title(), "title.key");
+        assert_eq!(selected[0].message(), "message.key");
+    }
+
+    #[test]
+    fn regional_compliancies_selects_notifications_for_supplied_country() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"JPN":[{"delay":5,"period":10,"title":"jp","message":"jp.msg"}],"USA":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect("regional compliancies should parse");
+
+        assert_eq!(compliancies.select_notifications("jpn")[0].title(), "jp");
+        assert!(compliancies.select_notifications("KOR").is_empty());
+    }
+
+    #[test]
+    fn regional_compliance_scheduling_plan_uses_min_delay_and_gcd() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"delay":15,"period":20,"title":"a","message":"a.msg"},{"delay":25,"period":10,"title":"b","message":"b.msg"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect("regional compliancies should parse");
+
+        assert_eq!(
+            compliancies.scheduling_plan("USA"),
+            RegionalComplianceSchedulingPlan::Enabled {
+                initial_delay: 15,
+                optimal_period: 10,
             }
+        );
+        assert_eq!(
+            compliancies.scheduling_plan("KOR"),
+            RegionalComplianceSchedulingPlan::Disabled
+        );
+    }
+
+    #[test]
+    fn regional_compliance_scheduling_plan_zero_period_disables() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"delay":15,"period":20,"title":"a","message":"a.msg"},{"period":0,"title":"b","message":"b.msg"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect("regional compliancies should parse");
+
+        assert_eq!(compliancies.report().zero_period_count(), 1);
+        assert_eq!(
+            compliancies.scheduling_plan("USA"),
+            RegionalComplianceSchedulingPlan::Disabled
         );
     }
 
@@ -8956,6 +9305,24 @@ mod tests {
 
         assert!(
             matches!(error, ResourceReloadError::InvalidGpuWarnlist { resource, pack_id, .. } if resource == GPU_WARNLIST_RESOURCE && pack_id == "test")
+        );
+    }
+
+    #[test]
+    fn regional_compliancies_reload_rejects_invalid_schema() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"delay":0,"title":"missing.period","message":"message.key"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let error = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect_err("regional compliancies with missing period should fail");
+
+        assert!(
+            matches!(error, ResourceReloadError::InvalidRegionalCompliancies { resource, pack_id, .. } if resource == REGIONAL_COMPLIANCIES_RESOURCE && pack_id == "test")
         );
     }
 
@@ -9965,19 +10332,29 @@ mod tests {
 
     #[test]
     fn committed_vanilla_regional_compliancies_loads() {
-        let resource = load_client_json_resource(
-            &ClientResourceStack::vanilla(),
-            REGIONAL_COMPLIANCIES_RESOURCE,
-        )
-        .expect("committed vanilla regional compliancies should parse");
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla regional compliancies should parse");
 
-        assert_eq!(resource.report().pack_id(), VANILLA_PACK_ID);
+        assert_eq!(compliancies.report().pack_id(), VANILLA_PACK_ID);
+        assert_eq!(compliancies.report().country_keys(), ["KOR".to_owned()]);
+        assert_eq!(compliancies.report().country_count(), 1);
+        assert_eq!(compliancies.report().notification_count(), 2);
+        assert_eq!(compliancies.report().zero_period_count(), 0);
+
+        let selected = compliancies.select_notifications("KOR");
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].delay(), 1440);
+        assert_eq!(selected[0].period(), 60);
         assert_eq!(
-            resource.report().top_level_shape(),
-            &ClientJsonTopLevelShape::Object {
-                keys: vec!["KOR".to_owned()],
-            }
+            selected[0].title(),
+            "compliance.playtime.greaterThan24Hours"
         );
+        assert_eq!(selected[0].message(), "compliance.playtime.message");
+        assert_eq!(selected[1].delay(), 0);
+        assert_eq!(selected[1].period(), 60);
+        assert_eq!(selected[1].title(), "compliance.playtime.hours");
+        assert_eq!(selected[1].message(), "compliance.playtime.message");
     }
 
     #[test]
