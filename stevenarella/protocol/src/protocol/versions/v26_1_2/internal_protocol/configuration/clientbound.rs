@@ -11,6 +11,7 @@ mod cookie;
 mod custom_payload;
 mod custom_report_details;
 mod dialog;
+mod keep_alive_ping;
 mod resource_pack;
 mod server_links;
 mod update;
@@ -36,6 +37,14 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
     }
     if let Some(packet) =
         custom_report_details::read_custom_report_details_configuration_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        keep_alive_ping::read_keep_alive_ping_configuration_clientbound_packet_by_internal_id(
             internal_id,
             buf,
         )?
@@ -155,18 +164,6 @@ pub(crate) fn read_configuration_clientbound_packet_by_id<R: io::Read>(
                 },
             )));
         }
-        packet::configuration::clientbound::internal_ids::ConfigurationKeepAliveClientbound_i64 => {
-            let mut packet = packet::play::clientbound::KeepAliveClientbound_i64::default();
-            packet.id = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::KeepAliveClientbound_i64(packet)));
-        }
-        packet::configuration::clientbound::internal_ids::ConfigurationPingClientbound_i32 => {
-            let id: i32 = Serializable::read_from(buf)?;
-            return Ok(Some(Packet::StatusPing(
-                packet::status::serverbound::StatusPing { ping: id.into() },
-            )));
-        }
-
         _ => Ok(None),
     }
 }
