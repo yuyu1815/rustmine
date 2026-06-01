@@ -76,6 +76,7 @@ use self::sun::SunModel;
 pub mod plugin_messages;
 mod sun;
 pub mod target;
+mod v26_1_2;
 
 #[derive(Default)]
 pub struct DisconnectData {
@@ -187,6 +188,16 @@ impl Server {
             username: account.name.clone(),
         })?;
 
+        let transition_to_next_login_state =
+            |conn: &mut protocol::Conn, protocol_version: i32| -> Result<(), protocol::Error> {
+                if protocol_version == 775 {
+                    v26_1_2::login::transition_after_login(conn)
+                } else {
+                    conn.state = protocol::State::Play;
+                    Ok(())
+                }
+            };
+
         use std::rc::Rc;
         let (server_id, public_key, verify_token);
         loop {
@@ -209,7 +220,7 @@ impl Server {
                 protocol::packet::Packet::LoginSuccess_String(val) => {
                     warn!("Server is running in offline mode");
                     debug!("Login: {} {}", val.username, val.uuid);
-                    conn.state = protocol::State::Play;
+                    transition_to_next_login_state(&mut conn, protocol_version)?;
                     let uuid = protocol::UUID::from_str(&val.uuid).unwrap();
                     let server = Server::connect0(
                         conn,
@@ -226,7 +237,7 @@ impl Server {
                 protocol::packet::Packet::LoginSuccess_UUID(val) => {
                     warn!("Server is running in offline mode");
                     debug!("Login: {} {:?}", val.username, val.uuid);
-                    conn.state = protocol::State::Play;
+                    transition_to_next_login_state(&mut conn, protocol_version)?;
                     let server = Server::connect0(
                         conn,
                         protocol_version,
@@ -281,13 +292,13 @@ impl Server {
                 protocol::packet::Packet::LoginSuccess_String(val) => {
                     debug!("Login: {} {}", val.username, val.uuid);
                     uuid = protocol::UUID::from_str(&val.uuid).unwrap();
-                    conn.state = protocol::State::Play;
+                    transition_to_next_login_state(&mut conn, protocol_version)?;
                     break;
                 }
                 protocol::packet::Packet::LoginSuccess_UUID(val) => {
                     debug!("Login: {} {:?}", val.username, val.uuid);
                     uuid = val.uuid;
-                    conn.state = protocol::State::Play;
+                    transition_to_next_login_state(&mut conn, protocol_version)?;
                     break;
                 }
                 protocol::packet::Packet::LoginDisconnect(val) => {
@@ -1579,6 +1590,12 @@ impl Server {
                 "Received plugin message: channel={}, data={:?}",
                 msg.channel, msg.data
             );
+        }
+
+        if self.protocol_version == 775
+            && v26_1_2::configuration::handle_plugin_message_clientbound(self, &msg)
+        {
+            return;
         }
 
         match &*msg.channel {

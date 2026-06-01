@@ -1,162 +1,93 @@
 # AGENTS.md
 
-The operator is a visual-spatial learner. Prefer maps, flow diagrams,
-tables, and explicit spatial relationships.
+This file is both a guide and a hard harness for agents working in this repository. The human operator is a visual-spatial learner, so user-facing explanations and final reports should use compact maps, relationships, tables, or flow descriptions when that helps understanding. This file itself is written primarily for AI agents and should stay concise.
 
-## Goal
+## Project Roles
 
-Build Stevenarella into a playable Minecraft-compatible client for the
-user's own server.
+Treat `/Users/yuyu/Documents/rustmine/azalea` as the Migration Target. Production implementation work should normally happen there.
 
-```text
-Handshake -> Login -> Configuration -> Play -> Spawn -> Move -> Interact -> Inventory -> Combat
-```
+Treat `/Users/yuyu/Documents/rustmine/stevenarella` as the UI Reference. Read it for screen order, wording, layout, user interaction flow, and error timing. Do not treat it as the implementation target unless the user explicitly asks.
 
-Protocol-version work, oracle artifacts, tests, smoke runs, and analysis memos
-are tools for client-load and playability work along that route. Protocol 775
-is the current populated version shard/example, not a universal root rule.
-Docs-only, review-only, protocol-only, and tooling tasks should first follow
-their owning surface/domain; use corridor phase selection when the task is
-about load or playability progress.
+Treat `/Users/yuyu/Documents/rustmine/_analysis` as Jar Analysis. It contains raw Minecraft jar material and is the primary evidence for tiny behavior tuning or behavior missing from both Azalea and Stevenarella. You may read, inspect, decompile, or reason from it, but you must not overwrite jar/json/analysis material or use `_analysis` as an implementation location.
 
-## Read First
+Treat `/Users/yuyu/Documents/rustmine/_research` as Research Reference. It can help with protocol notes and external comparisons, but it is not the highest source of truth and should not be edited without explicit instruction.
 
-```text
-docs/ai/README.md
-docs/ai/agent-ops.md
-docs/next/README.md
-```
+Use `CONTEXT.md` as the glossary for this migration effort. When a project term is resolved, update `CONTEXT.md`; do not turn `AGENTS.md` into a glossary or research log.
 
-`docs/ai/` is the fixed startup and routing layer. `docs/ai/agent-ops.md` is a
-startup gate, not a conditional subagent reference: read it before choosing
-whether parent Codex should work alone or delegate a bounded packet.
-`docs/next/` is the compact recovery and next-task layer. Then load only the
-analysis shard, skill, agent, or artifact named by the active task.
+## Source Of Truth
 
-## Canonical AI Surfaces
+For UI flow, screens, visual behavior, wording, and operation feel, prefer Stevenarella. For client internals already implemented in Azalea, prefer Azalea. For tiny behavior tuning or behavior absent from both Azalea and Stevenarella, prefer Jar Analysis. Use `_research` only as supporting context.
 
-```text
-AGENTS.md
-  thin router and hard safety rules
+If Jar Analysis is used as evidence for a change, the final report must name the jar, class, method when available, and the reason it was consulted.
 
-CONTEXT.md
-  project glossary: shared vocabulary only, not AI operating rules or evidence
+## Never
 
-docs/ai/
-  fixed AI startup, routing, and safety map; not mutable task state
+Never treat `stevenarella/` as the implementation target. Never overwrite `_analysis/` jar or json material. Never promote `_research/` above Azalea, Stevenarella, or Jar Analysis as a source of truth. Never build a future-proof UI framework before a concrete UI Migration Slice works. Never mark a screen-file copy as a completed migration. Never mix UI widgets/layout with packet or client internals in the same responsibility boundary. Never mark work complete when the required verification was not run and no reason or substitute check is reported.
 
-docs/next/
-  compact mutable recovery card: current location, next action, blockers,
-  and stop boundary
+## Before Starting Work
 
-.codex/agents/
-  Codex app/CLI project-scoped subagent role/team definitions;
-  parent-facing agents and rustmine_nested_* planner-to-leaf agents
+Before implementation, produce a short work map. It must name exactly one target UI Migration Slice, list the Stevenarella screen or behavior being referenced, list the Azalea crate/plugin areas likely involved, say whether Jar Analysis is needed, identify the responsibility boundaries that will be touched, and list the subagent investigations that will run before implementation.
 
-.codex/skills/
-  reusable procedures and role contracts; load only when the active task
-  calls for them
+Do not change multiple screens, multiple user flows, or multiple crates without this work map. If the work map grows broad, split the work before editing.
 
-.codex/skills/stevenarella-oracle-workbench/schemas/
-  machine-checkable task, answer, and failure packets
+## Subagent Delegation
 
-oracle/
-  version manifests, cases, contracts, generated official answers, test manifests
+Implementation investigation must be delegated to subagents before implementation begins. The main agent owns the work map, task splitting, integration of subagent findings, `AGENTS.md` and `CONTEXT.md` updates, final decisions, and final reporting. The main agent must not perform broad implementation research, cross-codebase comparison, or Jar Analysis by itself.
 
-docs/analysis/
-  AI-shared memory: human-readable evidence, client-load phase lens,
-  traceability, and responsibility decisions
-```
+The only allowed main-agent investigation exceptions are tiny checks needed to maintain the thread, update documentation, confirm tool availability, or verify a specific subagent result. If the main agent uses an exception, it must state the exception in the work map or final report.
 
-Do not add AI operating rules anywhere else.
+Before making implementation edits, the main agent must have either received the required subagent findings or explicitly reported that subagent tools are unavailable. If subagent tools are unavailable, the main agent may continue only after saying which investigations would have been delegated and why local investigation is being used as a fallback.
 
-## Required Responsibility Gate
+For every implementation task, the main agent should ask: "What investigation can be separated from my critical path?" If the answer is not "none", spawn at least one subagent. Do not use "I can inspect it faster myself" as a reason to skip delegation.
 
-Before changing responsibility, owner/scope, domain boundary, or cross-domain
-mapping, route the update through the responsibility index and the smallest
-owning detail doc:
+Subagents are investigation and bounded work-package helpers, not release owners. A subagent may inspect files, run read-only analysis, run verification commands, and prepare a bounded patch only when the main agent explicitly assigns a disjoint write scope. A subagent must not run `git add`, `git commit`, `git push`, create branches, open pull requests, or perform any final repository publication step. The main agent must review the subagent's findings or patch, decide what to integrate, and own all final reporting and git actions.
 
-```text
-docs/analysis/responsibility/README.md
-  -> docs/analysis/responsibility/<owning-detail>.md
-```
+When delegating implementation work, the main agent must state the subagent's write scope and must say that the subagent is not alone in the codebase, must not revert unrelated changes, and must not touch files outside its assigned scope. If the task is investigation-only, the prompt must say that no files should be edited. If the task is patch-producing, the prompt must say that the subagent should report changed paths and verification, but should not commit.
 
-## Protocol Version Guardrails
+All subagent prompts must be written in English to reduce token cost and improve compression. Prompts must be concise, self-contained, and bounded. A good prompt states the exact question, relevant project context, paths to inspect, evidence required, and desired output shape. Do not send vague prompts such as "investigate this"; send a small answerable task.
 
-| Rule | Requirement |
-|---|---|
-| No prediction | Do not invent packet IDs, codecs, state transitions, registry data, or name meanings. |
-| Active version first | Use the active protocol version manifest and analysis shard for protocol facts; Protocol 775 is only the current populated shard/example. |
-| Client-load scope first | Do not collapse "client loads" into packet work; choose a load phase for client-load/playability tasks, not for unrelated docs, review, protocol-only, or tooling work. |
-| Official answer first | Expected values must come from `client.jar`, `server.jar`, generated oracle artifacts, or named smoke/probe evidence for non-packet load phases. |
-| References are witnesses | MCProtocolLib, Azalea, minecraft-data, and node-minecraft-protocol explain or cross-check; official jars win. |
-| Rust worker boundary | A Rust implementation worker may read oracle artifacts but must not create or edit expected answers. |
-| Oracle worker boundary | An oracle worker may read jars and write contracts/tests/answers but must not edit Stevenarella Rust implementation. |
-| Names are boundaries | Do not rename, flatten, merge, or generalize official/internal names without documenting the mapping. |
+Use a frontier model such as `gpt-5.5` for difficult investigations. A task is difficult when it crosses multiple crates or subsystems, compares Azalea and Stevenarella architecture, requires Jar Analysis, investigates Minecraft behavior missing from both codebases, touches protocol/auth/rendering/ECS/concurrency, affects responsibility boundaries, or could change the implementation plan if answered incorrectly.
 
-## Work Selection
+Use a mini model for simple investigations. A task is simple when it can be answered with `rg` plus a few files, locates symbols or modules, summarizes one screen/plugin/crate, lists referenced screens, checks existing tests or dependencies, or confirms a small local impact that is unlikely to change the design.
 
-Use the smallest owning surface/domain that can make the change or preserve the
-evidence:
+When unsure, choose `gpt-5.5` for investigations that affect design or correctness, and choose a mini model for disposable fact-finding.
 
-```text
-read active task scope
-  -> choose owner from docs/analysis/responsibility/README.md
-  -> read the relevant shard
-  -> read docs/next/README.md only for current recovery and next-task state
-  -> if client-load/playability, use the phase map as the diagnostic lens
-  -> if protocol work, choose the active version manifest/case
-  -> name evidence and stop boundary
-  -> run the matching agent skill only when the task calls for it
-  -> update the owner shard and resume recovery pointer when changed
-```
+If a subagent remains running without returning useful output, interrupt it with a short English status-check prompt. The status check should ask for current task, blocker status, what it is waiting on, and next concrete step. Close completed agents after integrating their findings.
 
-## Skills
+## UI Migration
 
-| Skill source | Use when |
-|---|---|
-| `.codex/skills/yuzu/SKILL.md` | Reading the operator's collaboration lens: visual maps, evidence skepticism, non-fixating docs, route naming, and helper-output trust boundaries. |
-| `.codex/skills/client-load-compatibility/SKILL.md` | Mapping client-load claims, playable readiness, load phases, and phase-specific oracle/test surfaces. |
-| `.codex/skills/stevenarella-oracle-workbench/SKILL.md` | Lightweight routing for oracle work: choose source policy, case-builder, failure-format, model-lane, or schema route without loading the full workflow. |
-| `.codex/skills/stevenarella-oracle-case-builder/SKILL.md` | Building or updating one bounded jar-backed oracle case package: case, contract, answer, manifest, Rust oracle test, traceability row, or failure packet. |
-| `.codex/skills/stevenarella-rust-worker/SKILL.md` | Implementing Rust changes from an oracle failure packet. |
+Perform UI Migration by user operation flow, not by file. Good migration slices include flows such as startup to account selection to login, server list to connection to failure display, in-game chat input to send/display, and death to respawn. Do not copy `stevenarella/src/screen/*.rs` directly into Azalea or force Stevenarella's file structure onto the Migration Target.
 
-## Codex Custom Agents
+Stevenarella screens are storyboards, not architecture. Read them for screen order, wording, input fields, buttons, lists, layout, operation feel, and error timing. Do not copy their rendering loop, OpenGL/glutin assumptions, global state structure, screen trait/stack structure, or UI implementations that mix rendering, async work, connection logic, and persistence.
 
-Project-scoped Codex app/CLI subagent role definitions live in:
+The first UI implementation should live as a small module or plugin inside an existing Azalea crate, normally under `azalea/azalea-client/src/ui/` or `azalea/azalea-client/src/plugins/ui/`. Do not create a new `azalea-ui` crate before repeated UI Migration Slices prove that a separate crate is needed.
 
-```text
-.codex/agents/
-.codex/config.toml
-```
+## Design Harness
 
-Use them only to split or review bounded compatibility work. They do not replace
-the fixed `.codex/skills/` workflows, oracle schemas, or responsibility gate.
+Follow KISS. The first implementation should be the smallest vertical slice that makes the target user operation flow work. Prefer Azalea's existing crates, plugins, events, components, and state. Keep state transitions and conditions visible. Do not generalize until at least two real slices need the same abstraction. Do not add unused traits, generics, managers, or frameworks.
 
-The startup route already reads the parent/subagent gate:
+Follow the Single Responsibility Principle as a change-boundary rule, not as "one file equals one responsibility." A boundary should have one reason to change. Keep UI presentation, flow state, client action, persistence, and Minecraft behavior separate.
 
-```text
-docs/ai/agent-ops.md
-```
+UI presentation may handle display, input, focus, button state, and local visual state. Flow state may decide which screen or state comes next, including waiting, success, failure, and retry states. Client action should hand work to Azalea events, plugins, or packet-facing APIs without knowing UI layout. Persistence should only save and load accounts, server lists, settings, or equivalent durable data. Minecraft behavior should prefer Azalea and use Jar Analysis only when Azalea and Stevenarella do not answer the behavior.
 
-After that gate, use `.codex/agents/*.toml` only for a selected bounded role.
-Subagents are evidence and work-package helpers only. Parent Codex remains the
-user-facing owner of route choice, recovery state, and final answer.
+Before creating a new boundary, check whether the work belongs in an existing `azalea-client/src/plugins/*` area. A UI layer must not reimplement Azalea client internals. A client plugin must not know about UI widgets or screen layout. Flow state must not construct packet internals. A UI screen must not directly build protocol packets.
 
-## Model Lanes
+## Completion Criteria
 
-Model and worker responsibilities live in:
+A UI Migration Slice is complete only when the target user operation flow works from start to finish, the Stevenarella screens or behaviors referenced are reported, the Azalea crate/plugin areas changed are reported, and the touched responsibility boundaries can be explained. Completion also requires that UI, flow state, client action, persistence, and Minecraft behavior are not collapsed into one mixed module, and that no future-only UI framework or abstraction was added.
 
-```text
-.codex/skills/stevenarella-oracle-workbench/references/model-lanes.toml
-```
+## Verification Harness
 
-Do not let a lower-capacity extraction lane choose product route, protocol
-meaning, or implementation scope.
+For Rust code changes, run `cargo fmt` and `cargo check -p <changed-crate>` when practical. For Azalea plugin or client behavior changes, run relevant tests; if no relevant tests exist, run `cargo check` and report a manual verification note. For UI behavior changes, report the referenced Stevenarella screen/behavior and the user operation flow that was exercised. If Jar Analysis was used, report the jar, class, method when available, and reason.
 
-## Before Ending
+Run full `cargo test` only when the impact is broad enough to justify it. Prefer focused tests for narrow changes. If a required verification cannot be run, report the reason and the substitute check.
 
-Update `docs/next/README.md` only when the current location, next action,
-blocker, or recovery pointer changed. Put evidence and proof-status updates in
-`docs/analysis/current-evidence/` or the relevant domain shard. Do not rely on
-chat history for recovery.
+## Final Report
+
+Final reports should be short but structured. Include what changed, the target flow map, source references, responsibility boundaries touched, verification performed, and remaining risks. If Jar Analysis was used, include the jar/class/method/reason. If verification was skipped or failed, say so directly.
+
+## Maintaining This File
+
+Keep `AGENTS.md` short and forceful. It should contain settled behavior rules, hard constraints, start-work checks, verification rules, and final report rules. Do not use it for implementation notes, TODOs, long background explanation, undecided ideas, or temporary investigation logs.
+
+Put resolved domain language in `CONTEXT.md`. Create an ADR only for decisions that are hard to reverse, surprising without context, and the result of a real trade-off.

@@ -1,9 +1,0 @@
-{
-  "case_id": "play_sound_entity_clientbound_framed_dispatch",
-  "contract_path": "oracle/contracts/775/play_sound_entity_clientbound_framed_dispatch.contract.json",
-  "answer_path": "oracle/answers/775/play_sound_entity_clientbound_framed_dispatch.answer.jsonl",
-  "rust_test_target": "oracle/rust-tests/tests/oracle_contracts.rs",
-  "rust_test_name": "play_sound_entity_clientbound_framed_dispatch_matches_official_oracle_answer",
-  "comparison_surface": "initialized_gametest_framed_dispatch_decode",
-  "runner_scope": "jar_backed_oracle"
-}
