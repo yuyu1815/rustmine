@@ -2,10 +2,11 @@ use std::io;
 
 use crate::protocol::{
     packet::{self, Packet},
-    Error, Serializable, VarInt,
+    Error, Serializable,
 };
 
 mod set_display_objective;
+mod set_score;
 
 pub(crate) fn read_scoreboard_clientbound_packet_by_internal_id<R: io::Read>(
     internal_id: i32,
@@ -19,34 +20,13 @@ pub(crate) fn read_scoreboard_clientbound_packet_by_internal_id<R: io::Read>(
     {
         return Ok(Some(packet));
     }
+    if let Some(packet) =
+        set_score::read_set_score_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
 
     match internal_id {
-        packet::play::clientbound::internal_ids::PlaySetScoreClientbound => {
-            let owner = String::read_from(buf)?;
-            let objective_name = String::read_from(buf)?;
-            let score = VarInt::read_from(buf)?;
-            let display_present = bool::read_from(buf)?;
-            if display_present {
-                return Err(Error::Err(
-                    "unsupported Play set_score optional display Component".to_owned(),
-                ));
-            }
-            let number_format_present = bool::read_from(buf)?;
-            if number_format_present {
-                return Err(Error::Err(
-                    "unsupported Play set_score optional number format".to_owned(),
-                ));
-            }
-            Ok(Some(Packet::PlaySetScoreClientbound(
-                packet::play::clientbound::PlaySetScoreClientbound {
-                    owner,
-                    objective_name,
-                    score,
-                    display_present,
-                    number_format_present,
-                },
-            )))
-        }
         packet::play::clientbound::internal_ids::PlaySetObjectiveClientbound => {
             let objective_name = String::read_from(buf)?;
             let method = i8::read_from(buf)?;
