@@ -555,7 +555,7 @@ impl Hud {
     fn render_health(&mut self, renderer: &Arc<Renderer>, ui_container: &mut Container) {
         let hud_context = self.hud_context.read();
         let icon_scale = Hud::icon_scale(renderer);
-        let x_offset = icon_scale * 182.0 / 2.0 * -1.0 + icon_scale * 9.0 / 2.0;
+        let x_offset = -(icon_scale * 182.0 / 2.0) + icon_scale * 9.0 / 2.0;
         let y_offset = icon_scale * 30.0;
         let hp = hud_context.health.ceil();
         let max_health = hud_context.max_health;
@@ -685,7 +685,7 @@ impl Hud {
     fn render_armor(&mut self, renderer: &Arc<Renderer>, ui_container: &mut Container) {
         let armor = self.hud_context.clone().read().armor;
         let icon_scale = Hud::icon_scale(renderer);
-        let x_offset = icon_scale * 182.0 / 2.0 * -1.0 + icon_scale * 9.0 / 2.0;
+        let x_offset = -(icon_scale * 182.0 / 2.0) + icon_scale * 9.0 / 2.0;
         let y_offset = icon_scale * 30.0;
         let max_health = self.hud_context.clone().read().max_health;
         let absorbtion = self.hud_context.clone().read().absorbtion;
@@ -803,7 +803,7 @@ impl Hud {
                 let image = ui::ImageBuilder::new()
                     .draw_index(HUD_PRIORITY)
                     .texture_coords((0.0, 69.0, scaled_length as f64, 5.0))
-                    .position(shift * -1.0, y_offset)
+                    .position(-shift, y_offset)
                     .alignment(ui::VAttach::Bottom, ui::HAttach::Center)
                     .size(icon_scale * scaled_length as f64, icon_scale * 5.0)
                     .texture("minecraft:gui/icons")
@@ -908,7 +908,7 @@ impl Hud {
                 if let Some(item) = inventory.read().get_item(27 + i as u16) {
                     let (slot_item, stack_count) = self.draw_item(
                         &item,
-                        (icon_scale) * -1.0
+                        -icon_scale
                             + -(icon_scale * 90.0)
                             + (i as f64 * (icon_scale * 20.0))
                             + icon_scale * 11.0,
@@ -936,7 +936,7 @@ impl Hud {
             .draw_index(HUD_PRIORITY)
             .texture_coords((0.0, 22.0, 24.0, 22.0))
             .position(
-                (icon_scale) * -1.0
+                -icon_scale
                     + -(icon_scale * 90.0)
                     + (slot * (icon_scale * 20.0))
                     + icon_scale * 11.0,

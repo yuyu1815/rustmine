@@ -313,7 +313,7 @@ impl super::Screen for Chat {
             const ILLEGAL_CHARS: &[char] =
                 &[13 as char, 127 as char, 167 as char, '§', 255 as char];
             let curr = str.chars().next().unwrap();
-            if !ILLEGAL_CHARS.iter().any(|illegal| curr == *illegal) {
+            if !ILLEGAL_CHARS.contains(&curr) {
                 if self.written.len()
                     >= if game.server.load().as_ref().unwrap().mapped_protocol_version
                         >= Version::V1_11

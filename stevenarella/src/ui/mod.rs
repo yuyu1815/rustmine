@@ -100,7 +100,7 @@ macro_rules! define_elements {
                 }
             }
 
-            fn draw(&self, renderer: Arc<render::Renderer>, r: &Region, sw: f64, sh: f64, width: f64, height: f64, delta: f64) -> RefMut<[u8]> {
+            fn draw(&self, renderer: Arc<render::Renderer>, r: &Region, sw: f64, sh: f64, width: f64, height: f64, delta: f64) -> RefMut<'_, [u8]> {
                 match *self {
                     $(
                         Element::$name(ref inner) => {

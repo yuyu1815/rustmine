@@ -606,11 +606,9 @@ impl Server {
                                 );
                             }
                             MappedPacket::SpawnPlayer(spawn) => {
-                                if spawn.uuid_str.is_some() {
+                                if let Some(uuid_str) = &spawn.uuid_str {
                                     // 1.7.10: populate the player list here, since we only now know the UUID
-                                    let uuid =
-                                        protocol::UUID::from_str(spawn.uuid_str.as_ref().unwrap())
-                                            .unwrap();
+                                    let uuid = protocol::UUID::from_str(uuid_str).unwrap();
                                     server.players.write().entry(uuid.clone()).or_insert(
                                         PlayerInfo {
                                             name: spawn.name.unwrap().clone(),
@@ -622,9 +620,8 @@ impl Server {
                                         },
                                     );
                                 }
-                                let uuid = if spawn.uuid_str.is_some() {
-                                    protocol::UUID::from_str(spawn.uuid_str.as_ref().unwrap())
-                                        .unwrap()
+                                let uuid = if let Some(uuid_str) = &spawn.uuid_str {
+                                    protocol::UUID::from_str(uuid_str).unwrap()
                                 } else {
                                     spawn.uuid.unwrap()
                                 };
@@ -1258,7 +1255,7 @@ impl Server {
                     .world
                     .entity(player.1)
                     .get::<Gravity>()
-                    .map_or(false, |v| v.on_ground)
+                    .is_some_and(|v| v.on_ground)
             });
 
             let mut player = entities.world.entity_mut(player.1);
@@ -1326,7 +1323,7 @@ impl Server {
                     .entity_mut(player.1)
                     .get_mut::<PlayerMovement>()
                 {
-                    state_changed = movement.pressed_keys.get(&key).map_or(false, |v| *v) != down;
+                    state_changed = movement.pressed_keys.get(&key).is_some_and(|v| *v) != down;
                     movement.pressed_keys.insert(key, down);
                 }
             }
@@ -2753,7 +2750,7 @@ mod tests {
 
     fn decode_hex(value: &str) -> Vec<u8> {
         assert!(
-            value.len() % 2 == 0,
+            value.len().is_multiple_of(2),
             "hex value must have an even number of digits"
         );
         (0..value.len())

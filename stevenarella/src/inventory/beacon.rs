@@ -398,10 +398,10 @@ fn get_texture(element: usize, basic_elements: &[ui::ImageRef]) -> String {
 fn get_button_state(btn: usize, basic_elements: &[ui::ImageRef]) -> ButtonState {
     use ButtonState::*;
     match basic_elements.get(btn).unwrap().borrow().texture_coords {
-        x if x == (0.0, 219.0, 22.0, 22.0) => Active,
-        x if x == (22.0, 219.0, 22.0, 22.0) => Pressed,
-        x if x == (44.0, 219.0, 22.0, 22.0) => Inactive,
-        x if x == (66.0, 219.0, 22.0, 22.0) => Focused,
+        (0.0, 219.0, 22.0, 22.0) => Active,
+        (22.0, 219.0, 22.0, 22.0) => Pressed,
+        (44.0, 219.0, 22.0, 22.0) => Inactive,
+        (66.0, 219.0, 22.0, 22.0) => Focused,
         _ => unreachable!(),
     }
 }

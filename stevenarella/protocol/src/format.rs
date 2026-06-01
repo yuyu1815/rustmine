@@ -232,23 +232,21 @@ impl Component {
                 components
             }
             (Some(translate), Some(text), None) => {
-                format!("ERR trans: {}, text: {}", translate, text);
-                todo!()
+                todo!("ERR trans: {}, text: {}", translate, text)
             }
             (Some(translate), Some(text), Some(extra)) => {
-                format!(
+                todo!(
                     "ERR trans: {}, text: {}, extra{:?}, ",
-                    translate, text, extra
-                );
-                todo!()
+                    translate,
+                    text,
+                    extra
+                )
             }
             (Some(text), None, Some(extra)) => {
-                format!("ERR trans: {}, extra: {:?}", text, extra);
-                todo!()
+                todo!("ERR trans: {}, extra: {:?}", text, extra)
             }
             (None, None, Some(extra)) => {
-                format!("ERR extra: {:?}", extra);
-                todo!()
+                todo!("ERR extra: {:?}", extra)
             }
             (None, Some(text), Some(extra)) => {
                 let mut component = Component::from_legacy_str(text, &modifier).list;

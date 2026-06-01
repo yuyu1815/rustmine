@@ -1,0 +1,115 @@
+use std::io;
+
+use crate::protocol::{packet::Packet, Direction, Error, State};
+
+use super::super::translate_internal_packet_id;
+
+mod custom_report_details;
+mod dialog;
+mod disconnect;
+mod entity;
+mod item_stack;
+mod projectile_power;
+mod scoreboard;
+mod server_links;
+mod set_default_spawn_position;
+mod set_time;
+mod sound;
+mod tag_query;
+mod test_instance_block_status;
+mod text;
+mod update;
+mod waypoint;
+
+pub(crate) fn read_play_clientbound_packet_by_id<R: io::Read>(
+    id: i32,
+    buf: &mut R,
+) -> Result<Option<Packet>, Error> {
+    let internal_id = translate_internal_packet_id(State::Play, Direction::Clientbound, id, true);
+    if let Some(packet) =
+        scoreboard::read_scoreboard_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) = sound::read_sound_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) = update::read_update_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) = entity::read_entity_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) = text::read_text_clientbound_packet_by_internal_id(internal_id, buf)? {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        dialog::read_dialog_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        waypoint::read_waypoint_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        set_time::read_set_time_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        custom_report_details::read_custom_report_details_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        server_links::read_server_links_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        set_default_spawn_position::read_set_default_spawn_position_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        item_stack::read_set_cursor_item_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        disconnect::read_disconnect_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        item_stack::read_set_player_inventory_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        tag_query::read_tag_query_play_clientbound_packet_by_internal_id(internal_id, buf)?
+    {
+        return Ok(Some(packet));
+    }
+    if let Some(packet) =
+        test_instance_block_status::read_test_instance_block_status_play_clientbound_packet_by_internal_id(
+            internal_id,
+            buf,
+        )?
+    {
+        return Ok(Some(packet));
+    }
+
+    Ok(None)
+}

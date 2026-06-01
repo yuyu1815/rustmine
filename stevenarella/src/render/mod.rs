@@ -359,7 +359,7 @@ impl Renderer {
     ) {
         self.update_textures(delta);
 
-        if world.is_some() {
+        if let Some(world) = &world {
             if self.chunk_render_data.lock().trans.is_some() {
                 let chunk_data = self.chunk_render_data.lock();
                 let trans = chunk_data.trans.as_ref().unwrap();
@@ -415,7 +415,7 @@ impl Renderer {
                 .sky_offset
                 .set_float(self.light_data.lock().sky_offset);
 
-            let tmp_world = world.as_ref().unwrap().clone();
+            let tmp_world = world.clone();
 
             for (pos, info) in tmp_world.get_render_list() {
                 if let Some(solid) = info.clone().read().solid.as_ref() {
@@ -446,7 +446,7 @@ impl Renderer {
                 light_data.light_level,
                 light_data.sky_offset,
             );
-            let tmp_world = world.as_ref().unwrap().clone();
+            let tmp_world = world.clone();
 
             if let Some(clouds) = &mut *self.clouds.lock() {
                 if tmp_world.copy_cloud_heightmap(&mut clouds.heightmap_data) {
@@ -533,8 +533,8 @@ impl Renderer {
             gl::ONE_MINUS_SRC_ALPHA,
         );
 
-        if world.is_some() {
-            let tmp_world = world.as_ref().unwrap().clone();
+        if let Some(world) = &world {
+            let tmp_world = world.clone();
             for (pos, info) in tmp_world.get_render_list().iter().rev() {
                 if let Some(trans) = info.clone().read().trans.as_ref() {
                     if trans.count > 0 {
