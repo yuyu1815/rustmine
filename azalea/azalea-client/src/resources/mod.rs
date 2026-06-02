@@ -64,6 +64,9 @@ const DEFAULT_REPRESENTATIVE_TEXTURES: &[&str] = &[
     "assets/minecraft/textures/misc/pumpkinblur.png",
     "assets/minecraft/textures/gui/title/mojangstudios.png",
 ];
+const CLIENT_TEXTURE_METADATA_RUNTIME_BOUNDARY: &str =
+    "texture_metadata_loaded_texture_decode_pending";
+const CLIENT_TEXTURE_METADATA_RUNTIME_SAMPLE_LIMIT: usize = 6;
 const INITIAL_SIMPLE_TEXTURES: &[(&str, &str)] = &[
     (
         "minecraft:textures/gui/title/minecraft.png",
@@ -38036,6 +38039,13 @@ impl TextureMetadataReloadListener {
     ) -> ResourceReloadResult<Vec<ClientTextureMetadataResource>> {
         load_client_texture_metadata_resources(stack, &self.textures)
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientTextureMetadataRuntimeReport {
+        ClientTextureMetadataRuntimeReport::from_listener_and_stack(self, stack)
+    }
 }
 
 impl Default for TextureMetadataReloadListener {
@@ -38064,12 +38074,14 @@ impl ResourceReloadListener for TextureMetadataReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(
-            self.load(stack)?
-                .iter()
-                .map(texture_metadata_report_item)
-                .collect::<Vec<_>>(),
-        ))
+        let mut items = self
+            .load(stack)?
+            .iter()
+            .map(texture_metadata_report_item)
+            .collect::<Vec<_>>();
+        items.extend(self.runtime_report(stack).items());
+
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -38125,6 +38137,267 @@ impl ClientTextureMetadataReloadReport {
 
     pub fn loaded_resource_pack(&self) -> String {
         format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientTextureMetadataRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientTextureMetadataRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureMetadataRuntimeReport {
+    status: ClientTextureMetadataRuntimeStatus,
+    requested_texture_count: usize,
+    loaded_texture_count: usize,
+    missing_failed_count: usize,
+    source_resource_count: usize,
+    byte_count: usize,
+    mcmeta_count: usize,
+    representative_textures: Vec<String>,
+    representative_resources: Vec<String>,
+    packs: Vec<String>,
+    metadata_shapes: Vec<String>,
+    blockers: Vec<String>,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientTextureMetadataRuntimeReport {
+    pub fn from_listener_and_stack(
+        listener: &TextureMetadataReloadListener,
+        stack: &ClientResourceStack,
+    ) -> Self {
+        let mut loaded = Vec::new();
+        let mut blockers = Vec::new();
+
+        for texture in listener.textures() {
+            match texture_metadata_runtime_resource(texture, stack) {
+                Ok(resource) => loaded.push(resource),
+                Err(blocker) => blockers.push(blocker),
+            }
+        }
+
+        Self::from_parts(listener.textures().len(), loaded, blockers, None)
+    }
+
+    pub fn from_failure(requested_texture_count: usize, error: impl Into<String>) -> Self {
+        Self::from_parts(
+            requested_texture_count,
+            Vec::new(),
+            Vec::new(),
+            Some(error.into()),
+        )
+    }
+
+    fn from_parts(
+        requested_texture_count: usize,
+        loaded: Vec<ClientTextureMetadataRuntimeResource>,
+        blockers: Vec<String>,
+        error: Option<String>,
+    ) -> Self {
+        let loaded_texture_count = loaded.len();
+        let missing_failed_count = requested_texture_count.saturating_sub(loaded_texture_count);
+        let source_resource_count = loaded
+            .iter()
+            .map(ClientTextureMetadataRuntimeResource::source_resource_count)
+            .sum();
+        let byte_count = loaded.iter().map(|resource| resource.byte_count).sum();
+        let mcmeta_count = loaded
+            .iter()
+            .filter(|resource| resource.mcmeta.is_some())
+            .count();
+        let status = texture_metadata_runtime_status(
+            loaded_texture_count,
+            requested_texture_count,
+            &blockers,
+            error.as_ref(),
+        );
+
+        Self {
+            status,
+            requested_texture_count,
+            loaded_texture_count,
+            missing_failed_count,
+            source_resource_count,
+            byte_count,
+            mcmeta_count,
+            representative_textures: texture_metadata_runtime_representative_textures(&loaded),
+            representative_resources: texture_metadata_runtime_representative_resources(&loaded),
+            packs: texture_metadata_runtime_packs(&loaded),
+            metadata_shapes: texture_metadata_runtime_metadata_shapes(&loaded),
+            blockers,
+            boundary: CLIENT_TEXTURE_METADATA_RUNTIME_BOUNDARY,
+            error,
+        }
+    }
+
+    pub fn status(&self) -> ClientTextureMetadataRuntimeStatus {
+        self.status
+    }
+
+    pub fn requested_texture_count(&self) -> usize {
+        self.requested_texture_count
+    }
+
+    pub fn loaded_texture_count(&self) -> usize {
+        self.loaded_texture_count
+    }
+
+    pub fn missing_failed_count(&self) -> usize {
+        self.missing_failed_count
+    }
+
+    pub fn source_resource_count(&self) -> usize {
+        self.source_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn mcmeta_count(&self) -> usize {
+        self.mcmeta_count
+    }
+
+    pub fn representative_textures(&self) -> &[String] {
+        &self.representative_textures
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn packs(&self) -> &[String] {
+        &self.packs
+    }
+
+    pub fn metadata_shapes(&self) -> &[String] {
+        &self.metadata_shapes
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_texture_metadata_runtime_report:status:{} requested:{} loaded:{} missing_failed:{} source_resources:{} bytes:{} mcmeta:{} representative_textures:{} representative_resources:{} packs:{} metadata_shapes:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.requested_texture_count(),
+            self.loaded_texture_count(),
+            self.missing_failed_count(),
+            self.source_resource_count(),
+            self.byte_count(),
+            self.mcmeta_count(),
+            texture_metadata_runtime_list_fragment(self.representative_textures()),
+            texture_metadata_runtime_list_fragment(self.representative_resources()),
+            texture_metadata_runtime_list_fragment(self.packs()),
+            texture_metadata_runtime_list_fragment(self.metadata_shapes()),
+            texture_metadata_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_textures.iter().map(|texture| {
+            format!(
+                "client_texture_metadata_runtime_texture:{texture} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_texture_metadata_runtime_resource:{resource} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.packs.iter().map(|pack| {
+            format!(
+                "client_texture_metadata_runtime_pack:{pack} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.metadata_shapes.iter().map(|shape| {
+            format!(
+                "client_texture_metadata_runtime_metadata:{shape} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_texture_metadata_runtime_blocker:{blocker} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_texture_metadata_runtime_failure:error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ClientTextureMetadataRuntimeResource {
+    texture: String,
+    pack_id: String,
+    byte_count: usize,
+    mcmeta: Option<ClientTextureMetadataRuntimeMcmeta>,
+}
+
+impl ClientTextureMetadataRuntimeResource {
+    fn source_resource_count(&self) -> usize {
+        1 + usize::from(self.mcmeta.is_some())
+    }
+
+    fn resource_pack_fragment(&self) -> String {
+        format!("{}@{}", self.texture, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ClientTextureMetadataRuntimeMcmeta {
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    shape: ClientJsonTopLevelShape,
+}
+
+impl ClientTextureMetadataRuntimeMcmeta {
+    fn shape_fragment(&self) -> String {
+        format!(
+            "{}@{}:{}",
+            self.resource,
+            self.pack_id,
+            self.shape.report_fragment()
+        )
     }
 }
 
@@ -38187,6 +38460,141 @@ fn texture_metadata_report_item(texture: &ClientTextureMetadataResource) -> Stri
         report.loaded_resource_pack(),
         report.byte_count()
     )
+}
+
+fn texture_metadata_runtime_resource(
+    texture: &str,
+    stack: &ClientResourceStack,
+) -> Result<ClientTextureMetadataRuntimeResource, String> {
+    let Some(location) = stack.find_resource(texture) else {
+        return Err(format!("{texture}@missing:missing_resource"));
+    };
+
+    let bytes = match location.read_bytes() {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Err(format!("{texture}@{}:read_error:{error}", location.pack_id));
+        }
+    };
+    if !bytes.starts_with(PNG_SIGNATURE) {
+        return Err(format!(
+            "{texture}@{}:invalid_png_signature:bytes:{}",
+            location.pack_id,
+            bytes.len()
+        ));
+    }
+
+    let mcmeta_resource = format!("{texture}.mcmeta");
+    let mcmeta = match stack.find_resource(&mcmeta_resource) {
+        Some(mcmeta_location) => Some(texture_metadata_runtime_mcmeta(
+            &mcmeta_resource,
+            mcmeta_location,
+        )?),
+        None => None,
+    };
+
+    let mcmeta_byte_count = mcmeta.as_ref().map(|mcmeta| mcmeta.byte_count).unwrap_or(0);
+    Ok(ClientTextureMetadataRuntimeResource {
+        texture: texture.to_owned(),
+        pack_id: location.pack_id,
+        byte_count: bytes.len() + mcmeta_byte_count,
+        mcmeta,
+    })
+}
+
+fn texture_metadata_runtime_mcmeta(
+    resource: &str,
+    location: ResourceLocation,
+) -> Result<ClientTextureMetadataRuntimeMcmeta, String> {
+    let bytes = location
+        .read_bytes()
+        .map_err(|error| format!("{resource}@{}:read_error:{error}", location.pack_id))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|error| format!("{resource}@{}:invalid_utf8:{error}", location.pack_id))?;
+    let value = serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|error| format!("{resource}@{}:invalid_json:{error}", location.pack_id))?;
+
+    Ok(ClientTextureMetadataRuntimeMcmeta {
+        resource: resource.to_owned(),
+        pack_id: location.pack_id,
+        byte_count: bytes.len(),
+        shape: ClientJsonTopLevelShape::from_value(&value),
+    })
+}
+
+fn texture_metadata_runtime_status(
+    loaded_texture_count: usize,
+    requested_texture_count: usize,
+    blockers: &[String],
+    error: Option<&String>,
+) -> ClientTextureMetadataRuntimeStatus {
+    if error.is_some() {
+        ClientTextureMetadataRuntimeStatus::Failed
+    } else if !blockers.is_empty() {
+        if loaded_texture_count == 0
+            && blockers
+                .iter()
+                .all(|blocker| blocker.ends_with(":missing_resource"))
+        {
+            ClientTextureMetadataRuntimeStatus::Missing
+        } else {
+            ClientTextureMetadataRuntimeStatus::Blocked
+        }
+    } else if loaded_texture_count == 0 && requested_texture_count > 0 {
+        ClientTextureMetadataRuntimeStatus::Missing
+    } else {
+        ClientTextureMetadataRuntimeStatus::Loaded
+    }
+}
+
+fn texture_metadata_runtime_representative_textures(
+    resources: &[ClientTextureMetadataRuntimeResource],
+) -> Vec<String> {
+    resources
+        .iter()
+        .take(CLIENT_TEXTURE_METADATA_RUNTIME_SAMPLE_LIMIT)
+        .map(|resource| resource.texture.clone())
+        .collect()
+}
+
+fn texture_metadata_runtime_representative_resources(
+    resources: &[ClientTextureMetadataRuntimeResource],
+) -> Vec<String> {
+    resources
+        .iter()
+        .take(CLIENT_TEXTURE_METADATA_RUNTIME_SAMPLE_LIMIT)
+        .map(ClientTextureMetadataRuntimeResource::resource_pack_fragment)
+        .collect()
+}
+
+fn texture_metadata_runtime_packs(
+    resources: &[ClientTextureMetadataRuntimeResource],
+) -> Vec<String> {
+    resources
+        .iter()
+        .map(|resource| resource.pack_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn texture_metadata_runtime_metadata_shapes(
+    resources: &[ClientTextureMetadataRuntimeResource],
+) -> Vec<String> {
+    resources
+        .iter()
+        .filter_map(|resource| resource.mcmeta.as_ref())
+        .take(CLIENT_TEXTURE_METADATA_RUNTIME_SAMPLE_LIMIT)
+        .map(ClientTextureMetadataRuntimeMcmeta::shape_fragment)
+        .collect()
+}
+
+fn texture_metadata_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join("|")
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56335,11 +56743,15 @@ mod tests {
         assert_eq!(listener.name, "texture_metadata");
         assert_eq!(listener.preparation.items(), [texture.to_owned()]);
         assert_eq!(
-            listener.reload.items(),
-            [format!(
+            listener.reload.items()[0],
+            format!(
                 "{texture}@override:{} bytes:png-signature-ok:mcmeta@override:object keys:custom",
                 OVERRIDE_MINIMAL_PNG.len()
-            )]
+            )
+        );
+        assert!(
+            listener.reload.items()[1]
+                .starts_with("client_texture_metadata_runtime_report:status:loaded")
         );
     }
 
@@ -56373,10 +56785,7 @@ mod tests {
             listener.preparation.items(),
             DEFAULT_REPRESENTATIVE_TEXTURES
         );
-        assert_eq!(
-            listener.reload.items().len(),
-            DEFAULT_REPRESENTATIVE_TEXTURES.len()
-        );
+        assert!(listener.reload.items().len() > DEFAULT_REPRESENTATIVE_TEXTURES.len());
 
         for resource in DEFAULT_REPRESENTATIVE_TEXTURES {
             let prefix = format!("{resource}@{VANILLA_PACK_ID}:");
@@ -56406,6 +56815,127 @@ mod tests {
             .expect("pumpkinblur should be included");
         assert!(
             pumpkinblur.ends_with(" bytes:png-signature-ok:mcmeta@vanilla:object keys:texture")
+        );
+    }
+
+    #[test]
+    fn texture_metadata_runtime_report_committed_vanilla_reports_loaded_surface() {
+        let report = TextureMetadataReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientTextureMetadataRuntimeStatus::Loaded);
+        assert_eq!(
+            report.requested_texture_count(),
+            DEFAULT_REPRESENTATIVE_TEXTURES.len()
+        );
+        assert_eq!(
+            report.loaded_texture_count(),
+            DEFAULT_REPRESENTATIVE_TEXTURES.len()
+        );
+        assert_eq!(report.missing_failed_count(), 0);
+        assert!(report.source_resource_count() >= DEFAULT_REPRESENTATIVE_TEXTURES.len());
+        assert!(report.byte_count() > PNG_SIGNATURE.len());
+        assert_eq!(report.mcmeta_count(), 1);
+        assert_eq!(report.packs(), ["vanilla".to_owned()]);
+        assert!(report.blockers().is_empty());
+        assert_eq!(report.boundary(), CLIENT_TEXTURE_METADATA_RUNTIME_BOUNDARY);
+        assert!(report.error().is_none());
+        assert!(
+            report
+                .representative_textures()
+                .contains(&"assets/minecraft/textures/misc/pumpkinblur.png".to_owned())
+        );
+        assert!(report.representative_resources().iter().any(|resource| {
+            resource == "assets/minecraft/textures/gui/title/mojangstudios.png@vanilla"
+        }));
+        assert!(report
+            .metadata_shapes()
+            .contains(&"assets/minecraft/textures/misc/pumpkinblur.png.mcmeta@vanilla:object keys:texture".to_owned()));
+        assert!(
+            report
+                .summary_fragment()
+                .contains("boundary:texture_metadata_loaded_texture_decode_pending")
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_metadata_runtime_metadata:")
+                && item.contains("object keys:texture")
+                && item.contains("boundary:texture_metadata_loaded_texture_decode_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_metadata_runtime_report_missing_corrupt_invalid_metadata_do_not_panic() {
+        let temp = TempPack::new();
+        let missing = "assets/minecraft/textures/block/missing.png";
+        let corrupt = "assets/minecraft/textures/block/corrupt.png";
+        let invalid_metadata = "assets/minecraft/textures/block/invalid_metadata.png";
+        temp.write_bytes(corrupt, b"not a png");
+        temp.write_bytes(invalid_metadata, MINIMAL_PNG);
+        temp.write(&format!("{invalid_metadata}.mcmeta"), "{not json");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = TextureMetadataReloadListener::new([missing, corrupt, invalid_metadata])
+            .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientTextureMetadataRuntimeStatus::Blocked);
+        assert_eq!(report.requested_texture_count(), 3);
+        assert_eq!(report.loaded_texture_count(), 0);
+        assert_eq!(report.missing_failed_count(), 3);
+        assert_eq!(report.source_resource_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.mcmeta_count(), 0);
+        assert!(report.error().is_none());
+        assert!(
+            report
+                .blockers()
+                .iter()
+                .any(|blocker| blocker == &format!("{missing}@missing:missing_resource"))
+        );
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker == &format!("{corrupt}@test:invalid_png_signature:bytes:9")
+        }));
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.contains(&format!("{invalid_metadata}.mcmeta@test:invalid_json:"))
+        }));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_metadata_runtime_blocker:")
+                && item.contains("invalid_png_signature")
+                && item.contains("boundary:texture_metadata_loaded_texture_decode_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_metadata_runtime_report_reload_rows_append_after_metadata_rows() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(TextureMetadataReloadListener::default())
+            .run()
+            .expect("committed vanilla texture metadata should append runtime rows");
+
+        let listener = &report.listener_reports()[0];
+        let metadata_row_count = DEFAULT_REPRESENTATIVE_TEXTURES.len();
+        assert_eq!(
+            listener.reload.items()[0..metadata_row_count]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            TextureMetadataReloadListener::default()
+                .load(&ClientResourceStack::vanilla())
+                .expect("committed vanilla texture metadata should load")
+                .iter()
+                .map(texture_metadata_report_item)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            listener.reload.items()[metadata_row_count]
+                .starts_with("client_texture_metadata_runtime_report:status:loaded")
+        );
+        assert!(
+            listener.reload.items()[metadata_row_count..]
+                .iter()
+                .any(|item| {
+                    item.contains("client_texture_metadata_runtime_resource:")
+                        && item.contains("boundary:texture_metadata_loaded_texture_decode_pending")
+                })
         );
     }
 
