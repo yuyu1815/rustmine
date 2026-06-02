@@ -289,6 +289,10 @@ impl MojangLoadingOverlayViewModel {
     pub fn frame(&self, gui_width: f32, gui_height: f32) -> MojangLoadingOverlayFrame {
         MojangLoadingOverlayFrame::from_view_model(self, gui_width, gui_height)
     }
+
+    pub fn draw_list(&self, gui_width: f32, gui_height: f32) -> MojangLoadingOverlayDrawList {
+        MojangLoadingOverlayDrawList::from_view_model(self, gui_width, gui_height)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -326,6 +330,164 @@ impl MojangLoadingOverlayFrame {
             ),
         }
     }
+
+    pub fn draw_list(&self, gui_width: f32, gui_height: f32) -> MojangLoadingOverlayDrawList {
+        MojangLoadingOverlayDrawList::from_frame(self, gui_width, gui_height)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MojangLoadingOverlayDrawList {
+    pub commands: Vec<MojangLoadingOverlayDrawCommand>,
+}
+
+impl MojangLoadingOverlayDrawList {
+    pub fn from_view_model(
+        view: &MojangLoadingOverlayViewModel,
+        gui_width: f32,
+        gui_height: f32,
+    ) -> Self {
+        let frame = view.frame(gui_width, gui_height);
+        Self::from_frame_with_text(
+            &frame,
+            gui_width,
+            gui_height,
+            Some(MojangLoadingOverlayTextCommand {
+                text: view.reload.label.clone(),
+                fallback_text: view.vanilla.text.text,
+                phase: view.reload.phase,
+                color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+            }),
+        )
+    }
+
+    pub fn from_frame(frame: &MojangLoadingOverlayFrame, gui_width: f32, gui_height: f32) -> Self {
+        Self::from_frame_with_text(frame, gui_width, gui_height, None)
+    }
+
+    fn from_frame_with_text(
+        frame: &MojangLoadingOverlayFrame,
+        gui_width: f32,
+        gui_height: f32,
+        text: Option<MojangLoadingOverlayTextCommand>,
+    ) -> Self {
+        let mut commands = Vec::with_capacity(if text.is_some() { 6 } else { 5 });
+        commands.push(MojangLoadingOverlayDrawCommand::BackgroundFill {
+            rect: MojangLoadingRect {
+                x: 0.0,
+                y: 0.0,
+                width: gui_width,
+                height: gui_height,
+            },
+            color_argb: frame.background_argb,
+            fade_alpha: frame.fade_alpha,
+            should_render: frame.should_render,
+        });
+
+        match frame.logo.texture {
+            Some(texture) => {
+                commands.push(MojangLoadingOverlayDrawCommand::LogoTextureHalf {
+                    texture,
+                    half: MojangLogoHalf::Left,
+                    source_rect: frame.logo.left_half.source_rect,
+                    target_rect: frame.logo.left_half.target_rect,
+                    fade_alpha: frame.fade_alpha,
+                });
+                commands.push(MojangLoadingOverlayDrawCommand::LogoTextureHalf {
+                    texture,
+                    half: MojangLogoHalf::Right,
+                    source_rect: frame.logo.right_half.source_rect,
+                    target_rect: frame.logo.right_half.target_rect,
+                    fade_alpha: frame.fade_alpha,
+                });
+            }
+            None => commands.push(MojangLoadingOverlayDrawCommand::FallbackLogo {
+                metadata: frame.logo.fallback,
+                target_rect: frame.logo.target_rect,
+                color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+                fade_alpha: frame.fade_alpha,
+            }),
+        }
+
+        commands.push(MojangLoadingOverlayDrawCommand::ProgressBarOuter {
+            rect: frame.progress_bar.outer_rect,
+            color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+            border_width: frame.progress_bar.border_width,
+            clamped_progress: frame.progress_bar.clamped_progress,
+            actual_progress: frame.progress.actual_progress,
+            displayed_progress: frame.progress.displayed_progress,
+            fade_alpha: frame.fade_alpha,
+        });
+        commands.push(MojangLoadingOverlayDrawCommand::ProgressBarInnerFill {
+            rect: frame.progress_bar.inner_fill_rect,
+            color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+            clamped_progress: frame.progress_bar.clamped_progress,
+            inner_fill_width: frame.progress_bar.inner_fill_width,
+            fade_alpha: frame.fade_alpha,
+        });
+
+        if let Some(text) = text {
+            commands.push(MojangLoadingOverlayDrawCommand::LoadingText(text));
+        }
+
+        Self { commands }
+    }
+}
+
+pub const MOJANG_LOADING_OVERLAY_WHITE_ARGB: u32 = 0xFFFF_FFFF;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MojangLoadingOverlayDrawCommand {
+    BackgroundFill {
+        rect: MojangLoadingRect,
+        color_argb: u32,
+        fade_alpha: f32,
+        should_render: bool,
+    },
+    LogoTextureHalf {
+        texture: MojangLogoTexture,
+        half: MojangLogoHalf,
+        source_rect: MojangLogoSourceRect,
+        target_rect: MojangLoadingRect,
+        fade_alpha: f32,
+    },
+    FallbackLogo {
+        metadata: MojangFallbackLogoMetadata,
+        target_rect: MojangLoadingRect,
+        color_argb: u32,
+        fade_alpha: f32,
+    },
+    ProgressBarOuter {
+        rect: MojangLoadingRect,
+        color_argb: u32,
+        border_width: f32,
+        clamped_progress: f32,
+        actual_progress: f32,
+        displayed_progress: f32,
+        fade_alpha: f32,
+    },
+    ProgressBarInnerFill {
+        rect: MojangLoadingRect,
+        color_argb: u32,
+        clamped_progress: f32,
+        inner_fill_width: f32,
+        fade_alpha: f32,
+    },
+    LoadingText(MojangLoadingOverlayTextCommand),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MojangLogoHalf {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MojangLoadingOverlayTextCommand {
+    pub text: String,
+    pub fallback_text: &'static str,
+    pub phase: ResourceLoadingReloadPhase,
+    pub color_argb: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1180,6 +1342,150 @@ mod tests {
         assert_eq!(
             fallback_frame.logo.fallback,
             MojangFallbackLogoMetadata::default()
+        );
+    }
+
+    #[test]
+    fn resource_loading_overlay_draw_exposes_desktop_command_order() {
+        let mut overlay = VanillaLoadingOverlay::new();
+        overlay.tick(1.0);
+        let view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&overlay, Duration::from_millis(250));
+
+        let draw_list = view.draw_list(900.0, 520.0);
+
+        assert_eq!(draw_list.commands.len(), 6);
+        assert!(matches!(
+            draw_list.commands[0],
+            MojangLoadingOverlayDrawCommand::BackgroundFill { .. }
+        ));
+        assert!(matches!(
+            draw_list.commands[1],
+            MojangLoadingOverlayDrawCommand::LogoTextureHalf {
+                half: MojangLogoHalf::Left,
+                ..
+            }
+        ));
+        assert!(matches!(
+            draw_list.commands[2],
+            MojangLoadingOverlayDrawCommand::LogoTextureHalf {
+                half: MojangLogoHalf::Right,
+                ..
+            }
+        ));
+        assert!(matches!(
+            draw_list.commands[3],
+            MojangLoadingOverlayDrawCommand::ProgressBarOuter { .. }
+        ));
+        assert!(matches!(
+            draw_list.commands[4],
+            MojangLoadingOverlayDrawCommand::ProgressBarInnerFill { .. }
+        ));
+        assert_eq!(
+            draw_list.commands[5],
+            MojangLoadingOverlayDrawCommand::LoadingText(MojangLoadingOverlayTextCommand {
+                text: "Loading Minecraft".to_owned(),
+                fallback_text: "Loading Minecraft",
+                phase: ResourceLoadingReloadPhase::Fallback,
+                color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+            })
+        );
+    }
+
+    #[test]
+    fn resource_loading_overlay_draw_uses_fallback_logo_when_texture_is_absent() {
+        let mut view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        view.logo_texture = None;
+
+        let draw_list = view.draw_list(900.0, 520.0);
+
+        assert_eq!(
+            draw_list.commands[1],
+            MojangLoadingOverlayDrawCommand::FallbackLogo {
+                metadata: MojangFallbackLogoMetadata::default(),
+                target_rect: MojangLoadingRect {
+                    x: 190.0,
+                    y: 195.0,
+                    width: 520.0,
+                    height: 130.0,
+                },
+                color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+                fade_alpha: 0.0,
+            }
+        );
+        assert!(matches!(
+            draw_list.commands[2],
+            MojangLoadingOverlayDrawCommand::ProgressBarOuter { .. }
+        ));
+        assert!(!draw_list.commands.iter().any(|command| matches!(
+            command,
+            MojangLoadingOverlayDrawCommand::LogoTextureHalf { .. }
+        )));
+    }
+
+    #[test]
+    fn resource_loading_overlay_draw_exposes_progress_fill_width() {
+        let mut view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        view.vanilla.actual_progress = 0.5;
+        view.vanilla.displayed_progress = 0.5;
+
+        let draw_list = view.draw_list(900.0, 520.0);
+
+        assert_eq!(
+            draw_list.commands[4],
+            MojangLoadingOverlayDrawCommand::ProgressBarInnerFill {
+                rect: MojangLoadingRect {
+                    x: 191.0,
+                    y: 428.9,
+                    width: 259.0,
+                    height: 8.0,
+                },
+                color_argb: MOJANG_LOADING_OVERLAY_WHITE_ARGB,
+                clamped_progress: 0.5,
+                inner_fill_width: 259.0,
+                fade_alpha: 0.0,
+            }
+        );
+    }
+
+    #[test]
+    fn resource_loading_overlay_draw_preserves_black_and_red_backgrounds() {
+        let red_view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        let black_view = ResourceLoadingTracker::new(Vec::new()).loading_overlay_view(
+            &VanillaLoadingOverlay::new().with_background(VanillaLoadingBackground::Black),
+            Duration::ZERO,
+        );
+
+        assert_eq!(
+            red_view.draw_list(900.0, 520.0).commands[0],
+            MojangLoadingOverlayDrawCommand::BackgroundFill {
+                rect: MojangLoadingRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 900.0,
+                    height: 520.0,
+                },
+                color_argb: MOJANG_STUDIOS_RED_BACKGROUND_ARGB,
+                fade_alpha: 0.0,
+                should_render: true,
+            }
+        );
+        assert_eq!(
+            black_view.draw_list(900.0, 520.0).commands[0],
+            MojangLoadingOverlayDrawCommand::BackgroundFill {
+                rect: MojangLoadingRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 900.0,
+                    height: 520.0,
+                },
+                color_argb: MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB,
+                fade_alpha: 0.0,
+                should_render: true,
+            }
         );
     }
 
