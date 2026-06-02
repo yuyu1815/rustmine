@@ -2001,6 +2001,130 @@ impl ResourceReloadPlan {
     pub fn progress_snapshot(&self, completed_weight: u32) -> ResourceReloadProgressSnapshot {
         ResourceReloadProgressSnapshot::new(self, completed_weight)
     }
+
+    pub fn schedule_state(&self) -> ResourceReloadScheduleState {
+        ResourceReloadScheduleState::new(self)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceReloadScheduleState {
+    listener_count: u32,
+    total_weight: u32,
+    steps: Vec<ResourceReloadScheduledStep>,
+}
+
+impl ResourceReloadScheduleState {
+    fn new(plan: &ResourceReloadPlan) -> Self {
+        let mut cumulative_weight = 0;
+        let mut steps = Vec::with_capacity(1 + plan.listeners().len() * 3);
+
+        push_resource_reload_scheduled_step(
+            &mut steps,
+            INITIAL_RELOAD_TASK_NAME,
+            ResourceReloadStep::InitialPreparation,
+            &mut cumulative_weight,
+        );
+
+        for listener in plan.listeners() {
+            push_resource_reload_scheduled_step(
+                &mut steps,
+                listener,
+                ResourceReloadStep::Preparation,
+                &mut cumulative_weight,
+            );
+            push_resource_reload_scheduled_step(
+                &mut steps,
+                listener,
+                ResourceReloadStep::Reload,
+                &mut cumulative_weight,
+            );
+            push_resource_reload_scheduled_step(
+                &mut steps,
+                listener,
+                ResourceReloadStep::ListenerComplete,
+                &mut cumulative_weight,
+            );
+        }
+
+        Self {
+            listener_count: plan.listeners().len() as u32,
+            total_weight: plan.total_weight(),
+            steps,
+        }
+    }
+
+    pub fn listener_count(&self) -> u32 {
+        self.listener_count
+    }
+
+    pub fn total_weight(&self) -> u32 {
+        self.total_weight
+    }
+
+    pub fn steps(&self) -> &[ResourceReloadScheduledStep] {
+        &self.steps
+    }
+
+    pub fn steps_for_listener(&self, listener: &str) -> Vec<&ResourceReloadScheduledStep> {
+        self.steps
+            .iter()
+            .filter(|step| step.listener() == listener)
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceReloadScheduledStep {
+    index: usize,
+    listener: String,
+    step: ResourceReloadStep,
+    weight: u32,
+    cumulative_start_weight: u32,
+    cumulative_end_weight: u32,
+}
+
+impl ResourceReloadScheduledStep {
+    fn new(
+        index: usize,
+        listener: impl Into<String>,
+        step: ResourceReloadStep,
+        cumulative_start_weight: u32,
+    ) -> Self {
+        let weight = step.weight();
+        Self {
+            index,
+            listener: listener.into(),
+            step,
+            weight,
+            cumulative_start_weight,
+            cumulative_end_weight: cumulative_start_weight + weight,
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn listener(&self) -> &str {
+        &self.listener
+    }
+
+    pub fn step(&self) -> ResourceReloadStep {
+        self.step
+    }
+
+    pub fn weight(&self) -> u32 {
+        self.weight
+    }
+
+    pub fn cumulative_start_weight(&self) -> u32 {
+        self.cumulative_start_weight
+    }
+
+    pub fn cumulative_end_weight(&self) -> u32 {
+        self.cumulative_end_weight
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2375,6 +2499,21 @@ fn push_reload_progress_entry(
     *offset += weight;
 }
 
+fn push_resource_reload_scheduled_step(
+    steps: &mut Vec<ResourceReloadScheduledStep>,
+    listener: &str,
+    step: ResourceReloadStep,
+    cumulative_weight: &mut u32,
+) {
+    steps.push(ResourceReloadScheduledStep::new(
+        steps.len(),
+        listener,
+        step,
+        *cumulative_weight,
+    ));
+    *cumulative_weight += step.weight();
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceReloadStep {
     InitialPreparation,
@@ -2534,6 +2673,10 @@ impl ResourceReloadManager {
 
     pub fn plan(&self) -> ResourceReloadPlan {
         ResourceReloadPlan::from_listeners(&self.listeners)
+    }
+
+    pub fn schedule_state(&self) -> ResourceReloadScheduleState {
+        self.plan().schedule_state()
     }
 
     pub fn run(&self) -> ResourceReloadResult<ResourceReloadReport> {
@@ -31827,6 +31970,79 @@ mod tests {
     }
 
     #[test]
+    fn resource_reload_schedule_state_lays_out_two_listeners() {
+        let schedule = ResourceReloadPlan::new(["lang", "splashes"]).schedule_state();
+
+        assert_eq!(schedule.listener_count(), 2);
+        assert_eq!(schedule.total_weight(), 12);
+        assert_eq!(
+            schedule
+                .steps()
+                .iter()
+                .map(|step| (
+                    step.index(),
+                    step.listener(),
+                    step.step(),
+                    step.weight(),
+                    step.cumulative_start_weight(),
+                    step.cumulative_end_weight(),
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    0,
+                    INITIAL_RELOAD_TASK_NAME,
+                    ResourceReloadStep::InitialPreparation,
+                    2,
+                    0,
+                    2,
+                ),
+                (1, "lang", ResourceReloadStep::Preparation, 2, 2, 4),
+                (2, "lang", ResourceReloadStep::Reload, 2, 4, 6),
+                (3, "lang", ResourceReloadStep::ListenerComplete, 1, 6, 7),
+                (4, "splashes", ResourceReloadStep::Preparation, 2, 7, 9),
+                (5, "splashes", ResourceReloadStep::Reload, 2, 9, 11),
+                (
+                    6,
+                    "splashes",
+                    ResourceReloadStep::ListenerComplete,
+                    1,
+                    11,
+                    12,
+                ),
+            ]
+        );
+        assert_eq!(
+            schedule
+                .steps_for_listener("lang")
+                .iter()
+                .map(|step| step.step())
+                .collect::<Vec<_>>(),
+            [
+                ResourceReloadStep::Preparation,
+                ResourceReloadStep::Reload,
+                ResourceReloadStep::ListenerComplete,
+            ]
+        );
+    }
+
+    #[test]
+    fn resource_reload_schedule_matches_progress_snapshot_entries() {
+        let plan = ResourceReloadPlan::new(["lang", "splashes"]);
+        let schedule = plan.schedule_state();
+        let snapshot = plan.progress_snapshot(0);
+
+        assert_eq!(schedule.listener_count(), snapshot.listener_count());
+        assert_eq!(schedule.total_weight(), snapshot.total_weight());
+        assert_eq!(schedule.steps().len(), snapshot.entries().len());
+        for (scheduled, progress) in schedule.steps().iter().zip(snapshot.entries()) {
+            assert_eq!(scheduled.listener(), progress.listener());
+            assert_eq!(scheduled.step(), progress.step());
+            assert_eq!(scheduled.weight(), progress.weight());
+        }
+    }
+
+    #[test]
     fn reload_progress_snapshot_starts_with_ordered_prepare_apply_entries() {
         let plan = ResourceReloadPlan::new(["lang", "splashes"]);
         let snapshot = plan.progress_snapshot(0);
@@ -33718,6 +33934,96 @@ mod tests {
                 "regional_compliancies",
                 "regional_compliance_notification_decision_candidates",
             ]
+        );
+    }
+
+    #[test]
+    fn resource_reload_schedule_default_client_resources_contains_all_manager_listeners_in_order() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+        let plan = manager.plan();
+        let schedule = manager.schedule_state();
+
+        assert_eq!(schedule.listener_count(), plan.listeners().len() as u32);
+        assert_eq!(schedule.total_weight(), plan.total_weight());
+        assert_eq!(schedule.steps().len(), 1 + plan.listeners().len() * 3);
+        assert_eq!(
+            schedule.steps().first().map(|step| {
+                (
+                    step.index(),
+                    step.listener(),
+                    step.step(),
+                    step.cumulative_start_weight(),
+                    step.cumulative_end_weight(),
+                )
+            }),
+            Some((
+                0,
+                INITIAL_RELOAD_TASK_NAME,
+                ResourceReloadStep::InitialPreparation,
+                0,
+                ResourceReloadStep::InitialPreparation.weight(),
+            ))
+        );
+        assert_eq!(
+            plan.listeners()
+                .iter()
+                .flat_map(|listener| schedule.steps_for_listener(listener))
+                .map(|step| (step.listener(), step.step()))
+                .collect::<Vec<_>>(),
+            plan.listeners()
+                .iter()
+                .flat_map(|listener| [
+                    (listener.as_str(), ResourceReloadStep::Preparation),
+                    (listener.as_str(), ResourceReloadStep::Reload),
+                    (listener.as_str(), ResourceReloadStep::ListenerComplete),
+                ])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn resource_reload_schedule_default_client_resources_matches_progress_entries() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+        let plan = manager.plan();
+        let schedule = manager.schedule_state();
+        let snapshot = plan.progress_snapshot(0);
+
+        assert_eq!(
+            schedule
+                .steps()
+                .iter()
+                .map(|step| (step.listener(), step.step(), step.weight()))
+                .collect::<Vec<_>>(),
+            snapshot
+                .entries()
+                .iter()
+                .map(|entry| (entry.listener(), entry.step(), entry.weight()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn resource_reload_schedule_default_run_event_count_matches_step_count() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+        let scheduled_step_count = manager.schedule_state().steps().len();
+
+        let report = manager
+            .run()
+            .expect("committed vanilla default client resources should load");
+
+        assert_eq!(report.events().len(), scheduled_step_count);
+        assert_eq!(
+            report
+                .events()
+                .iter()
+                .map(|event| (event.listener.as_str(), event.step, event.completed_weight))
+                .collect::<Vec<_>>(),
+            manager
+                .schedule_state()
+                .steps()
+                .iter()
+                .map(|step| (step.listener(), step.step(), step.cumulative_end_weight(),))
+                .collect::<Vec<_>>()
         );
     }
 
