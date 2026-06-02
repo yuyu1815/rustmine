@@ -2181,6 +2181,7 @@ impl ResourceReloadManager {
             .with_listener(AtlasSourceReloadListener::default())
             .with_listener(AtlasStitchCandidateReloadListener::default())
             .with_listener(AtlasTextureUploadCandidateReloadListener::default())
+            .with_listener(AtlasManagerRuntimeCandidateReloadListener::default())
             .with_listener(FontDefinitionsReloadListener::default())
             .with_listener(FontProviderAssetReloadListener::default())
             .with_listener(FontGlyphAtlasCandidateReloadListener::default())
@@ -19965,6 +19966,354 @@ fn atlas_texture_upload_blockers_fragment(blockers: &[AtlasTextureUploadBlocker]
         .join("|")
 }
 
+const ATLAS_MANAGER_RUNTIME_BOUNDARY: &str = "atlas_textures_loaded_runtime_sprite_lookup_pending";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasManagerRuntimeCandidateReloadListener {
+    name: String,
+    manifests: Vec<String>,
+    discover_manifests: bool,
+}
+
+impl AtlasManagerRuntimeCandidateReloadListener {
+    pub fn new(manifests: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: "atlas_manager_runtime_candidates".to_owned(),
+            manifests: manifests.into_iter().map(Into::into).collect(),
+            discover_manifests: false,
+        }
+    }
+
+    pub fn manifests(&self) -> &[String] {
+        &self.manifests
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<AtlasManagerRuntimeCandidateSet> {
+        let upload_candidates = if self.discover_manifests {
+            load_discovered_client_atlas_texture_upload_candidates(stack)?
+        } else {
+            load_client_atlas_texture_upload_candidates(stack, &self.manifests)?
+        };
+        Ok(build_atlas_manager_runtime_candidate_set(
+            &upload_candidates,
+        ))
+    }
+
+    fn resolved_manifests(&self, stack: &ClientResourceStack) -> ResourceReloadResult<Vec<String>> {
+        if self.discover_manifests {
+            discover_atlas_manifest_resources(stack)
+        } else {
+            Ok(self.manifests.clone())
+        }
+    }
+}
+
+impl Default for AtlasManagerRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self {
+            name: "atlas_manager_runtime_candidates".to_owned(),
+            manifests: Vec::new(),
+            discover_manifests: true,
+        }
+    }
+}
+
+impl ResourceReloadListener for AtlasManagerRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.resolved_manifests(stack)?;
+        for manifest in &manifests {
+            stack.require_resource(manifest)?;
+        }
+
+        Ok(ResourceReloadTaskReport::new(manifests))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasManagerRuntimeCandidateSet {
+    atlas_count: usize,
+    decoded_sprite_resource_count: usize,
+    byte_count: usize,
+    blockers: usize,
+    representative_atlases: Vec<String>,
+    representative_resources: Vec<String>,
+    candidates: Vec<AtlasManagerRuntimeCandidate>,
+}
+
+impl AtlasManagerRuntimeCandidateSet {
+    pub fn atlas_count(&self) -> usize {
+        self.atlas_count
+    }
+
+    pub fn decoded_sprite_resource_count(&self) -> usize {
+        self.decoded_sprite_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers
+    }
+
+    pub fn candidates(&self) -> &[AtlasManagerRuntimeCandidate] {
+        &self.candidates
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "atlas_manager_runtime_candidates:atlases:{} decoded:{} bytes:{} blocked:{} runtime_surfaces:{} representative_atlases:{} representative_resources:{} boundary:{}",
+            self.atlas_count,
+            self.decoded_sprite_resource_count,
+            self.byte_count,
+            self.blockers,
+            self.candidates.len(),
+            atlas_manager_runtime_list_fragment(&self.representative_atlases),
+            atlas_manager_runtime_list_fragment(&self.representative_resources),
+            ATLAS_MANAGER_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.candidates.iter().map(atlas_manager_runtime_item));
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtlasManagerRuntimeCandidate {
+    id: &'static str,
+    category: AtlasManagerRuntimeCategory,
+    representative_atlas_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    runtime_sources: Vec<&'static str>,
+    dependency_count: usize,
+    blockers: Vec<&'static str>,
+}
+
+impl AtlasManagerRuntimeCandidate {
+    pub fn id(&self) -> &'static str {
+        self.id
+    }
+
+    pub fn category(&self) -> AtlasManagerRuntimeCategory {
+        self.category
+    }
+
+    pub fn representative_atlas_ids(&self) -> &[String] {
+        &self.representative_atlas_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn runtime_sources(&self) -> &[&'static str] {
+        &self.runtime_sources
+    }
+
+    pub fn dependency_count(&self) -> usize {
+        self.dependency_count
+    }
+
+    pub fn blockers(&self) -> &[&'static str] {
+        &self.blockers
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        ATLAS_MANAGER_RUNTIME_BOUNDARY
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AtlasManagerRuntimeCategory {
+    AtlasRegistryCache,
+    SpriteLookupApi,
+    MissingSpriteFallback,
+    TextureAtlasGpuLifecycle,
+    DownstreamLookupBinding,
+}
+
+impl AtlasManagerRuntimeCategory {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::AtlasRegistryCache => "atlas_registry_cache",
+            Self::SpriteLookupApi => "sprite_lookup_api",
+            Self::MissingSpriteFallback => "missing_sprite_fallback",
+            Self::TextureAtlasGpuLifecycle => "texture_atlas_gpu_lifecycle",
+            Self::DownstreamLookupBinding => "downstream_model_particle_font_lookup_binding",
+        }
+    }
+}
+
+fn build_atlas_manager_runtime_candidate_set(
+    upload_candidates: &AtlasTextureUploadCandidateCollection,
+) -> AtlasManagerRuntimeCandidateSet {
+    let representative_atlases = representative_atlas_ids(upload_candidates);
+    let representative_resources = representative_atlas_resources(upload_candidates);
+    let decoded_sprite_resource_count = upload_candidates.decoded_sprite_resource_count();
+    let byte_count = upload_candidates.byte_count();
+    let blockers = upload_candidates.blocker_count();
+    let atlas_count = upload_candidates.atlas_count();
+    let shared_blockers = atlas_manager_runtime_blockers(upload_candidates);
+    let candidates = vec![
+        AtlasManagerRuntimeCandidate {
+            id: "atlas_manager_registry_cache",
+            category: AtlasManagerRuntimeCategory::AtlasRegistryCache,
+            representative_atlas_ids: representative_atlases.clone(),
+            representative_resources: representative_resources.clone(),
+            runtime_sources: vec![
+                "AtlasManager.KNOWN_ATLASES",
+                "AtlasManager.atlasByTexture",
+                "AtlasManager.atlasById",
+            ],
+            dependency_count: atlas_count,
+            blockers: shared_blockers.clone(),
+        },
+        AtlasManagerRuntimeCandidate {
+            id: "atlas_manager_sprite_lookup",
+            category: AtlasManagerRuntimeCategory::SpriteLookupApi,
+            representative_atlas_ids: representative_atlases.clone(),
+            representative_resources: representative_resources.clone(),
+            runtime_sources: vec![
+                "AtlasManager.get(SpriteId)",
+                "AtlasManager.updateSpriteMaps(PendingStitchResults)",
+                "SpriteLoader.Preparations.regions",
+            ],
+            dependency_count: decoded_sprite_resource_count,
+            blockers: shared_blockers.clone(),
+        },
+        AtlasManagerRuntimeCandidate {
+            id: "atlas_manager_missing_sprite_fallback",
+            category: AtlasManagerRuntimeCategory::MissingSpriteFallback,
+            representative_atlas_ids: representative_atlases.clone(),
+            representative_resources: vec!["minecraft:missingno".to_owned()],
+            runtime_sources: vec![
+                "MissingTextureAtlasSprite.getLocation()",
+                "TextureAtlas.upload(SpriteLoader.Preparations)",
+                "TextureAtlas.missingSprite()",
+            ],
+            dependency_count: atlas_count,
+            blockers: shared_blockers.clone(),
+        },
+        AtlasManagerRuntimeCandidate {
+            id: "texture_atlas_gpu_lifecycle",
+            category: AtlasManagerRuntimeCategory::TextureAtlasGpuLifecycle,
+            representative_atlas_ids: representative_atlases.clone(),
+            representative_resources: representative_resources.clone(),
+            runtime_sources: vec![
+                "TextureAtlas.createTexture(int,int,int)",
+                "TextureAtlas.upload(SpriteLoader.Preparations)",
+                "AtlasManager.AtlasEntry.close()",
+            ],
+            dependency_count: decoded_sprite_resource_count,
+            blockers: shared_blockers.clone(),
+        },
+        AtlasManagerRuntimeCandidate {
+            id: "atlas_manager_downstream_lookup_binding",
+            category: AtlasManagerRuntimeCategory::DownstreamLookupBinding,
+            representative_atlas_ids: representative_atlases.clone(),
+            representative_resources,
+            runtime_sources: vec![
+                "Minecraft.<init>:FontManager(TextureManager,AtlasManager,PlayerSkinRenderCache)",
+                "Minecraft.<init>:ModelManager(BlockColors,AtlasManager,PlayerSkinRenderCache)",
+                "ParticleResources.reload:AtlasManager.PENDING_STITCH.get(AtlasIds.PARTICLES)",
+                "Minecraft.<init>:MapRenderer(AtlasManager,MapTextureManager)",
+            ],
+            dependency_count: atlas_count,
+            blockers: shared_blockers,
+        },
+    ];
+
+    AtlasManagerRuntimeCandidateSet {
+        atlas_count,
+        decoded_sprite_resource_count,
+        byte_count,
+        blockers,
+        representative_atlases,
+        representative_resources: representative_atlas_resources(upload_candidates),
+        candidates,
+    }
+}
+
+fn atlas_manager_runtime_blockers(
+    upload_candidates: &AtlasTextureUploadCandidateCollection,
+) -> Vec<&'static str> {
+    let mut blockers = vec![
+        "atlas_manager_registry_not_implemented",
+        "sprite_lookup_runtime_not_implemented",
+        "gpu_atlas_lifecycle_not_implemented",
+    ];
+    if upload_candidates.blocker_count() > 0 {
+        blockers.push("upload_candidate_blockers_present");
+    }
+    blockers
+}
+
+fn representative_atlas_ids(
+    upload_candidates: &AtlasTextureUploadCandidateCollection,
+) -> Vec<String> {
+    upload_candidates
+        .atlases()
+        .iter()
+        .take(3)
+        .map(|atlas| atlas.resource().to_owned())
+        .collect()
+}
+
+fn representative_atlas_resources(
+    upload_candidates: &AtlasTextureUploadCandidateCollection,
+) -> Vec<String> {
+    upload_candidates
+        .atlases()
+        .iter()
+        .flat_map(|atlas| atlas.decoded_sprite_resources().iter())
+        .take(3)
+        .map(|resource| resource.resource().to_owned())
+        .collect()
+}
+
+fn atlas_manager_runtime_item(candidate: &AtlasManagerRuntimeCandidate) -> String {
+    format!(
+        "{} category:{} representative_atlases:{} representative_resources:{} runtime_sources:{} dependencies:{} blockers:{} boundary:{}",
+        candidate.id(),
+        candidate.category().report_fragment(),
+        atlas_manager_runtime_list_fragment(candidate.representative_atlas_ids()),
+        atlas_manager_runtime_list_fragment(candidate.representative_resources()),
+        candidate.runtime_sources().join("|"),
+        candidate.dependency_count(),
+        candidate.blockers().join("|"),
+        candidate.boundary()
+    )
+}
+
+fn atlas_manager_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+
+    items.join("|")
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ColormapReloadListener {
     name: String,
@@ -24535,6 +24884,7 @@ mod tests {
                 "atlas_sources",
                 "atlas_stitch_candidates",
                 "atlas_texture_upload_candidates",
+                "atlas_manager_runtime_candidates",
                 "font_definitions",
                 "font_provider_assets",
                 "font_glyph_atlas_candidates",
@@ -25246,6 +25596,102 @@ mod tests {
         assert!(items[1].contains("blockers:1 blocker_details:invalid_png_signature:bytes:9:assets/minecraft/textures/item/bad.png"));
         assert!(items[1].contains("resources:none"));
         assert!(items[1].ends_with("boundary:sprite_decode_complete_texture_upload_pending"));
+    }
+
+    #[test]
+    fn atlas_manager_runtime_reports_summary_and_jar_backed_boundaries() {
+        let temp = TempPack::new();
+        let direct_png = encode_test_rgba_png(2, 2, &[0, 0, 0, 255].repeat(4));
+        let stone_png = encode_test_rgba_png(1, 1, &[255, 255, 255, 255]);
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"example:direct","sprite":"example:renamed"},
+                {"type":"minecraft:single","resource":"minecraft:item/bad"},
+                {"type":"minecraft:directory","source":"block","prefix":"block/"}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/direct.png", &direct_png);
+        temp.write_bytes("assets/minecraft/textures/item/bad.png", b"not a png");
+        temp.write_bytes("assets/minecraft/textures/block/stone.png", &stone_png);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(AtlasManagerRuntimeCandidateReloadListener::new([
+                "assets/minecraft/atlases/test.json",
+            ]))
+            .run()
+            .expect("atlas manager runtime candidates should report upload blockers");
+
+        let listener = &report.listener_reports()[0];
+        let items = listener.reload.items();
+        assert_eq!(listener.name, "atlas_manager_runtime_candidates");
+        assert_eq!(items.len(), 6);
+        assert_eq!(
+            items[0],
+            format!(
+                "atlas_manager_runtime_candidates:atlases:1 decoded:2 bytes:{} blocked:1 runtime_surfaces:5 representative_atlases:assets/minecraft/atlases/test.json representative_resources:assets/example/textures/direct.png|assets/minecraft/textures/block/stone.png boundary:atlas_textures_loaded_runtime_sprite_lookup_pending",
+                direct_png.len() + stone_png.len()
+            )
+        );
+        assert!(items.iter().any(|item| {
+            item.contains("category:atlas_registry_cache")
+                && item.contains("runtime_sources:AtlasManager.KNOWN_ATLASES|AtlasManager.atlasByTexture|AtlasManager.atlasById")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("category:sprite_lookup_api")
+                && item.contains("runtime_sources:AtlasManager.get(SpriteId)|AtlasManager.updateSpriteMaps(PendingStitchResults)|SpriteLoader.Preparations.regions")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("category:missing_sprite_fallback")
+                && item.contains("representative_resources:minecraft:missingno")
+                && item.contains("runtime_sources:MissingTextureAtlasSprite.getLocation()|TextureAtlas.upload(SpriteLoader.Preparations)|TextureAtlas.missingSprite()")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("category:texture_atlas_gpu_lifecycle")
+                && item.contains("runtime_sources:TextureAtlas.createTexture(int,int,int)|TextureAtlas.upload(SpriteLoader.Preparations)|AtlasManager.AtlasEntry.close()")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("category:downstream_model_particle_font_lookup_binding")
+                && item.contains("runtime_sources:Minecraft.<init>:FontManager(TextureManager,AtlasManager,PlayerSkinRenderCache)|Minecraft.<init>:ModelManager(BlockColors,AtlasManager,PlayerSkinRenderCache)|ParticleResources.reload:AtlasManager.PENDING_STITCH.get(AtlasIds.PARTICLES)|Minecraft.<init>:MapRenderer(AtlasManager,MapTextureManager)")
+        }));
+        assert!(items.iter().all(|item| {
+            item.contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
+        }));
+        assert!(items.iter().skip(1).all(|item| {
+            item.contains("blockers:atlas_manager_registry_not_implemented|sprite_lookup_runtime_not_implemented|gpu_atlas_lifecycle_not_implemented|upload_candidate_blockers_present")
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_manager_runtime_reports_default_surface() {
+        let collection = AtlasManagerRuntimeCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla atlas manager runtime candidates should load");
+
+        assert_eq!(collection.atlas_count(), 15);
+        assert_eq!(collection.candidates().len(), 5);
+        assert!(
+            collection.decoded_sprite_resource_count() > 0,
+            "vanilla atlas manager runtime surface should see decoded upload candidates"
+        );
+        assert!(
+            collection
+                .summary_fragment()
+                .contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
+        );
+        assert!(collection.candidates().iter().any(|candidate| {
+            candidate.category() == AtlasManagerRuntimeCategory::SpriteLookupApi
+                && candidate
+                    .runtime_sources()
+                    .contains(&"AtlasManager.get(SpriteId)")
+        }));
+        assert!(collection.candidates().iter().any(|candidate| {
+            candidate.category() == AtlasManagerRuntimeCategory::MissingSpriteFallback
+                && candidate
+                    .representative_resources()
+                    .contains(&"minecraft:missingno".to_owned())
+        }));
     }
 
     #[test]
