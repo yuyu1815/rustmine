@@ -30226,6 +30226,305 @@ impl ClientAtlasManagerStatus {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientAtlasRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientAtlasRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasRuntimeReport {
+    status: ClientAtlasRuntimeStatus,
+    atlas_count: usize,
+    source_count: usize,
+    sprite_candidate_count: usize,
+    available_resource_count: usize,
+    decoded_resource_count: usize,
+    byte_count: usize,
+    upload_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_atlases: Vec<String>,
+    representative_resources: Vec<String>,
+    upload_boundary: &'static str,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientAtlasRuntimeReport {
+    pub fn from_upload_candidates(
+        upload_candidates: AtlasTextureUploadCandidateCollection,
+    ) -> Self {
+        let runtime_candidates = build_atlas_manager_runtime_candidate_set(&upload_candidates);
+        let state = ClientAtlasManagerState::from_upload_candidates(upload_candidates);
+        Self::from_pipeline(&state, &runtime_candidates)
+    }
+
+    pub fn from_manager_state(state: &ClientAtlasManagerState) -> Self {
+        Self {
+            status: atlas_runtime_status_from_state(state),
+            atlas_count: state.atlas_count(),
+            source_count: state.source_count(),
+            sprite_candidate_count: state.sprite_candidate_count(),
+            available_resource_count: state.available_resource_count(),
+            decoded_resource_count: state.decoded_resource_count(),
+            byte_count: state.byte_count(),
+            upload_blocker_count: state.upload_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_atlases: representative_atlases_from_manager_state(state),
+            representative_resources: representative_resources_from_manager_state(state),
+            upload_boundary: state.upload_boundary(),
+            runtime_boundary: state.runtime_boundary(),
+            error: None,
+        }
+    }
+
+    pub fn from_runtime_candidates(candidates: &AtlasManagerRuntimeCandidateSet) -> Self {
+        Self {
+            status: if candidates.decoded_sprite_resource_count() > 0
+                || candidates.blocker_count() > 0
+            {
+                ClientAtlasRuntimeStatus::Blocked
+            } else {
+                ClientAtlasRuntimeStatus::Missing
+            },
+            atlas_count: candidates.atlas_count(),
+            source_count: 0,
+            sprite_candidate_count: 0,
+            available_resource_count: 0,
+            decoded_resource_count: candidates.decoded_sprite_resource_count(),
+            byte_count: candidates.byte_count(),
+            upload_blocker_count: candidates.blocker_count(),
+            runtime_blocker_count: candidates.runtime_blocker_count(),
+            representative_atlases: candidates.representative_atlases().to_vec(),
+            representative_resources: candidates.representative_resources().to_vec(),
+            upload_boundary: ATLAS_TEXTURE_UPLOAD_BOUNDARY,
+            runtime_boundary: ATLAS_MANAGER_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_pipeline(
+        state: &ClientAtlasManagerState,
+        candidates: &AtlasManagerRuntimeCandidateSet,
+    ) -> Self {
+        let representative_atlases = if candidates.representative_atlases().is_empty() {
+            representative_atlases_from_manager_state(state)
+        } else {
+            candidates.representative_atlases().to_vec()
+        };
+        let representative_resources = if candidates.representative_resources().is_empty() {
+            representative_resources_from_manager_state(state)
+        } else {
+            candidates.representative_resources().to_vec()
+        };
+
+        Self {
+            status: atlas_runtime_status_from_state(state),
+            atlas_count: state.atlas_count(),
+            source_count: state.source_count(),
+            sprite_candidate_count: state.sprite_candidate_count(),
+            available_resource_count: state.available_resource_count(),
+            decoded_resource_count: state.decoded_resource_count(),
+            byte_count: state.byte_count(),
+            upload_blocker_count: state.upload_blocker_count(),
+            runtime_blocker_count: candidates.runtime_blocker_count(),
+            representative_atlases,
+            representative_resources,
+            upload_boundary: state.upload_boundary(),
+            runtime_boundary: state.runtime_boundary(),
+            error: None,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientAtlasRuntimeStatus::Missing
+            } else {
+                ClientAtlasRuntimeStatus::Failed
+            },
+            atlas_count: 0,
+            source_count: 0,
+            sprite_candidate_count: 0,
+            available_resource_count: 0,
+            decoded_resource_count: 0,
+            byte_count: 0,
+            upload_blocker_count: 0,
+            runtime_blocker_count: 0,
+            representative_atlases: Vec::new(),
+            representative_resources: Vec::new(),
+            upload_boundary: ATLAS_TEXTURE_UPLOAD_BOUNDARY,
+            runtime_boundary: ATLAS_MANAGER_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientAtlasRuntimeStatus {
+        self.status
+    }
+
+    pub fn atlas_count(&self) -> usize {
+        self.atlas_count
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn sprite_candidate_count(&self) -> usize {
+        self.sprite_candidate_count
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn upload_blocker_count(&self) -> usize {
+        self.upload_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.upload_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_atlases(&self) -> &[String] {
+        &self.representative_atlases
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn upload_boundary(&self) -> &'static str {
+        self.upload_boundary
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_atlas_runtime:status:{} atlases:{} sources:{} sprite_candidates:{} available:{} decoded:{} bytes:{} upload_blocked:{} runtime_blocked:{} total_blocked:{} representative_atlases:{} representative_resources:{} error:{} upload_boundary:{} boundary:{}",
+            self.status().as_str(),
+            self.atlas_count(),
+            self.source_count(),
+            self.sprite_candidate_count(),
+            self.available_resource_count(),
+            self.decoded_resource_count(),
+            self.byte_count(),
+            self.upload_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            atlas_manager_runtime_list_fragment(self.representative_atlases()),
+            atlas_manager_runtime_list_fragment(self.representative_resources()),
+            self.error().unwrap_or("none"),
+            self.upload_boundary(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_atlases.iter().map(|atlas| {
+            format!(
+                "client_atlas_runtime_atlas:{atlas} upload_boundary:{} boundary:{}",
+                self.upload_boundary(),
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_atlas_runtime_resource:{resource} upload_boundary:{} boundary:{}",
+                self.upload_boundary(),
+                self.runtime_boundary()
+            )
+        }));
+        for blocker in ATLAS_MANAGER_RUNTIME_BLOCKERS {
+            items.push(format!(
+                "client_atlas_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_atlas_runtime_failure:error:{error} upload_boundary:{} boundary:{}",
+                self.upload_boundary(),
+                self.runtime_boundary()
+            ));
+        }
+        items
+    }
+}
+
+fn atlas_runtime_status_from_state(state: &ClientAtlasManagerState) -> ClientAtlasRuntimeStatus {
+    if state.total_blocker_count() == 0 && state.decoded_resource_count() > 0 {
+        ClientAtlasRuntimeStatus::Loaded
+    } else if state.decoded_resource_count() > 0 || state.upload_blocker_count() > 0 {
+        ClientAtlasRuntimeStatus::Blocked
+    } else {
+        ClientAtlasRuntimeStatus::Missing
+    }
+}
+
+fn representative_atlases_from_manager_state(state: &ClientAtlasManagerState) -> Vec<String> {
+    state
+        .atlases()
+        .iter()
+        .take(3)
+        .map(|atlas| atlas.resource().to_owned())
+        .collect()
+}
+
+fn representative_resources_from_manager_state(state: &ClientAtlasManagerState) -> Vec<String> {
+    let mut resources = state
+        .atlases()
+        .iter()
+        .flat_map(|atlas| atlas.decoded_sprite_resources().iter())
+        .take(3)
+        .map(|resource| resource.texture_resource().to_owned())
+        .collect::<Vec<_>>();
+    if resources.is_empty() {
+        resources.extend(
+            state
+                .blockers()
+                .iter()
+                .take(3)
+                .map(|blocker| blocker.texture_resource().to_owned()),
+        );
+    }
+    resources
+}
+
 const ATLAS_MANAGER_RUNTIME_BLOCKERS: &[&str] = &[
     "atlas_manager_registry_not_implemented",
     "sprite_lookup_runtime_not_implemented",
@@ -30280,6 +30579,29 @@ impl AtlasManagerRuntimeCandidateReloadListener {
         ))
     }
 
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientAtlasRuntimeReport {
+        match self.load_upload_candidates(stack) {
+            Ok(upload_candidates) => {
+                let runtime_candidates =
+                    build_atlas_manager_runtime_candidate_set(&upload_candidates);
+                let state = ClientAtlasManagerState::from_upload_candidates(upload_candidates);
+                ClientAtlasRuntimeReport::from_pipeline(&state, &runtime_candidates)
+            }
+            Err(error) => ClientAtlasRuntimeReport::from_failure(&error),
+        }
+    }
+
+    fn load_upload_candidates(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<AtlasTextureUploadCandidateCollection> {
+        if self.discover_manifests {
+            load_discovered_client_atlas_texture_upload_candidates(stack)
+        } else {
+            load_client_atlas_texture_upload_candidates(stack, &self.manifests)
+        }
+    }
+
     fn resolved_manifests(&self, stack: &ClientResourceStack) -> ResourceReloadResult<Vec<String>> {
         if self.discover_manifests {
             discover_atlas_manifest_resources(stack)
@@ -30320,7 +30642,13 @@ impl ResourceReloadListener for AtlasManagerRuntimeCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        let upload_candidates = self.load_upload_candidates(stack)?;
+        let runtime_candidates = build_atlas_manager_runtime_candidate_set(&upload_candidates);
+        let state = ClientAtlasManagerState::from_upload_candidates(upload_candidates);
+        let runtime_report = ClientAtlasRuntimeReport::from_pipeline(&state, &runtime_candidates);
+        let mut items = runtime_candidates.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -30354,6 +30682,18 @@ impl AtlasManagerRuntimeCandidateSet {
 
     pub fn candidates(&self) -> &[AtlasManagerRuntimeCandidate] {
         &self.candidates
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        ATLAS_MANAGER_RUNTIME_BLOCKERS.len()
+    }
+
+    pub fn representative_atlases(&self) -> &[String] {
+        &self.representative_atlases
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
     }
 
     pub fn summary_fragment(&self) -> String {
@@ -37975,7 +38315,7 @@ mod tests {
         let listener = &report.listener_reports()[0];
         let items = listener.reload.items();
         assert_eq!(listener.name, "atlas_manager_runtime_candidates");
-        assert_eq!(items.len(), 6);
+        assert!(items.len() >= 7);
         assert_eq!(
             items[0],
             format!(
@@ -38007,9 +38347,153 @@ mod tests {
         assert!(items.iter().all(|item| {
             item.contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
         }));
-        assert!(items.iter().skip(1).all(|item| {
+        assert!(items.iter().skip(1).take(5).all(|item| {
             item.contains("blockers:atlas_manager_registry_not_implemented|sprite_lookup_runtime_not_implemented|gpu_atlas_lifecycle_not_implemented|upload_candidate_blockers_present")
         }));
+    }
+
+    #[test]
+    fn atlas_runtime_report_successful_blocked_pipeline_counts_upload_runtime_blockers() {
+        let temp = TempPack::new();
+        let direct_png = encode_test_rgba_png(2, 2, &[0, 0, 0, 255].repeat(4));
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"example:direct"},
+                {"type":"minecraft:single","resource":"minecraft:item/bad"}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/direct.png", &direct_png);
+        temp.write_bytes("assets/minecraft/textures/item/bad.png", b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report =
+            AtlasManagerRuntimeCandidateReloadListener::new(["assets/minecraft/atlases/test.json"])
+                .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientAtlasRuntimeStatus::Blocked);
+        assert_eq!(report.atlas_count(), 1);
+        assert_eq!(report.source_count(), 2);
+        assert_eq!(report.sprite_candidate_count(), 2);
+        assert_eq!(report.available_resource_count(), 2);
+        assert_eq!(report.decoded_resource_count(), 1);
+        assert_eq!(report.byte_count(), direct_png.len());
+        assert_eq!(report.upload_blocker_count(), 1);
+        assert_eq!(report.runtime_blocker_count(), 3);
+        assert_eq!(report.total_blocker_count(), 4);
+        assert_eq!(
+            report.representative_atlases(),
+            ["assets/minecraft/atlases/test.json".to_owned()]
+        );
+        assert_eq!(
+            report.representative_resources(),
+            ["assets/example/textures/direct.png".to_owned()]
+        );
+        assert_eq!(report.error(), None);
+        assert!(report.summary_fragment().contains("status:blocked"));
+        assert!(report.summary_fragment().contains(
+            "upload_boundary:sprite_decode_complete_texture_upload_pending boundary:atlas_textures_loaded_runtime_sprite_lookup_pending"
+        ));
+    }
+
+    #[test]
+    fn atlas_runtime_report_missing_manifest_failure() {
+        let temp = TempPack::new();
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = AtlasManagerRuntimeCandidateReloadListener::new([
+            "assets/minecraft/atlases/missing.json",
+        ])
+        .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientAtlasRuntimeStatus::Missing);
+        assert_eq!(report.atlas_count(), 0);
+        assert_eq!(report.source_count(), 0);
+        assert_eq!(report.upload_blocker_count(), 0);
+        assert_eq!(report.runtime_blocker_count(), 0);
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("assets/minecraft/atlases/missing.json"))
+        );
+        assert!(report.summary_fragment().contains("status:missing"));
+        assert!(report.items().iter().any(|item| {
+            item.starts_with("client_atlas_runtime_failure:error:")
+                && item.contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
+        }));
+    }
+
+    #[test]
+    fn atlas_runtime_report_committed_vanilla_includes_boundary_items() {
+        let report = AtlasManagerRuntimeCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientAtlasRuntimeStatus::Blocked);
+        assert_eq!(report.atlas_count(), 15);
+        assert!(report.source_count() > 0);
+        assert!(report.sprite_candidate_count() > 0);
+        assert!(report.available_resource_count() > 0);
+        assert!(report.decoded_resource_count() > 0);
+        assert!(report.byte_count() > PNG_SIGNATURE.len());
+        assert_eq!(report.runtime_blocker_count(), 3);
+        assert_eq!(report.upload_boundary(), ATLAS_TEXTURE_UPLOAD_BOUNDARY);
+        assert_eq!(report.runtime_boundary(), ATLAS_MANAGER_RUNTIME_BOUNDARY);
+        assert!(!report.representative_atlases().is_empty());
+        assert!(
+            report
+                .representative_atlases()
+                .iter()
+                .all(|atlas| atlas.starts_with("assets/") && atlas.contains("/atlases/"))
+        );
+        assert!(report.items().iter().all(|item| {
+            item.contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
+        }));
+        assert!(report.items().iter().any(|item| {
+            item.starts_with("client_atlas_runtime_blocker:atlas_manager_registry_not_implemented")
+        }));
+    }
+
+    #[test]
+    fn atlas_runtime_report_upload_blocker_details_retained() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"minecraft:item/missing"},
+                {"type":"minecraft:single","resource":"minecraft:item/bad"}
+            ]}"#,
+        );
+        temp.write_bytes("assets/minecraft/textures/item/bad.png", b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let upload_candidates = load_client_atlas_texture_upload_candidates(
+            &stack,
+            &["assets/minecraft/atlases/test.json".to_owned()],
+        )
+        .expect("upload candidates should retain blockers");
+        let report = ClientAtlasRuntimeReport::from_upload_candidates(upload_candidates.clone());
+        let state = ClientAtlasManagerState::from_upload_candidates(upload_candidates);
+
+        assert_eq!(report.status(), ClientAtlasRuntimeStatus::Blocked);
+        assert_eq!(report.upload_blocker_count(), 2);
+        assert_eq!(
+            state
+                .blockers()
+                .iter()
+                .map(ClientAtlasManagerBlocker::item)
+                .collect::<Vec<_>>(),
+            [
+                "atlas_manager_blocker:assets/minecraft/atlases/test.json@test texture:assets/minecraft/textures/item/missing.png status:missing reason:missing upload_boundary:sprite_decode_complete_texture_upload_pending boundary:atlas_textures_loaded_runtime_sprite_lookup_pending".to_owned(),
+                "atlas_manager_blocker:assets/minecraft/atlases/test.json@test texture:assets/minecraft/textures/item/bad.png status:blocked reason:invalid_png_signature:bytes:9 upload_boundary:sprite_decode_complete_texture_upload_pending boundary:atlas_textures_loaded_runtime_sprite_lookup_pending".to_owned(),
+            ]
+        );
+        assert_eq!(
+            report.representative_resources(),
+            [
+                "assets/minecraft/textures/item/missing.png".to_owned(),
+                "assets/minecraft/textures/item/bad.png".to_owned()
+            ]
+        );
     }
 
     #[test]
