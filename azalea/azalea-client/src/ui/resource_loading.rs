@@ -3,7 +3,7 @@
 //! A future real resource loader can report task updates here without knowing
 //! how the startup screen lays out loading panels.
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use super::{
     account_flow::StoredLauncherAccount,
@@ -143,12 +143,46 @@ impl ResourceLoadingTracker {
         MojangLoadingOverlayViewModel {
             background_argb: background_argb(vanilla.background),
             logo_texture: Some(MojangLogoTexture::default()),
+            logo_texture_state: MojangLogoTextureState::default(),
             reload: self.reload_view(),
             manager_runtime: self.resource_reload_manager_view(),
             smoothing: LoadingOverlaySmoothing::vanilla(),
             fade: LoadingOverlayFadeTiming::vanilla(),
             vanilla,
         }
+    }
+
+    pub fn loading_overlay_view_with_logo_state(
+        &self,
+        overlay: &VanillaLoadingOverlay,
+        elapsed: Duration,
+        logo_texture_state: MojangLogoTextureState,
+    ) -> MojangLoadingOverlayViewModel {
+        let mut view = self.loading_overlay_view(overlay, elapsed);
+        view.apply_logo_texture_state(logo_texture_state);
+        view
+    }
+
+    pub fn loading_overlay_view_with_resource_stack(
+        &self,
+        overlay: &VanillaLoadingOverlay,
+        elapsed: Duration,
+        stack: &ClientResourceStack,
+    ) -> MojangLoadingOverlayViewModel {
+        self.loading_overlay_view_with_logo_state(
+            overlay,
+            elapsed,
+            MojangLogoTextureState::resolve(stack),
+        )
+    }
+
+    pub fn loading_overlay_view_with_resource_repository(
+        &self,
+        overlay: &VanillaLoadingOverlay,
+        elapsed: Duration,
+        repository: &ClientResourceRepository,
+    ) -> MojangLoadingOverlayViewModel {
+        self.loading_overlay_view_with_resource_stack(overlay, elapsed, &repository.stack())
     }
 
     pub fn apply_update(&mut self, update: ResourceLoadingUpdate) {
@@ -312,6 +346,7 @@ pub struct MojangLoadingOverlayViewModel {
     pub vanilla: VanillaLoadingOverlayView,
     pub background_argb: u32,
     pub logo_texture: Option<MojangLogoTexture>,
+    pub logo_texture_state: MojangLogoTextureState,
     pub reload: ResourceLoadingReloadView,
     pub manager_runtime: Option<ResourceLoadingManagerRuntimeView>,
     pub smoothing: LoadingOverlaySmoothing,
@@ -325,6 +360,11 @@ impl MojangLoadingOverlayViewModel {
 
     pub fn draw_list(&self, gui_width: f32, gui_height: f32) -> MojangLoadingOverlayDrawList {
         MojangLoadingOverlayDrawList::from_view_model(self, gui_width, gui_height)
+    }
+
+    pub fn apply_logo_texture_state(&mut self, logo_texture_state: MojangLogoTextureState) {
+        self.logo_texture = logo_texture_state.texture();
+        self.logo_texture_state = logo_texture_state;
     }
 }
 
@@ -714,6 +754,78 @@ impl Default for MojangLogoTexture {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MojangLogoTextureState {
+    pub id: &'static str,
+    pub resource: &'static str,
+    pub status: MojangLogoTextureResolutionStatus,
+    pub resolved_pack_id: Option<String>,
+    pub resolved_path: Option<PathBuf>,
+}
+
+impl MojangLogoTextureState {
+    pub fn default_texture() -> Self {
+        Self {
+            id: MOJANG_STUDIOS_LOGO_ID,
+            resource: MOJANG_STUDIOS_LOGO_RESOURCE,
+            status: MojangLogoTextureResolutionStatus::DefaultTexture,
+            resolved_pack_id: None,
+            resolved_path: None,
+        }
+    }
+
+    pub fn resolve(stack: &ClientResourceStack) -> Self {
+        match stack.find_resource(MOJANG_STUDIOS_LOGO_RESOURCE) {
+            Some(location) => Self {
+                id: MOJANG_STUDIOS_LOGO_ID,
+                resource: MOJANG_STUDIOS_LOGO_RESOURCE,
+                status: MojangLogoTextureResolutionStatus::Resolved,
+                resolved_pack_id: Some(location.pack_id),
+                resolved_path: Some(location.path),
+            },
+            None => Self {
+                id: MOJANG_STUDIOS_LOGO_ID,
+                resource: MOJANG_STUDIOS_LOGO_RESOURCE,
+                status: MojangLogoTextureResolutionStatus::MissingFallback,
+                resolved_pack_id: None,
+                resolved_path: None,
+            },
+        }
+    }
+
+    pub fn texture(&self) -> Option<MojangLogoTexture> {
+        match self.status {
+            MojangLogoTextureResolutionStatus::DefaultTexture
+            | MojangLogoTextureResolutionStatus::Resolved => Some(MojangLogoTexture {
+                id: self.id,
+                resource: self.resource,
+            }),
+            MojangLogoTextureResolutionStatus::MissingFallback => None,
+        }
+    }
+
+    pub fn is_fallback(&self) -> bool {
+        self.status == MojangLogoTextureResolutionStatus::MissingFallback
+    }
+}
+
+impl Default for MojangLogoTextureState {
+    fn default() -> Self {
+        Self::default_texture()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MojangLogoTextureResolutionStatus {
+    DefaultTexture,
+    Resolved,
+    MissingFallback,
+}
+
+pub fn resolve_mojang_logo_texture_state(stack: &ClientResourceStack) -> MojangLogoTextureState {
+    MojangLogoTextureState::resolve(stack)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResourceLoadingReloadView {
     pub label: String,
     pub phase: ResourceLoadingReloadPhase,
@@ -840,7 +952,11 @@ fn background_argb(background: VanillaLoadingBackground) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
+    use std::{
+        fmt, fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
     use crate::{
@@ -856,6 +972,27 @@ mod tests {
             StartupQuickPlayHandoffView, StartupTitleMenuView, loading_task_names,
         },
     };
+
+    fn unique_test_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()));
+        fs::create_dir_all(&path).expect("test temp directory should be created");
+        path
+    }
+
+    fn write_logo_resource(pack_root: &Path) {
+        let resource_path = pack_root.join(MOJANG_STUDIOS_LOGO_RESOURCE);
+        fs::create_dir_all(
+            resource_path
+                .parent()
+                .expect("logo resource should have a parent directory"),
+        )
+        .expect("logo resource parent should be created");
+        fs::write(resource_path, b"fake png bytes").expect("logo resource should be written");
+    }
 
     #[test]
     fn tracker_applies_progress_finishing_presentation_advance_and_complete() {
@@ -1408,6 +1545,10 @@ mod tests {
                 resource: "assets/minecraft/textures/gui/title/mojangstudios.png",
             })
         );
+        assert_eq!(
+            red_view.logo_texture_state,
+            MojangLogoTextureState::default()
+        );
         assert_eq!(red_view.vanilla.progress_bar.center_x_fraction, 0.5);
         assert_eq!(red_view.vanilla.progress_bar.center_y_fraction, 0.8325);
         assert_eq!(red_view.vanilla.progress_bar.outer_height, 10.0);
@@ -1422,6 +1563,85 @@ mod tests {
         );
         assert_eq!(red_view.fade.fade_in, Duration::from_millis(500));
         assert_eq!(red_view.fade.fade_out, Duration::from_millis(1_000));
+    }
+
+    #[test]
+    fn mojang_logo_texture_state_resolves_vanilla_logo_from_client_resource_stack() {
+        let state = resolve_mojang_logo_texture_state(&ClientResourceStack::vanilla());
+
+        assert_eq!(state.id, MOJANG_STUDIOS_LOGO_ID);
+        assert_eq!(state.resource, MOJANG_STUDIOS_LOGO_RESOURCE);
+        assert_eq!(state.status, MojangLogoTextureResolutionStatus::Resolved);
+        assert_eq!(state.resolved_pack_id.as_deref(), Some("vanilla"));
+        assert!(
+            state
+                .resolved_path
+                .as_ref()
+                .is_some_and(|path| path.ends_with(MOJANG_STUDIOS_LOGO_RESOURCE))
+        );
+        assert_eq!(state.texture(), Some(MojangLogoTexture::default()));
+    }
+
+    #[test]
+    fn mojang_logo_texture_state_reports_missing_logo_as_fallback() {
+        let state = resolve_mojang_logo_texture_state(&ClientResourceStack::new(Vec::new()));
+
+        assert_eq!(state.id, MOJANG_STUDIOS_LOGO_ID);
+        assert_eq!(state.resource, MOJANG_STUDIOS_LOGO_RESOURCE);
+        assert_eq!(
+            state.status,
+            MojangLogoTextureResolutionStatus::MissingFallback
+        );
+        assert_eq!(state.resolved_pack_id, None);
+        assert_eq!(state.resolved_path, None);
+        assert_eq!(state.texture(), None);
+        assert!(state.is_fallback());
+    }
+
+    #[test]
+    fn mojang_logo_texture_state_reports_selected_overlay_pack_priority() {
+        let root = unique_test_dir("mojang-logo-overlay");
+        let base = root.join("base");
+        let overlay = root.join("overlay");
+        write_logo_resource(&base);
+        write_logo_resource(&overlay);
+
+        let state = resolve_mojang_logo_texture_state(&ClientResourceStack::new(vec![
+            ClientResourcePack::new("base-pack", &base),
+            ClientResourcePack::new("overlay-pack", &overlay),
+        ]));
+
+        assert_eq!(state.status, MojangLogoTextureResolutionStatus::Resolved);
+        assert_eq!(state.resolved_pack_id.as_deref(), Some("overlay-pack"));
+        assert_eq!(
+            state.resolved_path,
+            Some(overlay.join(MOJANG_STUDIOS_LOGO_RESOURCE))
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn resource_loading_overlay_view_with_missing_logo_state_emits_fallback_logo() {
+        let view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view_with_resource_stack(
+                &VanillaLoadingOverlay::new(),
+                Duration::ZERO,
+                &ClientResourceStack::new(Vec::new()),
+            );
+
+        assert_eq!(view.logo_texture, None);
+        assert_eq!(
+            view.logo_texture_state.status,
+            MojangLogoTextureResolutionStatus::MissingFallback
+        );
+
+        let draw_list = view.draw_list(900.0, 520.0);
+
+        assert!(matches!(
+            draw_list.commands[1],
+            MojangLoadingOverlayDrawCommand::FallbackLogo { .. }
+        ));
     }
 
     #[test]
