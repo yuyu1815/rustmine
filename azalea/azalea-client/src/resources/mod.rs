@@ -2168,7 +2168,9 @@ impl ResourceReloadManager {
             .with_listener(HeadlessShaderManagerReloadListener::default());
 
         if has_sound_events {
-            manager = manager.with_listener(SoundEventsReloadListener::default());
+            manager = manager
+                .with_listener(SoundEventsReloadListener::default())
+                .with_listener(SoundManagerRuntimeCandidateReloadListener::default());
         }
 
         manager
@@ -7026,6 +7028,271 @@ impl ResourceReloadListener for SoundEventsReloadListener {
         Ok(ResourceReloadTaskReport::new([sound_events
             .report()
             .summary_fragment()]))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoundManagerRuntimeCandidateReloadListener {
+    resource: String,
+}
+
+impl SoundManagerRuntimeCandidateReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+        }
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<SoundManagerRuntimeCandidateReport> {
+        let sound_events = load_client_sound_events(stack, &self.resource)?;
+        Ok(SoundManagerRuntimeCandidateReport::from_sound_events(
+            &sound_events,
+        ))
+    }
+}
+
+impl Default for SoundManagerRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(SOUND_EVENTS_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for SoundManagerRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "sound_manager_runtime_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = discover_sound_event_resources(stack)?;
+        Ok(ResourceReloadTaskReport::new(resources))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let report = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(report.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoundManagerRuntimeCandidateReport {
+    candidates: Vec<SoundManagerRuntimeCandidate>,
+}
+
+impl SoundManagerRuntimeCandidateReport {
+    fn from_sound_events(sound_events: &ClientSoundEvents) -> Self {
+        let sound_report = sound_events.report();
+        let stream_file_sound_count = sound_events
+            .events()
+            .values()
+            .flat_map(ClientSoundEvent::sounds)
+            .filter(|entry| entry.kind() == ClientSoundEntryKind::File && entry.stream())
+            .count();
+        let preload_blocker_count = sound_report
+            .preload_buffer_candidates()
+            .iter()
+            .map(|candidate| candidate.missing_blockers().len())
+            .sum::<usize>();
+        let event_registry_dependencies = vec![
+            format!("sounds_json:{}", sound_report.sounds_json_resource_count()),
+            format!("events:{}", sound_report.event_count()),
+            format!("entries:{}", sound_report.sound_entry_count()),
+            format!("file_sounds:{}", sound_report.file_sound_count()),
+            format!("event_refs:{}", sound_report.event_reference_count()),
+            format!("missing_files:{}", sound_report.missing_file_sound_count()),
+        ];
+        let preload_dependencies = vec![
+            format!(
+                "preload_entries:{}",
+                sound_report.preload_file_sound_count()
+            ),
+            format!(
+                "preload_buffer_candidates:{}",
+                sound_report.preload_buffer_candidates().len()
+            ),
+            format!("preload_blockers:{preload_blocker_count}"),
+        ];
+        let streaming_dependencies = vec![
+            format!("streaming_file_sounds:{stream_file_sound_count}"),
+            format!(
+                "available_file_resources:{}",
+                sound_report.available_file_resources().len()
+            ),
+        ];
+
+        Self {
+            candidates: vec![
+                SoundManagerRuntimeCandidate::blocked(
+                    "sound_engine_device",
+                    "audio_device_engine_initialization",
+                    [
+                        "Minecraft creates SoundManager(options)",
+                        "SoundManager constructs SoundEngine",
+                        "SoundEngine owns Library/Listener/DeviceTracker/ChannelAccess",
+                    ],
+                    [
+                        "selected sound device",
+                        "directional audio option",
+                        "audio backend library",
+                    ],
+                ),
+                SoundManagerRuntimeCandidate::blocked(
+                    "sound_registry",
+                    "sound_registry_to_weighed_events",
+                    [
+                        "SoundManager prepares sounds.json registrations",
+                        "Preparations.apply replaces registry and sound cache",
+                        "WeighedSoundEvents resolves weighted file/event entries",
+                    ],
+                    event_registry_dependencies,
+                ),
+                SoundManagerRuntimeCandidate::blocked(
+                    "preload_buffers",
+                    "preload_buffer_upload_queue",
+                    [
+                        "WeighedSoundEvents.preloadIfRequired requests SoundEngine preload",
+                        "SoundEngine.loadLibrary drains preloadQueue through SoundBufferLibrary",
+                        "SoundBufferLibrary provides static buffers from loaded sound resources",
+                    ],
+                    preload_dependencies,
+                ),
+                SoundManagerRuntimeCandidate::blocked(
+                    "streaming_sources",
+                    "streaming_source_runtime",
+                    [
+                        "Sound.shouldStream chooses streaming channel pool",
+                        "SoundBufferLibrary opens streaming audio for looped/non-looped sounds",
+                        "SoundEngine attaches buffer streams to channels",
+                    ],
+                    streaming_dependencies,
+                ),
+                SoundManagerRuntimeCandidate::blocked(
+                    "playback_tick",
+                    "playback_channel_tick_update",
+                    [
+                        "SoundManager delegates play/delayed/tick/update/stop calls",
+                        "SoundEngine tracks instance/channel/source/tick state",
+                        "SoundEngine updates listener position and channel lifecycle",
+                    ],
+                    [
+                        "client sound instances",
+                        "camera/listener updates",
+                        "channel handles",
+                        "sound source gain",
+                    ],
+                ),
+            ],
+        }
+    }
+
+    pub fn candidates(&self) -> &[SoundManagerRuntimeCandidate] {
+        &self.candidates
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        let blocker_count = self
+            .candidates
+            .iter()
+            .map(|candidate| candidate.blockers.len())
+            .sum::<usize>();
+        let categories = self
+            .candidates
+            .iter()
+            .map(|candidate| candidate.category.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "sound_manager_runtime_candidates:{} blockers:{} boundary:sound_events_loaded_audio_runtime_pending categories:{}",
+            self.candidates.len(),
+            blocker_count,
+            categories
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(SoundManagerRuntimeCandidate::summary_fragment),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoundManagerRuntimeCandidate {
+    id: String,
+    category: String,
+    runtime_sources: Vec<String>,
+    dependencies: Vec<String>,
+    blockers: Vec<String>,
+    boundary_marker: String,
+}
+
+impl SoundManagerRuntimeCandidate {
+    fn blocked(
+        id: impl Into<String>,
+        category: impl Into<String>,
+        runtime_sources: impl IntoIterator<Item = impl Into<String>>,
+        dependencies: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            category: category.into(),
+            runtime_sources: runtime_sources.into_iter().map(Into::into).collect(),
+            dependencies: dependencies.into_iter().map(Into::into).collect(),
+            blockers: vec![
+                "audio runtime not implemented".to_owned(),
+                "audio device/engine/playback intentionally out of CLIENT_RESOURCES reload scope"
+                    .to_owned(),
+            ],
+            boundary_marker: "sound_events_loaded_audio_runtime_pending".to_owned(),
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> &[String] {
+        &self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary_marker(&self) -> &str {
+        &self.boundary_marker
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "candidate:{} category:{} runtime_sources:{} dependencies:{} blockers:{} boundary:{}",
+            self.id,
+            self.category,
+            self.runtime_sources.join("|"),
+            self.dependencies.join("|"),
+            self.blockers.join("|"),
+            self.boundary_marker
+        )
     }
 }
 
@@ -26321,6 +26588,93 @@ mod tests {
     }
 
     #[test]
+    fn sound_manager_runtime_reports_pending_runtime_boundaries_from_sound_events() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu","preload":true},{"name":"music.stream","stream":true},{"name":"music.parent","type":"event"}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+        temp.write_bytes("assets/minecraft/sounds/music.stream.ogg", b"stream");
+
+        let report = SoundManagerRuntimeCandidateReloadListener::default()
+            .load(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("sound manager runtime candidates should report from sound events");
+
+        assert_eq!(report.candidates().len(), 5);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("boundary:sound_events_loaded_audio_runtime_pending")
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("audio_device_engine_initialization")
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("candidate:sound_registry")
+                    && item.contains("events:1")
+                    && item.contains("entries:3")
+                    && item.contains("event_refs:1"))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("candidate:preload_buffers")
+                    && item.contains("preload_buffer_candidates:1")
+                    && item.contains("preload_blockers:0"))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("candidate:streaming_sources")
+                    && item.contains("streaming_file_sounds:1"))
+        );
+        assert!(report.candidates().iter().all(|candidate| {
+            candidate
+                .blockers()
+                .iter()
+                .any(|blocker| blocker == "audio runtime not implemented")
+        }));
+    }
+
+    #[test]
+    fn sound_manager_runtime_default_client_resources_order_follows_sound_events() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"ui.click":{"sounds":["ui.click"]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/ui.click.ogg", b"click");
+
+        let manager =
+            ResourceReloadManager::with_default_client_resources(ClientResourceStack::new(vec![
+                ClientResourcePack::new("test", temp.path()),
+            ]));
+        let plan = manager.plan();
+        let listeners = plan.listeners();
+        let sound_events_index = listeners
+            .iter()
+            .position(|listener| listener == "sound_events")
+            .expect("default manager should include sound events when sounds.json exists");
+        let runtime_index = listeners
+            .iter()
+            .position(|listener| listener == "sound_manager_runtime_candidates")
+            .expect("default manager should include sound manager runtime candidates");
+
+        assert_eq!(runtime_index, sound_events_index + 1);
+    }
+
+    #[test]
     fn committed_vanilla_default_client_resources_still_succeeds() {
         let report =
             ResourceReloadManager::with_default_client_resources(ClientResourceStack::vanilla())
@@ -26333,6 +26687,13 @@ mod tests {
                 .iter()
                 .any(|listener| listener.name == "sound_events"),
             "the committed vanilla fixture currently has no sounds.json, so the optional sound listener should not be installed"
+        );
+        assert!(
+            !report
+                .listener_reports()
+                .iter()
+                .any(|listener| listener.name == "sound_manager_runtime_candidates"),
+            "the committed vanilla fixture currently has no sounds.json, so the optional sound runtime candidate listener should not be installed"
         );
     }
 
