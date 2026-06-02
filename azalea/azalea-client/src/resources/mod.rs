@@ -1335,6 +1335,10 @@ impl ClientResourceRepository {
         self.rebuild_stack().stack
     }
 
+    pub fn state(&self) -> ClientPackRepositoryState {
+        ClientPackRepositoryState::from_repository(self)
+    }
+
     pub fn default_client_resource_reload_manager(&self) -> ResourceReloadManager {
         self.rebuild_stack()
             .into_default_client_resource_reload_manager()
@@ -1406,6 +1410,75 @@ impl ClientResourceRepository {
 impl Default for ClientResourceRepository {
     fn default() -> Self {
         Self::committed_vanilla()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientPackRepositoryState {
+    default_pack_id: String,
+    available_pack_ids: Vec<String>,
+    selected_pack_ids: Vec<String>,
+    stack_pack_ids: Vec<String>,
+    missing_selected_pack_ids: Vec<String>,
+    known_pack_ids: Vec<KnownPackId>,
+    server_resource_packs_included: bool,
+}
+
+impl ClientPackRepositoryState {
+    fn from_repository(repository: &ClientResourceRepository) -> Self {
+        let report = repository.rebuild_stack();
+        let stack_pack_ids = report
+            .stack()
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+        let mut available_pack_ids = vec![repository.vanilla_pack().id().to_owned()];
+        available_pack_ids.extend(
+            repository
+                .available_packs
+                .keys()
+                .filter(|id| id.as_str() != repository.vanilla_pack().id())
+                .cloned(),
+        );
+
+        Self {
+            default_pack_id: repository.vanilla_pack().id().to_owned(),
+            available_pack_ids,
+            selected_pack_ids: stack_pack_ids.clone(),
+            stack_pack_ids,
+            missing_selected_pack_ids: report.missing_selected_pack_ids().to_vec(),
+            known_pack_ids: report.known_pack_ids().to_vec(),
+            server_resource_packs_included: false,
+        }
+    }
+
+    pub fn default_pack_id(&self) -> &str {
+        &self.default_pack_id
+    }
+
+    pub fn available_pack_ids(&self) -> &[String] {
+        &self.available_pack_ids
+    }
+
+    pub fn selected_pack_ids(&self) -> &[String] {
+        &self.selected_pack_ids
+    }
+
+    pub fn stack_pack_ids(&self) -> &[String] {
+        &self.stack_pack_ids
+    }
+
+    pub fn missing_selected_pack_ids(&self) -> &[String] {
+        &self.missing_selected_pack_ids
+    }
+
+    pub fn known_pack_ids(&self) -> &[KnownPackId] {
+        &self.known_pack_ids
+    }
+
+    pub fn server_resource_packs_included(&self) -> bool {
+        self.server_resource_packs_included
     }
 }
 
@@ -21675,6 +21748,20 @@ mod tests {
     }
 
     #[test]
+    fn pack_repository_state_records_vanilla_as_known_and_selected_default_pack() {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let state = repository.state();
+
+        assert_eq!(state.default_pack_id(), VANILLA_PACK_ID);
+        assert_eq!(state.available_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert_eq!(state.selected_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert_eq!(state.stack_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert_eq!(state.known_pack_ids(), [KnownPackId::vanilla()]);
+        assert!(state.missing_selected_pack_ids().is_empty());
+        assert!(!state.server_resource_packs_included());
+    }
+
+    #[test]
     fn client_resource_repository_preserves_selected_pack_order_above_vanilla() {
         let low = TempPack::new();
         let high = TempPack::new();
@@ -21704,6 +21791,51 @@ mod tests {
         assert_eq!(
             report.selected_pack_ids(),
             ["high".to_owned(), "low".to_owned()]
+        );
+    }
+
+    #[test]
+    fn pack_repository_state_uses_deterministic_selected_stack_order() {
+        let low = TempPack::new();
+        let high = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "low",
+                low.path(),
+            )))
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new("high", high.path()))
+                    .with_known_pack_id(KnownPackId::new("example", "high", "1")),
+            )
+            .with_selected_pack_ids(["high", "low", "high", "missing"]);
+
+        let state = repository.state();
+
+        assert_eq!(
+            state.available_pack_ids(),
+            [
+                VANILLA_PACK_ID.to_owned(),
+                "high".to_owned(),
+                "low".to_owned()
+            ]
+        );
+        assert_eq!(
+            state.selected_pack_ids(),
+            [
+                VANILLA_PACK_ID.to_owned(),
+                "high".to_owned(),
+                "low".to_owned()
+            ]
+        );
+        assert_eq!(state.selected_pack_ids(), state.stack_pack_ids());
+        assert_eq!(state.missing_selected_pack_ids(), ["missing".to_owned()]);
+        assert_eq!(
+            state.known_pack_ids(),
+            [
+                KnownPackId::vanilla(),
+                KnownPackId::new("example", "high", "1")
+            ]
         );
     }
 
@@ -21906,6 +22038,49 @@ mod tests {
                 .map(ClientResourcePack::id)
                 .collect::<Vec<_>>(),
             [VANILLA_PACK_ID, "custom"]
+        );
+    }
+
+    #[test]
+    fn pack_repository_state_does_not_mix_server_pack_apply_state() {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let mut server_model = ServerResourcePackApplyModel::new(repository.stack());
+        let server = TempPack::new();
+        let id = resource_pack_id(2401);
+
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+
+        let pack = server_model.receive(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack",
+            "",
+            true,
+            None,
+        ));
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+        pack.apply_opened();
+
+        let state = repository.state();
+
+        assert_eq!(state.selected_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert_eq!(state.stack_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert!(!state.server_resource_packs_included());
+        assert_eq!(
+            server_model
+                .resource_stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, &format!("server:{id}")]
         );
     }
 
