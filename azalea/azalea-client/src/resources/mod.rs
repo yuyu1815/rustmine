@@ -8789,6 +8789,184 @@ impl ClientEntityRendererDispatcherState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientEntityRendererDispatcherRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientEntityRendererDispatcherRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientEntityRendererDispatcherRuntimeReport {
+    status: ClientEntityRendererDispatcherRuntimeStatus,
+    family_count: usize,
+    representative_entity_count: usize,
+    model_manager_dependency_count: usize,
+    item_model_resolver_dependency_count: usize,
+    equipment_asset_manager_dependency_count: usize,
+    font_dependency_count: usize,
+    texture_manager_dependency_count: usize,
+    model_layer_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_family_ids: Vec<String>,
+    representative_entities: Vec<String>,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientEntityRendererDispatcherRuntimeReport {
+    pub fn from_state(state: &ClientEntityRendererDispatcherState) -> Self {
+        Self {
+            status: entity_renderer_dispatcher_runtime_status_from_state(state),
+            family_count: state.family_count(),
+            representative_entity_count: state.representative_entity_count(),
+            model_manager_dependency_count: state.model_manager_dependency_count(),
+            item_model_resolver_dependency_count: state.item_model_resolver_dependency_count(),
+            equipment_asset_manager_dependency_count: state
+                .equipment_asset_manager_dependency_count(),
+            font_dependency_count: state.font_dependency_count(),
+            texture_manager_dependency_count: state.texture_manager_dependency_count(),
+            model_layer_count: state.model_layer_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_family_ids: state
+                .candidates()
+                .iter()
+                .take(5)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            representative_entities: state
+                .candidates()
+                .iter()
+                .flat_map(|candidate| candidate.representative_entities().iter().cloned())
+                .take(8)
+                .collect(),
+            blockers: entity_renderer_dispatcher_runtime_representative_blockers(state),
+            runtime_boundary: state.runtime_boundary(),
+        }
+    }
+
+    pub fn status(&self) -> ClientEntityRendererDispatcherRuntimeStatus {
+        self.status
+    }
+
+    pub fn family_count(&self) -> usize {
+        self.family_count
+    }
+
+    pub fn representative_entity_count(&self) -> usize {
+        self.representative_entity_count
+    }
+
+    pub fn model_manager_dependency_count(&self) -> usize {
+        self.model_manager_dependency_count
+    }
+
+    pub fn item_model_resolver_dependency_count(&self) -> usize {
+        self.item_model_resolver_dependency_count
+    }
+
+    pub fn equipment_asset_manager_dependency_count(&self) -> usize {
+        self.equipment_asset_manager_dependency_count
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.font_dependency_count
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.texture_manager_dependency_count
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.model_layer_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_family_ids(&self) -> &[String] {
+        &self.representative_family_ids
+    }
+
+    pub fn representative_entities(&self) -> &[String] {
+        &self.representative_entities
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_entity_renderer_dispatcher_runtime:status:{} families:{} representative_entities:{} deps:model_manager:{} item_model_resolver:{} equipment_asset_manager:{} font:{} texture_manager:{} model_layers:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_families:{} representative_entity_samples:{} blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.family_count(),
+            self.representative_entity_count(),
+            self.model_manager_dependency_count(),
+            self.item_model_resolver_dependency_count(),
+            self.equipment_asset_manager_dependency_count(),
+            self.font_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.model_layer_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            renderer_dispatcher_runtime_list_fragment(self.representative_family_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_entities()),
+            renderer_dispatcher_runtime_list_fragment(self.blockers()),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_family_ids.iter().map(|id| {
+            format!(
+                "client_entity_renderer_dispatcher_runtime_family:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_entities.iter().map(|entity| {
+            format!(
+                "client_entity_renderer_dispatcher_runtime_entity:{entity} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_entity_renderer_dispatcher_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientEntityRendererDispatcherLoadStatus {
     Loaded,
     Blocked,
@@ -9345,6 +9523,198 @@ impl ClientBlockEntityRendererDispatcherState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientBlockEntityRendererDispatcherRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientBlockEntityRendererDispatcherRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientBlockEntityRendererDispatcherRuntimeReport {
+    status: ClientBlockEntityRendererDispatcherRuntimeStatus,
+    family_count: usize,
+    representative_block_entity_count: usize,
+    block_model_resolver_dependency_count: usize,
+    item_model_resolver_dependency_count: usize,
+    entity_render_dispatcher_dependency_count: usize,
+    entity_model_set_dependency_count: usize,
+    font_dependency_count: usize,
+    texture_manager_dependency_count: usize,
+    player_skin_cache_dependency_count: usize,
+    model_layer_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_family_ids: Vec<String>,
+    representative_block_entities: Vec<String>,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientBlockEntityRendererDispatcherRuntimeReport {
+    pub fn from_state(state: &ClientBlockEntityRendererDispatcherState) -> Self {
+        Self {
+            status: block_entity_renderer_dispatcher_runtime_status_from_state(state),
+            family_count: state.family_count(),
+            representative_block_entity_count: state.representative_block_entity_count(),
+            block_model_resolver_dependency_count: state.block_model_resolver_dependency_count(),
+            item_model_resolver_dependency_count: state.item_model_resolver_dependency_count(),
+            entity_render_dispatcher_dependency_count: state
+                .entity_render_dispatcher_dependency_count(),
+            entity_model_set_dependency_count: state.entity_model_set_dependency_count(),
+            font_dependency_count: state.font_dependency_count(),
+            texture_manager_dependency_count: state.texture_manager_dependency_count(),
+            player_skin_cache_dependency_count: state.player_skin_cache_dependency_count(),
+            model_layer_count: state.model_layer_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_family_ids: state
+                .candidates()
+                .iter()
+                .take(5)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            representative_block_entities: state
+                .candidates()
+                .iter()
+                .flat_map(|candidate| candidate.representative_block_entities().iter().cloned())
+                .take(8)
+                .collect(),
+            blockers: block_entity_renderer_dispatcher_runtime_representative_blockers(state),
+            runtime_boundary: state.runtime_boundary(),
+        }
+    }
+
+    pub fn status(&self) -> ClientBlockEntityRendererDispatcherRuntimeStatus {
+        self.status
+    }
+
+    pub fn family_count(&self) -> usize {
+        self.family_count
+    }
+
+    pub fn representative_block_entity_count(&self) -> usize {
+        self.representative_block_entity_count
+    }
+
+    pub fn block_model_resolver_dependency_count(&self) -> usize {
+        self.block_model_resolver_dependency_count
+    }
+
+    pub fn item_model_resolver_dependency_count(&self) -> usize {
+        self.item_model_resolver_dependency_count
+    }
+
+    pub fn entity_render_dispatcher_dependency_count(&self) -> usize {
+        self.entity_render_dispatcher_dependency_count
+    }
+
+    pub fn entity_model_set_dependency_count(&self) -> usize {
+        self.entity_model_set_dependency_count
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.font_dependency_count
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.texture_manager_dependency_count
+    }
+
+    pub fn player_skin_cache_dependency_count(&self) -> usize {
+        self.player_skin_cache_dependency_count
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.model_layer_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_family_ids(&self) -> &[String] {
+        &self.representative_family_ids
+    }
+
+    pub fn representative_block_entities(&self) -> &[String] {
+        &self.representative_block_entities
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_block_entity_renderer_dispatcher_runtime:status:{} families:{} representative_block_entities:{} deps:block_model_resolver:{} item_model_resolver:{} entity_render_dispatcher:{} entity_model_set:{} font:{} texture_manager:{} player_skin_cache:{} model_layers:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_families:{} representative_block_entity_samples:{} blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.family_count(),
+            self.representative_block_entity_count(),
+            self.block_model_resolver_dependency_count(),
+            self.item_model_resolver_dependency_count(),
+            self.entity_render_dispatcher_dependency_count(),
+            self.entity_model_set_dependency_count(),
+            self.font_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.player_skin_cache_dependency_count(),
+            self.model_layer_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            renderer_dispatcher_runtime_list_fragment(self.representative_family_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_block_entities()),
+            renderer_dispatcher_runtime_list_fragment(self.blockers()),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_family_ids.iter().map(|id| {
+            format!(
+                "client_block_entity_renderer_dispatcher_runtime_family:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_block_entities.iter().map(|block_entity| {
+            format!(
+                "client_block_entity_renderer_dispatcher_runtime_block_entity:{block_entity} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_block_entity_renderer_dispatcher_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientBlockEntityRendererDispatcherLoadStatus {
     Loaded,
     Blocked,
@@ -9456,6 +9826,68 @@ impl ClientBlockEntityRendererDispatcherCandidateState {
             candidate_blockers,
             self.runtime_boundary
         )
+    }
+}
+
+fn entity_renderer_dispatcher_runtime_status_from_state(
+    state: &ClientEntityRendererDispatcherState,
+) -> ClientEntityRendererDispatcherRuntimeStatus {
+    match state.status() {
+        ClientEntityRendererDispatcherLoadStatus::Loaded => {
+            ClientEntityRendererDispatcherRuntimeStatus::Loaded
+        }
+        ClientEntityRendererDispatcherLoadStatus::Blocked => {
+            ClientEntityRendererDispatcherRuntimeStatus::Blocked
+        }
+        ClientEntityRendererDispatcherLoadStatus::Missing => {
+            ClientEntityRendererDispatcherRuntimeStatus::Missing
+        }
+    }
+}
+
+fn block_entity_renderer_dispatcher_runtime_status_from_state(
+    state: &ClientBlockEntityRendererDispatcherState,
+) -> ClientBlockEntityRendererDispatcherRuntimeStatus {
+    match state.status() {
+        ClientBlockEntityRendererDispatcherLoadStatus::Loaded => {
+            ClientBlockEntityRendererDispatcherRuntimeStatus::Loaded
+        }
+        ClientBlockEntityRendererDispatcherLoadStatus::Blocked => {
+            ClientBlockEntityRendererDispatcherRuntimeStatus::Blocked
+        }
+        ClientBlockEntityRendererDispatcherLoadStatus::Missing => {
+            ClientBlockEntityRendererDispatcherRuntimeStatus::Missing
+        }
+    }
+}
+
+fn entity_renderer_dispatcher_runtime_representative_blockers(
+    state: &ClientEntityRendererDispatcherState,
+) -> Vec<String> {
+    let mut blockers = BTreeSet::new();
+    for candidate in state.candidates().iter().take(8) {
+        blockers.extend(candidate.candidate_blockers().iter().cloned());
+        blockers.extend(candidate.runtime_blockers().iter().cloned());
+    }
+    blockers.into_iter().take(8).collect()
+}
+
+fn block_entity_renderer_dispatcher_runtime_representative_blockers(
+    state: &ClientBlockEntityRendererDispatcherState,
+) -> Vec<String> {
+    let mut blockers = BTreeSet::new();
+    for candidate in state.candidates().iter().take(8) {
+        blockers.extend(candidate.candidate_blockers().iter().cloned());
+        blockers.extend(candidate.runtime_blockers().iter().cloned());
+    }
+    blockers.into_iter().take(8).collect()
+}
+
+fn renderer_dispatcher_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join(",")
     }
 }
 
@@ -17148,6 +17580,20 @@ impl EntityRendererDispatcherCandidateReloadListener {
             self.load(stack)?,
         ))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientEntityRendererDispatcherRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientEntityRendererDispatcherRuntimeReport::from_state(&state),
+            Err(_) => ClientEntityRendererDispatcherRuntimeReport::from_state(
+                &ClientEntityRendererDispatcherState::from_candidates(
+                    EntityRendererDispatcherCandidateSet::default(),
+                ),
+            ),
+        }
+    }
 }
 
 impl ResourceReloadListener for EntityRendererDispatcherCandidateReloadListener {
@@ -17168,7 +17614,12 @@ impl ResourceReloadListener for EntityRendererDispatcherCandidateReloadListener 
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        let candidates = self.load(stack)?;
+        let state = ClientEntityRendererDispatcherState::from_candidates(candidates.clone());
+        let runtime_report = ClientEntityRendererDispatcherRuntimeReport::from_state(&state);
+        let mut items = candidates.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -17191,6 +17642,20 @@ impl BlockEntityRendererDispatcherCandidateReloadListener {
             self.load(stack)?,
         ))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientBlockEntityRendererDispatcherRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientBlockEntityRendererDispatcherRuntimeReport::from_state(&state),
+            Err(_) => ClientBlockEntityRendererDispatcherRuntimeReport::from_state(
+                &ClientBlockEntityRendererDispatcherState::from_candidates(
+                    BlockEntityRendererDispatcherCandidateSet::default(),
+                ),
+            ),
+        }
+    }
 }
 
 impl ResourceReloadListener for BlockEntityRendererDispatcherCandidateReloadListener {
@@ -17211,7 +17676,12 @@ impl ResourceReloadListener for BlockEntityRendererDispatcherCandidateReloadList
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        let candidates = self.load(stack)?;
+        let state = ClientBlockEntityRendererDispatcherState::from_candidates(candidates.clone());
+        let runtime_report = ClientBlockEntityRendererDispatcherRuntimeReport::from_state(&state);
+        let mut items = candidates.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -51642,6 +52112,80 @@ mod tests {
     }
 
     #[test]
+    fn committed_vanilla_entity_renderer_runtime_report_is_dispatcher_pending() {
+        let report = EntityRendererDispatcherCandidateReloadListener
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientEntityRendererDispatcherRuntimeStatus::Blocked
+        );
+        assert!(report.family_count() >= 10);
+        assert!(report.representative_entity_count() >= 40);
+        assert!(report.model_manager_dependency_count() > 0);
+        assert!(report.item_model_resolver_dependency_count() > 0);
+        assert!(report.equipment_asset_manager_dependency_count() > 0);
+        assert!(report.font_dependency_count() > 0);
+        assert!(report.texture_manager_dependency_count() > 0);
+        assert!(report.model_layer_count() > 0);
+        assert!(report.runtime_blocker_count() > 0);
+        assert_eq!(
+            report.runtime_boundary(),
+            "entity_renderer_registry_loaded_dispatcher_pending"
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_entity_renderer_dispatcher_runtime:status:blocked")
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        );
+        assert!(
+            report
+                .representative_family_ids()
+                .contains(&"avatar".to_owned())
+        );
+        assert!(
+            report
+                .representative_entities()
+                .contains(&"player".to_owned())
+        );
+        assert!(
+            report
+                .blockers()
+                .contains(&"entity_renderer_registry_loaded_dispatcher_pending".to_owned())
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_entity_renderer_dispatcher_runtime_family:avatar")
+                && item.contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+    }
+
+    #[test]
+    fn entity_renderer_runtime_report_reload_rows_keep_candidates_and_runtime_shape() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(EntityRendererDispatcherCandidateReloadListener)
+            .run()
+            .expect("entity renderer dispatcher runtime report should not panic");
+        let listener = &report.listener_reports()[0];
+
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("entity_renderer_dispatcher_candidate:avatar")
+                && item.contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_entity_renderer_dispatcher_runtime:status:blocked")
+                && item.contains("families:")
+                && item.contains("runtime_blockers:")
+                && item.contains("representative_families:")
+                && item.contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+    }
+
+    #[test]
     fn block_entity_renderer_dispatcher_candidate_report_tracks_renderer_context_dependencies() {
         let candidates = BlockEntityRendererDispatcherCandidateReloadListener
             .load(&ClientResourceStack::vanilla())
@@ -51851,6 +52395,85 @@ mod tests {
         assert!(listener.reload.items().iter().any(|item| {
             item.contains("block_entity_renderer_dispatcher_candidate:bounding_box")
                 && item.contains("category:debug_volume_renderer")
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_block_entity_renderer_runtime_report_is_dispatcher_pending() {
+        let report = BlockEntityRendererDispatcherCandidateReloadListener
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientBlockEntityRendererDispatcherRuntimeStatus::Blocked
+        );
+        assert_eq!(report.family_count(), 12);
+        assert_eq!(report.representative_block_entity_count(), 27);
+        assert_eq!(report.block_model_resolver_dependency_count(), 1);
+        assert_eq!(report.item_model_resolver_dependency_count(), 1);
+        assert_eq!(report.entity_render_dispatcher_dependency_count(), 1);
+        assert_eq!(report.entity_model_set_dependency_count(), 8);
+        assert_eq!(report.font_dependency_count(), 1);
+        assert_eq!(report.texture_manager_dependency_count(), 9);
+        assert_eq!(report.player_skin_cache_dependency_count(), 1);
+        assert_eq!(report.model_layer_count(), 37);
+        assert!(report.runtime_blocker_count() > 0);
+        assert_eq!(
+            report.runtime_boundary(),
+            "block_entity_renderer_registry_loaded_dispatcher_pending"
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_block_entity_renderer_dispatcher_runtime:status:blocked")
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("boundary:block_entity_renderer_registry_loaded_dispatcher_pending")
+        );
+        assert!(
+            report
+                .representative_family_ids()
+                .contains(&"sign_text".to_owned())
+        );
+        assert!(
+            report
+                .representative_block_entities()
+                .contains(&"sign".to_owned())
+        );
+        assert!(
+            report
+                .blockers()
+                .contains(&"block_entity_renderer_registry_loaded_dispatcher_pending".to_owned())
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_block_entity_renderer_dispatcher_runtime_family:sign_text")
+                && item
+                    .contains("boundary:block_entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+    }
+
+    #[test]
+    fn block_entity_renderer_runtime_report_reload_rows_keep_candidates_and_runtime_shape() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(BlockEntityRendererDispatcherCandidateReloadListener)
+            .run()
+            .expect("block entity renderer dispatcher runtime report should not panic");
+        let listener = &report.listener_reports()[0];
+
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("block_entity_renderer_dispatcher_candidate:sign_text")
+                && item
+                    .contains("boundary:block_entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_block_entity_renderer_dispatcher_runtime:status:blocked")
+                && item.contains("families:")
+                && item.contains("runtime_blockers:")
+                && item.contains("representative_families:")
+                && item
+                    .contains("boundary:block_entity_renderer_registry_loaded_dispatcher_pending")
         }));
     }
 
