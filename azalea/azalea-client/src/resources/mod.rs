@@ -6589,6 +6589,321 @@ impl LevelRendererInvalidationCandidateSet {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLevelRendererInvalidationState {
+    status: ClientLevelRendererInvalidationLoadStatus,
+    candidate_set: LevelRendererInvalidationCandidateSet,
+    candidates: Vec<ClientLevelRendererInvalidationCandidateState>,
+    candidates_by_id: BTreeMap<String, usize>,
+    candidates_by_category: BTreeMap<String, Vec<usize>>,
+    candidates_by_category_id: BTreeMap<(String, String), usize>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientLevelRendererInvalidationState {
+    pub fn from_candidates(candidate_set: LevelRendererInvalidationCandidateSet) -> Self {
+        let runtime_boundary = LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY;
+        let candidates = candidate_set
+            .candidates()
+            .iter()
+            .map(|candidate| {
+                ClientLevelRendererInvalidationCandidateState::from_candidate(
+                    candidate,
+                    runtime_boundary,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut candidates_by_id = BTreeMap::new();
+        let mut candidates_by_category: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut candidates_by_category_id = BTreeMap::new();
+
+        for (index, candidate) in candidates.iter().enumerate() {
+            candidates_by_id.insert(candidate.id().to_owned(), index);
+            candidates_by_category
+                .entry(candidate.category().to_owned())
+                .or_default()
+                .push(index);
+            candidates_by_category_id.insert(
+                (candidate.category().to_owned(), candidate.id().to_owned()),
+                index,
+            );
+        }
+
+        let status = if candidates.is_empty() {
+            ClientLevelRendererInvalidationLoadStatus::Missing
+        } else if candidates.iter().any(|candidate| {
+            candidate.status() == ClientLevelRendererInvalidationLoadStatus::Missing
+        }) {
+            ClientLevelRendererInvalidationLoadStatus::Missing
+        } else if candidates.iter().any(|candidate| {
+            candidate.status() == ClientLevelRendererInvalidationLoadStatus::Blocked
+        }) {
+            ClientLevelRendererInvalidationLoadStatus::Blocked
+        } else {
+            ClientLevelRendererInvalidationLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            candidate_set,
+            candidates,
+            candidates_by_id,
+            candidates_by_category,
+            candidates_by_category_id,
+            runtime_boundary,
+        }
+    }
+
+    pub fn status(&self) -> ClientLevelRendererInvalidationLoadStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_set.candidate_count()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidate_set.runtime_source_count()
+    }
+
+    pub fn section_render_dispatcher_dependency_count(&self) -> usize {
+        self.candidate_set
+            .section_render_dispatcher_dependency_count()
+    }
+
+    pub fn view_area_dependency_count(&self) -> usize {
+        self.candidate_set.view_area_dependency_count()
+    }
+
+    pub fn model_manager_dependency_count(&self) -> usize {
+        self.candidate_set.model_manager_dependency_count()
+    }
+
+    pub fn entity_render_dispatcher_dependency_count(&self) -> usize {
+        self.candidate_set
+            .entity_render_dispatcher_dependency_count()
+    }
+
+    pub fn block_entity_render_dispatcher_dependency_count(&self) -> usize {
+        self.candidate_set
+            .block_entity_render_dispatcher_dependency_count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidate_set.texture_manager_dependency_count()
+    }
+
+    pub fn cloud_renderer_dependency_count(&self) -> usize {
+        self.candidate_set.cloud_renderer_dependency_count()
+    }
+
+    pub fn game_renderer_state_dependency_count(&self) -> usize {
+        self.candidate_set.game_renderer_state_dependency_count()
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_set.blocker_count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.status() == ClientLevelRendererInvalidationLoadStatus::Blocked
+                    && candidate.runtime_boundary() == self.runtime_boundary
+            })
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.blocker_count()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn candidate_set(&self) -> &LevelRendererInvalidationCandidateSet {
+        &self.candidate_set
+    }
+
+    pub fn candidates(&self) -> &[ClientLevelRendererInvalidationCandidateState] {
+        &self.candidates
+    }
+
+    pub fn candidate(&self, id: &str) -> Option<&ClientLevelRendererInvalidationCandidateState> {
+        self.candidates_by_id
+            .get(id)
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn candidates_by_category(
+        &self,
+        category: &str,
+    ) -> Vec<&ClientLevelRendererInvalidationCandidateState> {
+        self.candidates_by_category
+            .get(category)
+            .into_iter()
+            .flat_map(|indexes| indexes.iter())
+            .filter_map(|index| self.candidates.get(*index))
+            .collect()
+    }
+
+    pub fn candidate_by_category_id(
+        &self,
+        category: &str,
+        id: &str,
+    ) -> Option<&ClientLevelRendererInvalidationCandidateState> {
+        self.candidates_by_category_id
+            .get(&(category.to_owned(), id.to_owned()))
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "level_renderer_invalidation_state:status:{:?} candidates:{} runtime_sources:{} deps:section_render_dispatcher:{} view_area:{} model_manager:{} entity_render_dispatcher:{} block_entity_render_dispatcher:{} texture_manager:{} cloud_renderer:{} game_renderer_state:{} candidate_blockers:{} runtime_blockers:{} blockers:{} boundary:{}",
+            self.status(),
+            self.candidate_count(),
+            self.runtime_source_count(),
+            self.section_render_dispatcher_dependency_count(),
+            self.view_area_dependency_count(),
+            self.model_manager_dependency_count(),
+            self.entity_render_dispatcher_dependency_count(),
+            self.block_entity_render_dispatcher_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.cloud_renderer_dependency_count(),
+            self.game_renderer_state_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.blocker_count(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(ClientLevelRendererInvalidationCandidateState::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientLevelRendererInvalidationLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLevelRendererInvalidationCandidateState {
+    id: String,
+    category: String,
+    runtime_sources: Vec<String>,
+    dependencies: LevelRendererInvalidationDependencyFlags,
+    candidate_blockers: Vec<String>,
+    runtime_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    status: ClientLevelRendererInvalidationLoadStatus,
+}
+
+impl ClientLevelRendererInvalidationCandidateState {
+    fn from_candidate(
+        candidate: &LevelRendererInvalidationCandidate,
+        runtime_boundary: &'static str,
+    ) -> Self {
+        Self {
+            id: candidate.id().to_owned(),
+            category: candidate.category().to_owned(),
+            runtime_sources: candidate.runtime_sources().to_vec(),
+            dependencies: candidate.dependencies(),
+            candidate_blockers: candidate.blockers().to_vec(),
+            runtime_blockers: vec![runtime_boundary.to_owned()],
+            runtime_boundary,
+            status: ClientLevelRendererInvalidationLoadStatus::Blocked,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn dependencies(&self) -> LevelRendererInvalidationDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn candidate_blockers(&self) -> &[String] {
+        &self.candidate_blockers
+    }
+
+    pub fn runtime_blockers(&self) -> &[String] {
+        &self.runtime_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blockers.len() + self.runtime_blockers.len()
+    }
+
+    pub fn status(&self) -> ClientLevelRendererInvalidationLoadStatus {
+        self.status
+    }
+
+    fn item_string(&self) -> String {
+        let runtime_sources = if self.runtime_sources.is_empty() {
+            "none".to_owned()
+        } else {
+            self.runtime_sources.join(",")
+        };
+        let candidate_blockers = if self.candidate_blockers.is_empty() {
+            "none".to_owned()
+        } else {
+            self.candidate_blockers.join(",")
+        };
+        format!(
+            "level_renderer_invalidation_state_candidate:{} status:{:?} category:{} runtime_sources:{} deps:section_render_dispatcher:{} view_area:{} model_manager:{} entity_render_dispatcher:{} block_entity_render_dispatcher:{} texture_manager:{} cloud_renderer:{} game_renderer_state:{} candidate_blockers:{} runtime_blockers:{} blocker_details:{} boundary:{}",
+            self.id,
+            self.status,
+            self.category,
+            runtime_sources,
+            self.dependencies.section_render_dispatcher,
+            self.dependencies.view_area,
+            self.dependencies.model_manager,
+            self.dependencies.entity_render_dispatcher,
+            self.dependencies.block_entity_render_dispatcher,
+            self.dependencies.texture_manager,
+            self.dependencies.cloud_renderer,
+            self.dependencies.game_renderer_state,
+            self.candidate_blockers.len(),
+            self.runtime_blockers.len(),
+            candidate_blockers,
+            self.runtime_boundary
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LevelRendererInvalidationCandidate {
     id: String,
     category: String,
@@ -11133,6 +11448,15 @@ impl LevelRendererInvalidationCandidateReloadListener {
     ) -> ResourceReloadResult<LevelRendererInvalidationCandidateSet> {
         Ok(build_level_renderer_invalidation_candidate_set())
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientLevelRendererInvalidationState> {
+        Ok(ClientLevelRendererInvalidationState::from_candidates(
+            self.load(stack)?,
+        ))
+    }
 }
 
 impl ResourceReloadListener for LevelRendererInvalidationCandidateReloadListener {
@@ -11145,7 +11469,7 @@ impl ResourceReloadListener for LevelRendererInvalidationCandidateReloadListener
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         Ok(ResourceReloadTaskReport::new([self
-            .load(stack)?
+            .load_state(stack)?
             .summary_fragment()]))
     }
 
@@ -11153,7 +11477,9 @@ impl ResourceReloadListener for LevelRendererInvalidationCandidateReloadListener
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        Ok(ResourceReloadTaskReport::new(
+            self.load_state(stack)?.items(),
+        ))
     }
 }
 
@@ -38786,34 +39112,99 @@ mod tests {
     }
 
     #[test]
-    fn committed_vanilla_level_renderer_invalidation_candidates_report_boundary_surface() {
+    fn level_renderer_invalidation_state_reports_rebuild_pending_counts_and_lookup() {
+        let state = LevelRendererInvalidationCandidateReloadListener
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("level renderer invalidation state should load");
+
+        assert_eq!(
+            state.status(),
+            ClientLevelRendererInvalidationLoadStatus::Blocked
+        );
+        assert_eq!(state.candidate_count(), 5);
+        assert_eq!(state.runtime_source_count(), 21);
+        assert_eq!(state.section_render_dispatcher_dependency_count(), 2);
+        assert_eq!(state.view_area_dependency_count(), 1);
+        assert_eq!(state.model_manager_dependency_count(), 2);
+        assert_eq!(state.entity_render_dispatcher_dependency_count(), 1);
+        assert_eq!(state.block_entity_render_dispatcher_dependency_count(), 2);
+        assert_eq!(state.texture_manager_dependency_count(), 2);
+        assert_eq!(state.cloud_renderer_dependency_count(), 1);
+        assert_eq!(state.game_renderer_state_dependency_count(), 4);
+        assert_eq!(state.candidate_blocker_count(), 32);
+        assert_eq!(state.runtime_blocker_count(), 5);
+        assert_eq!(state.total_blocker_count(), 37);
+        assert_eq!(
+            state.runtime_boundary(),
+            LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY
+        );
+
+        let chunk_sections = state
+            .candidate("chunk_section_rebuild_invalidation")
+            .expect("chunk section rebuild invalidation should be available by id");
+        assert_eq!(chunk_sections.category(), "chunk_section_rebuild");
+        assert_eq!(
+            chunk_sections.status(),
+            ClientLevelRendererInvalidationLoadStatus::Blocked
+        );
+        assert!(chunk_sections.dependencies().section_render_dispatcher);
+        assert!(
+            chunk_sections
+                .runtime_blockers()
+                .contains(&LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY.to_owned())
+        );
+        assert_eq!(
+            state
+                .candidate_by_category_id(
+                    "chunk_section_rebuild",
+                    "chunk_section_rebuild_invalidation"
+                )
+                .map(ClientLevelRendererInvalidationCandidateState::id),
+            Some("chunk_section_rebuild_invalidation")
+        );
+        assert_eq!(
+            state
+                .candidates_by_category("cloud_sky_weather_dependent_rebuild")
+                .into_iter()
+                .map(ClientLevelRendererInvalidationCandidateState::id)
+                .collect::<Vec<_>>(),
+            vec!["cloud_sky_weather_rebuild"]
+        );
+        assert!(state.candidate("missing_candidate").is_none());
+    }
+
+    #[test]
+    fn committed_vanilla_level_renderer_invalidation_state_reports_boundary_surface() {
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(LevelRendererInvalidationCandidateReloadListener)
             .run()
-            .expect("committed vanilla level renderer invalidation candidates should report");
+            .expect("committed vanilla level renderer invalidation state should report");
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "level_renderer_invalidation_candidates");
         assert_eq!(listener.preparation.items().len(), 1);
         assert!(
             listener.preparation.items()[0]
-                .starts_with("level_renderer_reload_invalidation_candidates:candidates:5")
+                .starts_with("level_renderer_invalidation_state:status:Blocked candidates:5")
         );
+        assert!(listener.preparation.items()[0].contains("runtime_blockers:5 blockers:37"));
         assert!(listener.reload.items().iter().any(|item| {
             item.contains(
-                "level_renderer_invalidation_candidate:chunk_section_rebuild_invalidation",
+                "level_renderer_invalidation_state_candidate:chunk_section_rebuild_invalidation",
             ) && item.contains("runtime_sources:LevelRenderer.allChanged")
                 && item.contains("deps:section_render_dispatcher:true view_area:true")
+                && item.contains("runtime_blockers:1")
                 && item
                     .contains("boundary:level_renderer_reload_invalidation_loaded_rebuild_pending")
         }));
         assert!(listener.reload.items().iter().any(|item| {
-            item.contains("level_renderer_invalidation_candidate:world_render_resource_recreation")
-                && item.contains("LevelRenderer.onResourceManagerReload")
+            item.contains(
+                "level_renderer_invalidation_state_candidate:world_render_resource_recreation",
+            ) && item.contains("LevelRenderer.onResourceManagerReload")
                 && item.contains("SkyRenderer.<init>")
         }));
         assert!(listener.reload.items().iter().any(|item| {
-            item.contains("level_renderer_invalidation_candidate:cloud_sky_weather_rebuild")
+            item.contains("level_renderer_invalidation_state_candidate:cloud_sky_weather_rebuild")
                 && item.contains("CloudRenderer.markForRebuild")
                 && item.contains("cloud_renderer_runtime_rebuild_unavailable")
         }));
