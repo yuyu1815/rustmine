@@ -130,6 +130,7 @@ const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
 const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warning_decision_pending";
 const REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY: &str =
     "regional_compliancies_loaded_notification_ui_pending";
+const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
 const DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE: &str = "ZZZ";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
@@ -2165,7 +2166,8 @@ impl ResourceReloadManager {
             .with_listener(TextureManagerReloadListener::default())
             .with_listener(TextureManagerUploadCandidateReloadListener::default())
             .with_listener(HeadlessShaderSourceReloadListener::default())
-            .with_listener(HeadlessShaderManagerReloadListener::default());
+            .with_listener(HeadlessShaderManagerReloadListener::default())
+            .with_listener(ShaderManagerRuntimeCandidateReloadListener::default());
 
         if has_sound_events {
             manager = manager
@@ -10983,6 +10985,185 @@ impl ResourceReloadListener for HeadlessShaderManagerReloadListener {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ShaderManagerRuntimeCandidateReloadListener {
+    requested_post_chain_ids: Vec<String>,
+}
+
+impl ShaderManagerRuntimeCandidateReloadListener {
+    pub fn new(post_chain_ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            requested_post_chain_ids: post_chain_ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ShaderManagerRuntimeCandidateReport> {
+        load_shader_manager_runtime_candidates(stack, &self.requested_post_chain_ids)
+    }
+}
+
+impl ResourceReloadListener for ShaderManagerRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "shader_manager_runtime_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = discover_headless_shader_manager_resources(stack)?;
+        Ok(ResourceReloadTaskReport::new([
+            format!("shader_sources:{}", resources.shader_sources.len()),
+            format!("includes:{}", resources.includes.len()),
+            format!("post_chains:{}", resources.post_chains.len()),
+            format!("boundary:{SHADER_MANAGER_RUNTIME_BOUNDARY}"),
+        ]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShaderManagerRuntimeCandidateReport {
+    shader_manager: HeadlessShaderManagerReloadReport,
+    candidates: Vec<ShaderManagerRuntimeCandidate>,
+}
+
+impl ShaderManagerRuntimeCandidateReport {
+    fn new(
+        shader_manager: HeadlessShaderManagerReloadReport,
+        candidates: Vec<ShaderManagerRuntimeCandidate>,
+    ) -> Self {
+        Self {
+            shader_manager,
+            candidates,
+        }
+    }
+
+    pub fn shader_manager(&self) -> &HeadlessShaderManagerReloadReport {
+        &self.shader_manager
+    }
+
+    pub fn candidates(&self) -> &[ShaderManagerRuntimeCandidate] {
+        &self.candidates
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        SHADER_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![format!(
+            "shader_manager_runtime:candidates:{} program_candidates:{} ready:{} blocked:{} post_chains:{} manager_blockers:{} boundary:{}",
+            self.candidates.len(),
+            self.shader_manager.program_candidates().len(),
+            self.shader_manager.ready_candidate_count(),
+            self.shader_manager.blocked_candidate_count(),
+            self.shader_manager.post_chain_count(),
+            self.shader_manager.blockers().len(),
+            self.boundary()
+        )];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(ShaderManagerRuntimeCandidate::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShaderManagerRuntimeCandidate {
+    id: String,
+    category: ShaderManagerRuntimeCandidateCategory,
+    runtime_sources: Vec<String>,
+    dependency_count: usize,
+    blockers: Vec<String>,
+}
+
+impl ShaderManagerRuntimeCandidate {
+    fn new(
+        id: impl Into<String>,
+        category: ShaderManagerRuntimeCandidateCategory,
+        runtime_sources: impl IntoIterator<Item = impl Into<String>>,
+        dependency_count: usize,
+        blockers: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            category,
+            runtime_sources: runtime_sources.into_iter().map(Into::into).collect(),
+            dependency_count,
+            blockers: blockers.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> ShaderManagerRuntimeCandidateCategory {
+        self.category
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependency_count(&self) -> usize {
+        self.dependency_count
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        SHADER_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "shader_manager_runtime_candidate:{} category:{} runtime_sources:{} dependencies:{} blockers:{} boundary:{}",
+            self.id,
+            self.category.as_str(),
+            self.runtime_sources.join(","),
+            self.dependency_count,
+            self.blockers.join("|"),
+            self.boundary()
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShaderManagerRuntimeCandidateCategory {
+    CompilationCacheSwap,
+    RenderPipelinePrecompile,
+    PostChainLazyLoadCache,
+    ProjectionBufferResourcePool,
+    UiShaderPreloadRecoveryHandler,
+}
+
+impl ShaderManagerRuntimeCandidateCategory {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::CompilationCacheSwap => "compilation_cache_swap",
+            Self::RenderPipelinePrecompile => "render_pipeline_precompile",
+            Self::PostChainLazyLoadCache => "post_chain_lazy_load_cache",
+            Self::ProjectionBufferResourcePool => "projection_buffer_resource_pool",
+            Self::UiShaderPreloadRecoveryHandler => "ui_shader_preload_recovery_handler",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HeadlessShaderManagerReloadReport {
     program_candidates: Vec<HeadlessShaderProgramCompileCandidateReport>,
@@ -12018,6 +12199,114 @@ pub fn load_headless_shader_manager_reload(
         blockers,
         post_chain_count,
     ))
+}
+
+pub fn load_shader_manager_runtime_candidates(
+    stack: &ClientResourceStack,
+    requested_post_chain_ids: &[String],
+) -> ResourceReloadResult<ShaderManagerRuntimeCandidateReport> {
+    let shader_manager = load_headless_shader_manager_reload(stack, requested_post_chain_ids)?;
+    let manager_blockers = shader_manager
+        .blockers()
+        .iter()
+        .map(|blocker| format!("{}:{}", blocker.resource(), blocker.reason()))
+        .collect::<Vec<_>>();
+    let program_candidate_count = shader_manager.program_candidates().len();
+    let post_chain_count = shader_manager.post_chain_count();
+    let ready_program_count = shader_manager.ready_candidate_count();
+    let static_pipeline_dependency_count = ready_program_count.max(1);
+    let post_chain_dependency_count = post_chain_count.max(requested_post_chain_ids.len());
+
+    let mut candidates = vec![
+        ShaderManagerRuntimeCandidate::new(
+            "shader_manager:compilation_cache",
+            ShaderManagerRuntimeCandidateCategory::CompilationCacheSwap,
+            [
+                "HeadlessShaderManagerReloadReport",
+                "prepared_shader_sources",
+                "prepared_post_chain_configs",
+            ],
+            program_candidate_count + post_chain_count,
+            runtime_candidate_blockers(
+                &manager_blockers,
+                ["gpu_device_pipeline_cache_swap_not_implemented"],
+            ),
+        ),
+        ShaderManagerRuntimeCandidate::new(
+            "shader_manager:render_pipeline_precompile",
+            ShaderManagerRuntimeCandidateCategory::RenderPipelinePrecompile,
+            [
+                "program_compile_candidates",
+                "RenderPipelines::getStaticPipelines",
+                "GpuDevice::precompilePipeline",
+            ],
+            static_pipeline_dependency_count,
+            runtime_candidate_blockers(
+                &manager_blockers,
+                ["render_pipeline_precompile_backend_not_implemented"],
+            ),
+        ),
+        ShaderManagerRuntimeCandidate::new(
+            "shader_manager:post_chain_cache",
+            ShaderManagerRuntimeCandidateCategory::PostChainLazyLoadCache,
+            [
+                "prepared_post_chain_configs",
+                "CompilationCache::getOrLoadPostChain",
+                "TextureManager",
+            ],
+            post_chain_dependency_count,
+            runtime_candidate_blockers(
+                &manager_blockers,
+                ["post_chain_runtime_cache_not_implemented"],
+            ),
+        ),
+        ShaderManagerRuntimeCandidate::new(
+            "shader_manager:post_chain_projection_resources",
+            ShaderManagerRuntimeCandidateCategory::ProjectionBufferResourcePool,
+            [
+                "PostChain::load",
+                "Projection",
+                "ProjectionMatrixBuffer",
+                "GameRenderer::resourcePool",
+            ],
+            post_chain_dependency_count,
+            ["projection_matrix_buffer_and_resource_pool_not_implemented"],
+        ),
+        ShaderManagerRuntimeCandidate::new(
+            "shader_manager:ui_shader_preload_recovery",
+            ShaderManagerRuntimeCandidateCategory::UiShaderPreloadRecoveryHandler,
+            [
+                "GameRenderer::preloadUiShader",
+                "RenderPipelines::GUI",
+                "RenderPipelines::GUI_TEXTURED",
+                "ShaderManager::recoveryHandler",
+            ],
+            2,
+            ["ui_shader_preload_and_recovery_handler_not_implemented"],
+        ),
+    ];
+
+    candidates.sort_by(|left, right| {
+        left.category()
+            .as_str()
+            .cmp(right.category().as_str())
+            .then_with(|| left.id().cmp(right.id()))
+    });
+
+    Ok(ShaderManagerRuntimeCandidateReport::new(
+        shader_manager,
+        candidates,
+    ))
+}
+
+fn runtime_candidate_blockers(
+    manager_blockers: &[String],
+    pending_blockers: impl IntoIterator<Item = impl Into<String>>,
+) -> Vec<String> {
+    let mut blockers = BTreeSet::new();
+    blockers.extend(manager_blockers.iter().cloned());
+    blockers.extend(pending_blockers.into_iter().map(Into::into));
+    blockers.into_iter().collect()
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -23803,6 +24092,7 @@ mod tests {
                 "texture_manager_upload_candidates",
                 "headless_shader_sources",
                 "headless_shader_manager",
+                "shader_manager_runtime_candidates",
                 "splashes",
                 "atlas_sources",
                 "atlas_stitch_candidates",
@@ -25561,6 +25851,149 @@ mod tests {
         );
         assert!(listener.reload.items().iter().any(|item| {
             item.starts_with("shader_program_candidate:shader_pair:minecraft:core/position_tex ")
+        }));
+    }
+
+    #[test]
+    fn shader_manager_runtime_reports_runtime_cache_candidate_boundaries() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:common.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/common.glsl",
+            "#define COMMON 1\n",
+        );
+        temp.write(
+            "assets/minecraft/post_effect/example.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:core/example","fragment_shader":"minecraft:core/example","output":"minecraft:main"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ShaderManagerRuntimeCandidateReloadListener::default()
+            .load(&stack)
+            .expect("shader manager runtime boundary should report candidates");
+
+        assert_eq!(report.boundary(), SHADER_MANAGER_RUNTIME_BOUNDARY);
+        assert_eq!(report.candidates().len(), 5);
+        assert_eq!(report.shader_manager().ready_candidate_count(), 2);
+        assert!(report.candidates().iter().any(|candidate| {
+            candidate.category() == ShaderManagerRuntimeCandidateCategory::CompilationCacheSwap
+                && candidate
+                    .runtime_sources()
+                    .iter()
+                    .any(|source| source == "HeadlessShaderManagerReloadReport")
+                && candidate
+                    .blockers()
+                    .iter()
+                    .any(|blocker| blocker == "gpu_device_pipeline_cache_swap_not_implemented")
+        }));
+        assert!(report.candidates().iter().any(|candidate| {
+            candidate.category() == ShaderManagerRuntimeCandidateCategory::PostChainLazyLoadCache
+                && candidate.dependency_count() == 1
+                && candidate
+                    .blockers()
+                    .iter()
+                    .any(|blocker| blocker == "post_chain_runtime_cache_not_implemented")
+        }));
+        assert!(report.items()[0].contains(
+            "shader_manager_runtime:candidates:5 program_candidates:2 ready:2 blocked:0 post_chains:1 manager_blockers:0"
+        ));
+        assert!(
+            report
+                .items()
+                .iter()
+                .all(|item| item.contains(SHADER_MANAGER_RUNTIME_BOUNDARY))
+        );
+    }
+
+    #[test]
+    fn shader_manager_runtime_propagates_source_inventory_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:missing.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ShaderManagerRuntimeCandidateReloadListener::default()
+            .load(&stack)
+            .expect("shader manager runtime boundary should report blockers");
+        let cache = report
+            .candidates()
+            .iter()
+            .find(|candidate| {
+                candidate.category() == ShaderManagerRuntimeCandidateCategory::CompilationCacheSwap
+            })
+            .expect("compilation cache candidate should be reported");
+
+        assert!(cache.blockers().iter().any(|blocker| {
+            blocker == "assets/minecraft/shaders/include/missing.glsl:missing shader include"
+        }));
+        assert!(
+            cache
+                .blockers()
+                .iter()
+                .any(|blocker| { blocker == "gpu_device_pipeline_cache_swap_not_implemented" })
+        );
+    }
+
+    #[test]
+    fn shader_manager_runtime_default_client_resources_order_follows_shader_manager() {
+        let manager = ResourceReloadManager::with_default_vanilla_client_resources();
+        let plan = manager.plan();
+        let listeners = plan.listeners();
+        let shader_manager_index = listeners
+            .iter()
+            .position(|name| name == "headless_shader_manager")
+            .expect("default manager should include headless shader manager");
+        let runtime_index = listeners
+            .iter()
+            .position(|name| name == "shader_manager_runtime_candidates")
+            .expect("default manager should include shader manager runtime candidates");
+
+        assert_eq!(runtime_index, shader_manager_index + 1);
+    }
+
+    #[test]
+    fn committed_vanilla_shader_manager_runtime_reports_pending_surfaces() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ShaderManagerRuntimeCandidateReloadListener::default())
+            .run()
+            .expect("committed vanilla shader manager runtime boundary should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "shader_manager_runtime_candidates");
+        assert_eq!(
+            &listener.preparation.items()[..3],
+            ["shader_sources:79", "includes:9", "post_chains:6"]
+        );
+        assert!(
+            listener
+                .preparation
+                .items()
+                .contains(&format!("boundary:{SHADER_MANAGER_RUNTIME_BOUNDARY}"))
+        );
+        assert!(
+            listener.reload.items()[0]
+                .starts_with("shader_manager_runtime:candidates:5 program_candidates:")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("category:render_pipeline_precompile")
+                && item.contains("render_pipeline_precompile_backend_not_implemented")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("category:ui_shader_preload_recovery_handler")
+                && item.contains("ui_shader_preload_and_recovery_handler_not_implemented")
         }));
     }
 
