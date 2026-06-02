@@ -113,6 +113,8 @@ const SOUND_FILE_RESOURCE_GLOB: &str = "assets/*/sounds/**/*.ogg";
 const PARTICLE_SPRITE_SET_BOUNDARY: &str = "sprite_decode_complete_particle_engine_pending";
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
+const ITEM_MODEL_RESOLVER_PROPERTIES_BOUNDARY: &str =
+    "item_model_resolver_properties_loaded_renderer_pending";
 const ENTITY_RENDERER_DISPATCHER_BOUNDARY: &str =
     "entity_renderer_registry_loaded_dispatcher_pending";
 const BLOCK_ENTITY_RENDERER_DISPATCHER_BOUNDARY: &str =
@@ -1981,6 +1983,7 @@ impl ResourceReloadManager {
             .with_listener(ColormapReloadListener::default())
             .with_listener(ModelDependencyReloadListener::default())
             .with_listener(ModelBakeCandidateReloadListener::default())
+            .with_listener(ItemModelResolverPropertyCandidateReloadListener)
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
             .with_listener(EntityRendererDispatcherCandidateReloadListener::default())
@@ -8594,6 +8597,40 @@ impl ResourceReloadListener for ModelBakeCandidateReloadListener {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ItemModelResolverPropertyCandidateReloadListener;
+
+impl ItemModelResolverPropertyCandidateReloadListener {
+    pub fn load(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ItemModelResolverPropertyCandidateSet> {
+        Ok(build_item_model_resolver_property_candidate_set())
+    }
+}
+
+impl ResourceReloadListener for ItemModelResolverPropertyCandidateReloadListener {
+    fn name(&self) -> &str {
+        "item_model_resolver_property_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new([self
+            .load(stack)?
+            .summary_fragment()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelBakeCandidateReport {
     dependency_report: ModelDependencyReport,
@@ -8667,6 +8704,249 @@ impl ModelBakeCandidateReport {
 
     pub fn model_definition_count(&self) -> usize {
         self.model_shapes.len()
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ItemModelResolverPropertyCandidateSet {
+    candidates: Vec<ItemModelResolverPropertyCandidate>,
+}
+
+impl ItemModelResolverPropertyCandidateSet {
+    pub fn candidates(&self) -> &[ItemModelResolverPropertyCandidate] {
+        &self.candidates
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ItemModelResolverPropertyCandidateReport> + '_ {
+        self.candidates
+            .iter()
+            .map(ItemModelResolverPropertyCandidate::report)
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn representative_item_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(ItemModelResolverPropertyCandidate::representative_item_count)
+            .sum()
+    }
+
+    pub fn representative_model_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(ItemModelResolverPropertyCandidate::representative_model_count)
+            .sum()
+    }
+
+    pub fn representative_property_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(ItemModelResolverPropertyCandidate::representative_property_count)
+            .sum()
+    }
+
+    pub fn model_bake_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.model_bake)
+            .count()
+    }
+
+    pub fn texture_atlas_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.texture_atlas)
+            .count()
+    }
+
+    pub fn component_data_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.component_data)
+            .count()
+    }
+
+    pub fn world_player_context_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.world_player_context)
+            .count()
+    }
+
+    pub fn clock_compass_time_context_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.clock_compass_time_context)
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(ItemModelResolverPropertyCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "item_model_resolver_property_candidates:groups:{} representative_items:{} representative_models:{} representative_properties:{} deps:model_bake:{} texture_atlas:{} component_data:{} world_player_context:{} clock_compass_time_context:{} blockers:{} boundary:{}",
+            self.candidate_count(),
+            self.representative_item_count(),
+            self.representative_model_count(),
+            self.representative_property_count(),
+            self.model_bake_dependency_count(),
+            self.texture_atlas_dependency_count(),
+            self.component_data_dependency_count(),
+            self.world_player_context_dependency_count(),
+            self.clock_compass_time_context_dependency_count(),
+            self.blocker_count(),
+            ITEM_MODEL_RESOLVER_PROPERTIES_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| item_model_resolver_property_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemModelResolverPropertyCandidate {
+    id: String,
+    category: String,
+    representative_items: Vec<String>,
+    representative_models: Vec<String>,
+    representative_properties: Vec<String>,
+    dependencies: ItemModelResolverPropertyDependencyFlags,
+    blockers: Vec<String>,
+}
+
+impl ItemModelResolverPropertyCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_items(&self) -> &[String] {
+        &self.representative_items
+    }
+
+    pub fn representative_models(&self) -> &[String] {
+        &self.representative_models
+    }
+
+    pub fn representative_properties(&self) -> &[String] {
+        &self.representative_properties
+    }
+
+    pub fn dependencies(&self) -> ItemModelResolverPropertyDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn representative_item_count(&self) -> usize {
+        self.representative_items.len()
+    }
+
+    pub fn representative_model_count(&self) -> usize {
+        self.representative_models.len()
+    }
+
+    pub fn representative_property_count(&self) -> usize {
+        self.representative_properties.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        ITEM_MODEL_RESOLVER_PROPERTIES_BOUNDARY
+    }
+
+    pub fn report(&self) -> ItemModelResolverPropertyCandidateReport {
+        ItemModelResolverPropertyCandidateReport {
+            id: self.id.clone(),
+            category: self.category.clone(),
+            representative_items: self.representative_items.clone(),
+            representative_models: self.representative_models.clone(),
+            representative_properties: self.representative_properties.clone(),
+            dependencies: self.dependencies,
+            blockers: self.blockers.clone(),
+            render_boundary: self.render_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ItemModelResolverPropertyDependencyFlags {
+    pub model_bake: bool,
+    pub texture_atlas: bool,
+    pub component_data: bool,
+    pub world_player_context: bool,
+    pub clock_compass_time_context: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemModelResolverPropertyCandidateReport {
+    id: String,
+    category: String,
+    representative_items: Vec<String>,
+    representative_models: Vec<String>,
+    representative_properties: Vec<String>,
+    dependencies: ItemModelResolverPropertyDependencyFlags,
+    blockers: Vec<String>,
+    render_boundary: &'static str,
+}
+
+impl ItemModelResolverPropertyCandidateReport {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_items(&self) -> &[String] {
+        &self.representative_items
+    }
+
+    pub fn representative_models(&self) -> &[String] {
+        &self.representative_models
+    }
+
+    pub fn representative_properties(&self) -> &[String] {
+        &self.representative_properties
+    }
+
+    pub fn dependencies(&self) -> ItemModelResolverPropertyDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        self.render_boundary
     }
 }
 
@@ -11084,6 +11364,224 @@ fn load_equipment_render_decoded_texture_resource(
 }
 
 #[derive(Clone, Copy)]
+struct ItemModelResolverPropertyCandidateSpec {
+    id: &'static str,
+    category: &'static str,
+    representative_items: &'static [&'static str],
+    representative_models: &'static [&'static str],
+    representative_properties: &'static [&'static str],
+    dependencies: ItemModelResolverPropertyDependencyFlags,
+}
+
+const fn item_model_resolver_property_deps(
+    model_bake: bool,
+    texture_atlas: bool,
+    component_data: bool,
+    world_player_context: bool,
+    clock_compass_time_context: bool,
+) -> ItemModelResolverPropertyDependencyFlags {
+    ItemModelResolverPropertyDependencyFlags {
+        model_bake,
+        texture_atlas,
+        component_data,
+        world_player_context,
+        clock_compass_time_context,
+    }
+}
+
+const ITEM_MODEL_RESOLVER_PROPERTY_CANDIDATE_SPECS: &[ItemModelResolverPropertyCandidateSpec] = &[
+    ItemModelResolverPropertyCandidateSpec {
+        id: "unbaked_item_model_types",
+        category: "item_model_registry",
+        representative_items: &["stick", "bundle", "compass", "clock"],
+        representative_models: &[
+            "minecraft:item/stick",
+            "minecraft:item/bundle",
+            "minecraft:item/compass",
+            "minecraft:item/clock",
+        ],
+        representative_properties: &[
+            "empty",
+            "model",
+            "range_dispatch",
+            "special",
+            "composite",
+            "bundle/selected_item",
+            "select",
+            "condition",
+        ],
+        dependencies: item_model_resolver_property_deps(true, true, false, false, false),
+    },
+    ItemModelResolverPropertyCandidateSpec {
+        id: "conditional_properties",
+        category: "conditional_property_registry",
+        representative_items: &[
+            "bow",
+            "crossbow",
+            "fishing_rod",
+            "bundle",
+            "diamond_pickaxe",
+        ],
+        representative_models: &[
+            "minecraft:item/bow",
+            "minecraft:item/crossbow",
+            "minecraft:item/fishing_rod",
+            "minecraft:item/bundle",
+        ],
+        representative_properties: &[
+            "custom_model_data",
+            "using_item",
+            "broken",
+            "damaged",
+            "fishing_rod/cast",
+            "has_component",
+            "bundle/has_selected_item",
+            "selected",
+            "carried",
+            "extended_view",
+            "keybind_down",
+            "view_entity",
+            "component",
+        ],
+        dependencies: item_model_resolver_property_deps(true, true, true, true, false),
+    },
+    ItemModelResolverPropertyCandidateSpec {
+        id: "numeric_range_properties",
+        category: "range_select_property_registry",
+        representative_items: &[
+            "clock",
+            "compass",
+            "recovery_compass",
+            "crossbow",
+            "bundle",
+            "diamond_sword",
+        ],
+        representative_models: &[
+            "minecraft:item/clock",
+            "minecraft:item/compass",
+            "minecraft:item/recovery_compass",
+            "minecraft:item/crossbow",
+        ],
+        representative_properties: &[
+            "custom_model_data",
+            "bundle/fullness",
+            "damage",
+            "cooldown",
+            "time",
+            "compass",
+            "crossbow/pull",
+            "use_cycle",
+            "use_duration",
+            "count",
+        ],
+        dependencies: item_model_resolver_property_deps(true, true, true, true, true),
+    },
+    ItemModelResolverPropertyCandidateSpec {
+        id: "select_properties",
+        category: "select_property_registry",
+        representative_items: &[
+            "crossbow",
+            "shield",
+            "diamond_chestplate",
+            "player_head",
+            "minecraft:stone",
+        ],
+        representative_models: &[
+            "minecraft:item/crossbow",
+            "minecraft:item/shield",
+            "minecraft:item/diamond_chestplate",
+            "minecraft:item/player_head",
+        ],
+        representative_properties: &[
+            "custom_model_data",
+            "main_hand",
+            "charge_type",
+            "trim_material",
+            "block_state",
+            "display_context",
+            "local_time",
+            "context_entity_type",
+            "context_dimension",
+            "component",
+        ],
+        dependencies: item_model_resolver_property_deps(true, true, true, true, true),
+    },
+    ItemModelResolverPropertyCandidateSpec {
+        id: "resolver_runtime_entrypoints",
+        category: "item_model_resolver_runtime",
+        representative_items: &["item_stack", "living_entity_item", "non_living_entity_item"],
+        representative_models: &["DataComponents.ITEM_MODEL", "ModelManager.getItemModel"],
+        representative_properties: &[
+            "updateForLiving",
+            "updateForNonLiving",
+            "updateForTopItem",
+            "appendItemLayers",
+            "shouldPlaySwapAnimation",
+            "swapAnimationScale",
+        ],
+        dependencies: item_model_resolver_property_deps(true, true, true, true, false),
+    },
+];
+
+fn build_item_model_resolver_property_candidate_set() -> ItemModelResolverPropertyCandidateSet {
+    ItemModelResolverPropertyCandidateSet {
+        candidates: ITEM_MODEL_RESOLVER_PROPERTY_CANDIDATE_SPECS
+            .iter()
+            .map(build_item_model_resolver_property_candidate)
+            .collect(),
+    }
+}
+
+fn build_item_model_resolver_property_candidate(
+    spec: &ItemModelResolverPropertyCandidateSpec,
+) -> ItemModelResolverPropertyCandidate {
+    let dependencies = spec.dependencies;
+    let mut blockers = vec![
+        "real_item_rendering_unavailable".to_owned(),
+        "item_property_predicate_evaluation_unavailable".to_owned(),
+        "item_model_resolver_model_manager_integration_unavailable".to_owned(),
+    ];
+
+    if dependencies.model_bake {
+        blockers.push("model_bake_result_binding_unavailable".to_owned());
+    }
+    if dependencies.texture_atlas {
+        blockers.push("texture_atlas_sprite_lookup_unavailable".to_owned());
+    }
+    if dependencies.component_data {
+        blockers.push("item_stack_component_data_unavailable".to_owned());
+    }
+    if dependencies.world_player_context {
+        blockers.push("world_player_render_context_unavailable".to_owned());
+    }
+    if dependencies.clock_compass_time_context {
+        blockers.push("clock_compass_time_context_unavailable".to_owned());
+    }
+
+    ItemModelResolverPropertyCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category.to_owned(),
+        representative_items: spec
+            .representative_items
+            .iter()
+            .map(|item| (*item).to_owned())
+            .collect(),
+        representative_models: spec
+            .representative_models
+            .iter()
+            .map(|model| (*model).to_owned())
+            .collect(),
+        representative_properties: spec
+            .representative_properties
+            .iter()
+            .map(|property| (*property).to_owned())
+            .collect(),
+        dependencies,
+        blockers,
+    }
+}
+
+#[derive(Clone, Copy)]
 struct EntityRendererDispatcherCandidateSpec {
     id: &'static str,
     category: &'static str,
@@ -12399,6 +12897,28 @@ fn equipment_render_blockers_fragment(layers: &[ClientEquipmentRenderLayerCandid
         .map(|blocker| blocker.item_fragment())
         .collect::<Vec<_>>()
         .join("|")
+}
+
+fn item_model_resolver_property_candidate_report_item(
+    report: &ItemModelResolverPropertyCandidateReport,
+) -> String {
+    let dependencies = report.dependencies();
+    format!(
+        "item_model_resolver_property_candidate:{} category:{} representative_items:{} representative_models:{} representative_properties:{} deps:model_bake:{} texture_atlas:{} component_data:{} world_player_context:{} clock_compass_time_context:{} blockers:{} blocker_details:{} boundary:{}",
+        report.id(),
+        report.category(),
+        report.representative_items().join(","),
+        report.representative_models().join(","),
+        report.representative_properties().join(","),
+        dependencies.model_bake,
+        dependencies.texture_atlas,
+        dependencies.component_data,
+        dependencies.world_player_context,
+        dependencies.clock_compass_time_context,
+        report.blocker_count(),
+        report.blockers().join(","),
+        report.render_boundary()
+    )
 }
 
 fn entity_renderer_dispatcher_candidate_report_item(
@@ -21273,8 +21793,11 @@ mod tests {
                 "colormaps",
                 "model_dependencies",
                 "model_bake_candidates",
+                "item_model_resolver_property_candidates",
                 "equipment_assets",
                 "equipment_render_asset_candidates",
+                "entity_renderer_dispatcher_candidates",
+                "block_entity_renderer_dispatcher_candidates",
                 "particle_manifests",
                 "particle_sprite_resources",
                 "particle_sprite_set_candidates",
@@ -26090,6 +26613,100 @@ mod tests {
                                     == Some(-6265536)
                         })
                 })
+        }));
+    }
+
+    #[test]
+    fn item_model_resolver_property_candidates_report_registry_dependencies() {
+        let candidates = ItemModelResolverPropertyCandidateReloadListener
+            .load(&ClientResourceStack::vanilla())
+            .expect("item model resolver property candidates should load");
+
+        assert_eq!(candidates.candidate_count(), 5);
+        assert!(candidates.representative_item_count() >= 20);
+        assert!(candidates.representative_model_count() >= 15);
+        assert!(candidates.representative_property_count() >= 45);
+        assert_eq!(candidates.model_bake_dependency_count(), 5);
+        assert_eq!(candidates.texture_atlas_dependency_count(), 5);
+        assert_eq!(candidates.component_data_dependency_count(), 4);
+        assert_eq!(candidates.world_player_context_dependency_count(), 4);
+        assert_eq!(candidates.clock_compass_time_context_dependency_count(), 2);
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:item_model_resolver_properties_loaded_renderer_pending")
+        );
+
+        let by_id = candidates
+            .candidates()
+            .iter()
+            .map(|candidate| (candidate.id(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        let item_model_types = by_id
+            .get("unbaked_item_model_types")
+            .expect("item model type registry group should be reported");
+        assert_eq!(item_model_types.category(), "item_model_registry");
+        assert!(
+            item_model_types
+                .representative_properties()
+                .contains(&"range_dispatch".to_owned())
+        );
+        assert!(item_model_types.dependencies().model_bake);
+        assert!(!item_model_types.dependencies().component_data);
+
+        let numeric = by_id
+            .get("numeric_range_properties")
+            .expect("numeric range property group should be reported");
+        assert!(numeric.dependencies().clock_compass_time_context);
+        assert!(
+            numeric
+                .representative_properties()
+                .contains(&"compass".to_owned())
+        );
+        assert!(
+            numeric
+                .blockers()
+                .contains(&"clock_compass_time_context_unavailable".to_owned())
+        );
+
+        let select = by_id
+            .get("select_properties")
+            .expect("select property group should be reported");
+        assert!(
+            select
+                .representative_properties()
+                .contains(&"local_time".to_owned())
+        );
+        assert!(
+            select
+                .representative_properties()
+                .contains(&"context_dimension".to_owned())
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_item_model_resolver_property_candidates_report_boundary_surface() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ItemModelResolverPropertyCandidateReloadListener)
+            .run()
+            .expect("committed vanilla item model resolver property candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "item_model_resolver_property_candidates");
+        assert_eq!(listener.preparation.items().len(), 1);
+        assert!(
+            listener.preparation.items()[0]
+                .contains("item_model_resolver_property_candidates:groups:5")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("item_model_resolver_property_candidate:conditional_properties")
+                && item.contains("representative_properties:custom_model_data,using_item")
+                && item.contains("boundary:item_model_resolver_properties_loaded_renderer_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("item_model_resolver_property_candidate:resolver_runtime_entrypoints")
+                && item.contains("representative_models:DataComponents.ITEM_MODEL")
+                && item.contains("item_model_resolver_model_manager_integration_unavailable")
         }));
     }
 
