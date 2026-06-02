@@ -124,6 +124,19 @@ const PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES: &[&str] = &[
 ];
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
+const EQUIPMENT_RENDERER_RUNTIME_BOUNDARY: &str =
+    "equipment_textures_loaded_renderer_binding_pending";
+const EQUIPMENT_RENDERER_RUNTIME_PENDING_SURFACES: &[&str] = &[
+    "equipment_asset_manager_runtime_cache",
+    "equipment_layer_renderer",
+    "entity_render_layer_binding",
+    "model_layer_selection",
+    "equippable_component_lookup",
+    "player_texture_override",
+    "armor_trim_atlas_lookup",
+    "render_type_submission",
+    "foil_glint_submission",
+];
 const ITEM_MODEL_RESOLVER_PROPERTIES_BOUNDARY: &str =
     "item_model_resolver_properties_loaded_renderer_pending";
 const MODEL_MANAGER_RUNTIME_BOUNDARY: &str = "model_bake_loaded_runtime_resolver_pending";
@@ -2206,6 +2219,7 @@ impl ResourceReloadManager {
             .with_listener(ModelManagerRuntimeCandidateReloadListener)
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
+            .with_listener(EquipmentRendererRuntimeCandidateReloadListener::default())
             .with_listener(DynamicTextureManagerCandidateReloadListener)
             .with_listener(PlayerSkinCacheCandidateReloadListener)
             .with_listener(EntityRendererDispatcherCandidateReloadListener::default())
@@ -4203,6 +4217,258 @@ impl ClientEquipmentRenderAssetCandidateReport {
 
     pub fn render_boundary(&self) -> &'static str {
         self.render_boundary
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRendererRuntimeCandidateSet {
+    equipment: Vec<ClientEquipmentRendererRuntimeCandidate>,
+}
+
+impl ClientEquipmentRendererRuntimeCandidateSet {
+    pub fn equipment(&self) -> &[ClientEquipmentRendererRuntimeCandidate] {
+        &self.equipment
+    }
+
+    pub fn reports(
+        &self,
+    ) -> impl Iterator<Item = ClientEquipmentRendererRuntimeCandidateReport> + '_ {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRendererRuntimeCandidate::report)
+    }
+
+    pub fn equipment_count(&self) -> usize {
+        self.equipment.len()
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRendererRuntimeCandidate::layer_count)
+            .sum()
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRendererRuntimeCandidate::texture_count)
+            .sum()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRendererRuntimeCandidate::decoded_resource_count)
+            .sum()
+    }
+
+    pub fn renderer_ready_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .filter(|candidate| candidate.is_renderer_binding_ready())
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRendererRuntimeCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn pending_surface_count(&self) -> usize {
+        EQUIPMENT_RENDERER_RUNTIME_PENDING_SURFACES.len()
+    }
+
+    pub fn pending_surfaces(&self) -> &'static [&'static str] {
+        EQUIPMENT_RENDERER_RUNTIME_PENDING_SURFACES
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "equipment_renderer_runtime_candidates:equipment:{} layers:{} textures:{} decoded:{} renderer_ready:{} blocked:{} pending_surfaces:{} surfaces:{} boundary:{}",
+            self.equipment_count(),
+            self.layer_count(),
+            self.texture_count(),
+            self.decoded_resource_count(),
+            self.renderer_ready_count(),
+            self.blocker_count(),
+            self.pending_surface_count(),
+            EQUIPMENT_RENDERER_RUNTIME_PENDING_SURFACES.join(","),
+            EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| equipment_renderer_runtime_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRendererRuntimeCandidate {
+    equipment_id: String,
+    resource: String,
+    pack_id: String,
+    layer_types: Vec<String>,
+    layer_count: usize,
+    texture_count: usize,
+    decoded_resource_count: usize,
+    blocker_count: usize,
+    player_texture_override_count: usize,
+    dyeable_texture_count: usize,
+    pending_surfaces: Vec<String>,
+}
+
+impl ClientEquipmentRendererRuntimeCandidate {
+    pub fn equipment_id(&self) -> &str {
+        &self.equipment_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn layer_types(&self) -> &[String] {
+        &self.layer_types
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layer_count
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.texture_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn player_texture_override_count(&self) -> usize {
+        self.player_texture_override_count
+    }
+
+    pub fn dyeable_texture_count(&self) -> usize {
+        self.dyeable_texture_count
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    pub fn is_renderer_binding_ready(&self) -> bool {
+        self.blocker_count == 0 && self.texture_count == self.decoded_resource_count
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+    }
+
+    pub fn report(&self) -> ClientEquipmentRendererRuntimeCandidateReport {
+        ClientEquipmentRendererRuntimeCandidateReport {
+            equipment_id: self.equipment_id.clone(),
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            layer_types: self.layer_types.clone(),
+            layer_count: self.layer_count,
+            texture_count: self.texture_count,
+            decoded_resource_count: self.decoded_resource_count,
+            blocker_count: self.blocker_count,
+            renderer_binding_ready: self.is_renderer_binding_ready(),
+            player_texture_override_count: self.player_texture_override_count,
+            dyeable_texture_count: self.dyeable_texture_count,
+            pending_surfaces: self.pending_surfaces.clone(),
+            runtime_boundary: self.runtime_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRendererRuntimeCandidateReport {
+    equipment_id: String,
+    resource: String,
+    pack_id: String,
+    layer_types: Vec<String>,
+    layer_count: usize,
+    texture_count: usize,
+    decoded_resource_count: usize,
+    blocker_count: usize,
+    renderer_binding_ready: bool,
+    player_texture_override_count: usize,
+    dyeable_texture_count: usize,
+    pending_surfaces: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientEquipmentRendererRuntimeCandidateReport {
+    pub fn equipment_id(&self) -> &str {
+        &self.equipment_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn layer_types(&self) -> &[String] {
+        &self.layer_types
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layer_count
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.texture_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn renderer_binding_ready(&self) -> bool {
+        self.renderer_binding_ready
+    }
+
+    pub fn player_texture_override_count(&self) -> usize {
+        self.player_texture_override_count
+    }
+
+    pub fn dyeable_texture_count(&self) -> usize {
+        self.dyeable_texture_count
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
     }
 
     pub fn loaded_resource_pack(&self) -> String {
@@ -8691,6 +8957,64 @@ impl Default for EquipmentRenderAssetCandidateReloadListener {
 impl ResourceReloadListener for EquipmentRenderAssetCandidateReloadListener {
     fn name(&self) -> &str {
         "equipment_render_asset_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            manifest_ids_in_directory(stack, &self.directory)?
+                .into_iter()
+                .map(|id| {
+                    manifest_resource_path(&self.directory, &id)
+                        .to_string_lossy()
+                        .into_owned()
+                }),
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EquipmentRendererRuntimeCandidateReloadListener {
+    directory: String,
+}
+
+impl EquipmentRendererRuntimeCandidateReloadListener {
+    pub fn new(directory: impl Into<String>) -> Self {
+        Self {
+            directory: directory.into(),
+        }
+    }
+
+    pub fn directory(&self) -> &str {
+        &self.directory
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientEquipmentRendererRuntimeCandidateSet> {
+        load_client_equipment_renderer_runtime_candidates(stack, &self.directory)
+    }
+}
+
+impl Default for EquipmentRendererRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(EQUIPMENT_MANIFEST_DIR)
+    }
+}
+
+impl ResourceReloadListener for EquipmentRendererRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "equipment_renderer_runtime_candidates"
     }
 
     fn prepare(
@@ -13269,6 +13593,16 @@ pub fn load_client_equipment_render_asset_candidates(
     ))
 }
 
+pub fn load_client_equipment_renderer_runtime_candidates(
+    stack: &ClientResourceStack,
+    directory: &str,
+) -> ResourceReloadResult<ClientEquipmentRendererRuntimeCandidateSet> {
+    let candidates = load_client_equipment_render_asset_candidates(stack, directory)?;
+    Ok(build_client_equipment_renderer_runtime_candidate_set(
+        &candidates,
+    ))
+}
+
 fn build_client_equipment_render_asset_candidate_set(
     stack: &ClientResourceStack,
     assets: &ClientEquipmentAssetSet,
@@ -13353,6 +13687,59 @@ fn build_client_equipment_render_layer_candidate(
         textures,
         decoded_texture_resources,
         blockers,
+    }
+}
+
+fn build_client_equipment_renderer_runtime_candidate_set(
+    candidates: &ClientEquipmentRenderAssetCandidateSet,
+) -> ClientEquipmentRendererRuntimeCandidateSet {
+    ClientEquipmentRendererRuntimeCandidateSet {
+        equipment: candidates
+            .equipment()
+            .iter()
+            .map(build_client_equipment_renderer_runtime_candidate)
+            .collect(),
+    }
+}
+
+fn build_client_equipment_renderer_runtime_candidate(
+    candidate: &ClientEquipmentRenderAssetCandidate,
+) -> ClientEquipmentRendererRuntimeCandidate {
+    let layer_types = candidate
+        .layers()
+        .iter()
+        .map(|layer| layer.layer_type().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let player_texture_override_count = candidate
+        .layers()
+        .iter()
+        .flat_map(ClientEquipmentRenderLayerCandidate::textures)
+        .filter(|texture| texture.use_player_texture() == Some(true))
+        .count();
+    let dyeable_texture_count = candidate
+        .layers()
+        .iter()
+        .flat_map(ClientEquipmentRenderLayerCandidate::textures)
+        .filter(|texture| texture.dyeable().is_some())
+        .count();
+
+    ClientEquipmentRendererRuntimeCandidate {
+        equipment_id: candidate.equipment_id().to_owned(),
+        resource: candidate.resource().to_owned(),
+        pack_id: candidate.pack_id().to_owned(),
+        layer_types,
+        layer_count: candidate.layer_count(),
+        texture_count: candidate.texture_count(),
+        decoded_resource_count: candidate.decoded_resource_count(),
+        blocker_count: candidate.blocker_count(),
+        player_texture_override_count,
+        dyeable_texture_count,
+        pending_surfaces: EQUIPMENT_RENDERER_RUNTIME_PENDING_SURFACES
+            .iter()
+            .map(|surface| (*surface).to_owned())
+            .collect(),
     }
 }
 
@@ -15696,6 +16083,26 @@ fn equipment_render_asset_candidate_report_item(
         equipment_render_resources_fragment(report.layers()),
         equipment_render_blockers_fragment(report.layers()),
         report.render_boundary()
+    )
+}
+
+fn equipment_renderer_runtime_candidate_report_item(
+    report: &ClientEquipmentRendererRuntimeCandidateReport,
+) -> String {
+    format!(
+        "{} id:{} layer_types:{} layers:{} textures:{} decoded:{} renderer_binding_ready:{} blockers:{} player_texture_overrides:{} dyeable_textures:{} pending_surfaces:{} boundary:{}",
+        report.loaded_resource_pack(),
+        report.equipment_id(),
+        report.layer_types().join(","),
+        report.layer_count(),
+        report.texture_count(),
+        report.decoded_resource_count(),
+        report.renderer_binding_ready(),
+        report.blocker_count(),
+        report.player_texture_override_count(),
+        report.dyeable_texture_count(),
+        report.pending_surfaces().join(","),
+        report.runtime_boundary()
     )
 }
 
@@ -26307,6 +26714,7 @@ mod tests {
                 "model_manager_runtime_candidates",
                 "equipment_assets",
                 "equipment_render_asset_candidates",
+                "equipment_renderer_runtime_candidates",
                 "dynamic_texture_manager_candidates",
                 "player_skin_cache_candidates",
                 "entity_renderer_dispatcher_candidates",
@@ -30218,6 +30626,68 @@ mod tests {
         assert_eq!(decoded.byte_count(), override_png.len());
         assert_eq!(decoded.width(), 2);
         assert_eq!(decoded.height(), 2);
+    }
+
+    #[test]
+    fn equipment_renderer_runtime_candidates_report_pending_renderer_binding() {
+        let temp = TempPack::new();
+        let humanoid_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let wings_png = encode_test_rgba_png(1, 2, &[255, 255, 255, 255].repeat(2));
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:custom","dyeable":{"color_when_undyed":-6265536}}],"wings":[{"texture":"custom:wing","use_player_texture":true}]}}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/custom.png",
+            &humanoid_png,
+        );
+        temp.write_bytes(
+            "assets/custom/textures/entity/equipment/wings/wing.png",
+            &wings_png,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(EquipmentRendererRuntimeCandidateReloadListener::default())
+            .run()
+            .expect("equipment renderer runtime candidates should report without rendering");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "equipment_renderer_runtime_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            "equipment_renderer_runtime_candidates:equipment:1 layers:2 textures:2 decoded:2 renderer_ready:1 blocked:0 pending_surfaces:9 surfaces:equipment_asset_manager_runtime_cache,equipment_layer_renderer,entity_render_layer_binding,model_layer_selection,equippable_component_lookup,player_texture_override,armor_trim_atlas_lookup,render_type_submission,foil_glint_submission boundary:equipment_textures_loaded_renderer_binding_pending"
+        );
+        assert_eq!(
+            listener.reload.items()[1],
+            "assets/minecraft/equipment/custom.json@test id:custom layer_types:humanoid,wings layers:2 textures:2 decoded:2 renderer_binding_ready:true blockers:0 player_texture_overrides:1 dyeable_textures:1 pending_surfaces:equipment_asset_manager_runtime_cache,equipment_layer_renderer,entity_render_layer_binding,model_layer_selection,equippable_component_lookup,player_texture_override,armor_trim_atlas_lookup,render_type_submission,foil_glint_submission boundary:equipment_textures_loaded_renderer_binding_pending"
+        );
+    }
+
+    #[test]
+    fn equipment_renderer_runtime_candidates_preserve_texture_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"horse_body":[{"texture":"minecraft:missing"}]}}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let candidates = EquipmentRendererRuntimeCandidateReloadListener::default()
+            .load(&stack)
+            .expect(
+                "equipment renderer runtime candidates should keep texture blockers as report data",
+            );
+        let equipment = &candidates.equipment()[0];
+
+        assert_eq!(candidates.renderer_ready_count(), 0);
+        assert_eq!(candidates.blocker_count(), 1);
+        assert!(!equipment.is_renderer_binding_ready());
+        assert_eq!(equipment.pending_surfaces().len(), 9);
+        assert_eq!(
+            equipment.runtime_boundary(),
+            EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        );
     }
 
     #[test]
