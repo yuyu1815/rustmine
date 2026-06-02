@@ -12197,6 +12197,257 @@ impl ClientPlayerSkinCacheState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientPlayerSkinCacheRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientPlayerSkinCacheRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientPlayerSkinCacheRuntimeReport {
+    status: ClientPlayerSkinCacheRuntimeStatus,
+    candidate_count: usize,
+    representative_texture_id_count: usize,
+    runtime_source_count: usize,
+    profile_lookup_dependency_count: usize,
+    profile_texture_unpack_dependency_count: usize,
+    skin_download_dependency_count: usize,
+    local_skin_cache_dependency_count: usize,
+    texture_manager_dependency_count: usize,
+    render_cache_dependency_count: usize,
+    font_dependency_count: usize,
+    model_renderer_dependency_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_candidate_ids: Vec<String>,
+    representative_categories: Vec<String>,
+    representative_texture_ids: Vec<String>,
+    representative_runtime_sources: Vec<String>,
+    representative_candidate_blockers: Vec<String>,
+    representative_runtime_blockers: Vec<String>,
+    representative_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientPlayerSkinCacheRuntimeReport {
+    pub fn from_state(state: &ClientPlayerSkinCacheState) -> Self {
+        let representative_candidate_blockers =
+            player_skin_cache_runtime_representative_candidate_blockers(state);
+        let representative_runtime_blockers =
+            player_skin_cache_runtime_representative_runtime_blockers(state);
+        let representative_blockers = player_skin_cache_runtime_representative_blockers(
+            representative_candidate_blockers
+                .iter()
+                .chain(representative_runtime_blockers.iter())
+                .cloned(),
+        );
+
+        Self {
+            status: player_skin_cache_runtime_status_from_state(state),
+            candidate_count: state.candidate_count(),
+            representative_texture_id_count: state.representative_texture_id_count(),
+            runtime_source_count: state.runtime_source_count(),
+            profile_lookup_dependency_count: state.profile_lookup_dependency_count(),
+            profile_texture_unpack_dependency_count: state
+                .profile_texture_unpack_dependency_count(),
+            skin_download_dependency_count: state.skin_download_dependency_count(),
+            local_skin_cache_dependency_count: state.local_skin_cache_dependency_count(),
+            texture_manager_dependency_count: state.texture_manager_dependency_count(),
+            render_cache_dependency_count: state.render_cache_dependency_count(),
+            font_dependency_count: state.font_dependency_count(),
+            model_renderer_dependency_count: state.model_renderer_dependency_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_candidate_ids: state
+                .candidates()
+                .iter()
+                .take(5)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            representative_categories: player_skin_cache_runtime_representative_categories(state),
+            representative_texture_ids: player_skin_cache_runtime_representative_texture_ids(state),
+            representative_runtime_sources: player_skin_cache_runtime_representative_sources(state),
+            representative_candidate_blockers,
+            representative_runtime_blockers,
+            representative_blockers,
+            runtime_boundary: state.runtime_boundary(),
+        }
+    }
+
+    pub fn status(&self) -> ClientPlayerSkinCacheRuntimeStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_count
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_id_count
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_source_count
+    }
+
+    pub fn profile_lookup_dependency_count(&self) -> usize {
+        self.profile_lookup_dependency_count
+    }
+
+    pub fn profile_texture_unpack_dependency_count(&self) -> usize {
+        self.profile_texture_unpack_dependency_count
+    }
+
+    pub fn skin_download_dependency_count(&self) -> usize {
+        self.skin_download_dependency_count
+    }
+
+    pub fn local_skin_cache_dependency_count(&self) -> usize {
+        self.local_skin_cache_dependency_count
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.texture_manager_dependency_count
+    }
+
+    pub fn render_cache_dependency_count(&self) -> usize {
+        self.render_cache_dependency_count
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.font_dependency_count
+    }
+
+    pub fn model_renderer_dependency_count(&self) -> usize {
+        self.model_renderer_dependency_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_candidate_ids(&self) -> &[String] {
+        &self.representative_candidate_ids
+    }
+
+    pub fn representative_categories(&self) -> &[String] {
+        &self.representative_categories
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn representative_runtime_sources(&self) -> &[String] {
+        &self.representative_runtime_sources
+    }
+
+    pub fn representative_candidate_blockers(&self) -> &[String] {
+        &self.representative_candidate_blockers
+    }
+
+    pub fn representative_runtime_blockers(&self) -> &[String] {
+        &self.representative_runtime_blockers
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_player_skin_cache_runtime_report:status:{} candidates:{} representative_texture_ids:{} runtime_sources:{} deps:profile_lookup:{} profile_texture_unpack:{} skin_download:{} local_skin_cache:{} texture_manager:{} render_cache:{} font:{} model_renderer:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_candidates:{} representative_categories:{} representative_texture_ids_samples:{} representative_runtime_sources:{} representative_candidate_blockers:{} representative_runtime_blockers:{} representative_blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.runtime_source_count(),
+            self.profile_lookup_dependency_count(),
+            self.profile_texture_unpack_dependency_count(),
+            self.skin_download_dependency_count(),
+            self.local_skin_cache_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.render_cache_dependency_count(),
+            self.font_dependency_count(),
+            self.model_renderer_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_categories()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_texture_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_sources()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_blockers()),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_candidate_ids.iter().map(|id| {
+            format!(
+                "client_player_skin_cache_runtime_report_candidate:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_categories.iter().map(|category| {
+            format!(
+                "client_player_skin_cache_runtime_report_category:{category} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_texture_ids.iter().map(|texture_id| {
+            format!(
+                "client_player_skin_cache_runtime_report_texture:{texture_id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_sources.iter().map(|source| {
+            format!(
+                "client_player_skin_cache_runtime_report_source:{source} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_candidate_blockers.iter().map(|blocker| {
+            format!(
+                "client_player_skin_cache_runtime_report_candidate_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_blockers.iter().map(|blocker| {
+            format!(
+                "client_player_skin_cache_runtime_report_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientPlayerSkinCacheLoadStatus {
     Loaded,
     Blocked,
@@ -18157,6 +18408,18 @@ impl PlayerSkinCacheCandidateReloadListener {
             self.load(stack)?,
         ))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientPlayerSkinCacheRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientPlayerSkinCacheRuntimeReport::from_state(&state),
+            Err(_) => ClientPlayerSkinCacheRuntimeReport::from_state(
+                &ClientPlayerSkinCacheState::from_candidates(PlayerSkinCacheCandidateSet::default()),
+            ),
+        }
+    }
 }
 
 impl ResourceReloadListener for PlayerSkinCacheCandidateReloadListener {
@@ -18177,9 +18440,11 @@ impl ResourceReloadListener for PlayerSkinCacheCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(
-            self.load_state(stack)?.items(),
-        ))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientPlayerSkinCacheRuntimeReport::from_state(&state);
+        let mut items = state.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -25824,6 +26089,92 @@ fn build_player_skin_cache_candidate(
         dependencies,
         blockers,
     }
+}
+
+fn player_skin_cache_runtime_status_from_state(
+    state: &ClientPlayerSkinCacheState,
+) -> ClientPlayerSkinCacheRuntimeStatus {
+    match state.status() {
+        ClientPlayerSkinCacheLoadStatus::Loaded => ClientPlayerSkinCacheRuntimeStatus::Loaded,
+        ClientPlayerSkinCacheLoadStatus::Blocked => ClientPlayerSkinCacheRuntimeStatus::Blocked,
+        ClientPlayerSkinCacheLoadStatus::Missing => ClientPlayerSkinCacheRuntimeStatus::Missing,
+    }
+}
+
+fn player_skin_cache_runtime_representative_categories(
+    state: &ClientPlayerSkinCacheState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.category().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(5)
+        .collect()
+}
+
+fn player_skin_cache_runtime_representative_texture_ids(
+    state: &ClientPlayerSkinCacheState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.representative_texture_ids().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn player_skin_cache_runtime_representative_sources(
+    state: &ClientPlayerSkinCacheState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.runtime_sources().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn player_skin_cache_runtime_representative_candidate_blockers(
+    state: &ClientPlayerSkinCacheState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.candidate_blockers().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn player_skin_cache_runtime_representative_runtime_blockers(
+    state: &ClientPlayerSkinCacheState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.runtime_blockers().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn player_skin_cache_runtime_representative_blockers(
+    blockers: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    blockers
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
 }
 
 fn parse_client_equipment_asset(
@@ -51669,6 +52020,114 @@ mod tests {
                 .runtime_sources()
                 .contains(&"PlayerSkinRenderCache.RenderInfo.textureView".to_owned())
         );
+    }
+
+    #[test]
+    fn player_skin_cache_runtime_report_committed_vanilla_reports_boundary_surface() {
+        let report =
+            PlayerSkinCacheCandidateReloadListener.runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientPlayerSkinCacheRuntimeStatus::Blocked);
+        assert_eq!(report.candidate_count(), 5);
+        assert_eq!(report.representative_texture_id_count(), 10);
+        assert_eq!(report.runtime_source_count(), 29);
+        assert_eq!(report.profile_lookup_dependency_count(), 2);
+        assert_eq!(report.profile_texture_unpack_dependency_count(), 2);
+        assert_eq!(report.skin_download_dependency_count(), 1);
+        assert_eq!(report.local_skin_cache_dependency_count(), 1);
+        assert_eq!(report.texture_manager_dependency_count(), 4);
+        assert_eq!(report.render_cache_dependency_count(), 3);
+        assert_eq!(report.font_dependency_count(), 1);
+        assert_eq!(report.model_renderer_dependency_count(), 2);
+        assert_eq!(report.candidate_blocker_count(), 28);
+        assert_eq!(report.runtime_blocker_count(), 5);
+        assert_eq!(report.total_blocker_count(), 33);
+        assert_eq!(report.runtime_boundary(), PLAYER_SKIN_CACHE_BOUNDARY);
+        assert!(
+            report
+                .representative_candidate_ids()
+                .contains(&"skin_texture_download_register".to_owned())
+        );
+        assert!(
+            report
+                .representative_categories()
+                .contains(&"skin_cape_elytra_texture_download_register".to_owned())
+        );
+        assert!(
+            report
+                .representative_texture_ids()
+                .contains(&"minecraft:skins/{hash}".to_owned())
+        );
+        assert!(report.representative_runtime_sources().contains(
+            &"FontManager.<init>(TextureManager,AtlasManager,PlayerSkinRenderCache)".to_owned()
+        ));
+        assert!(
+            report
+                .representative_candidate_blockers()
+                .contains(&"headless_player_skin_cache_unavailable".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_blockers()
+                .contains(&PLAYER_SKIN_CACHE_BOUNDARY.to_owned())
+        );
+        assert!(
+            report
+                .representative_blockers()
+                .contains(&PLAYER_SKIN_CACHE_BOUNDARY.to_owned())
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_player_skin_cache_runtime_report:status:blocked")
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("boundary:player_skin_cache_candidates_loaded_runtime_lookup_pending")
+        );
+    }
+
+    #[test]
+    fn player_skin_cache_runtime_report_reload_rows_append_after_state_rows_without_panicking() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(PlayerSkinCacheCandidateReloadListener)
+            .run()
+            .expect("player skin cache runtime report should not panic");
+        let listener = &report.listener_reports()[0];
+
+        let state_candidate_index = listener
+            .reload
+            .items()
+            .iter()
+            .position(|item| {
+                item.contains("player_skin_cache_state_candidate:profile_texture_lookup_cache")
+            })
+            .expect("state candidate rows should be preserved");
+        let runtime_report_index = listener
+            .reload
+            .items()
+            .iter()
+            .position(|item| item.starts_with("client_player_skin_cache_runtime_report:"))
+            .expect("runtime report rows should append to existing state rows");
+
+        assert!(runtime_report_index > state_candidate_index);
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_player_skin_cache_runtime_report:status:blocked")
+                && item.contains("candidates:5")
+                && item.contains("representative_texture_ids:10")
+                && item.contains("candidate_blockers:28 runtime_blockers:5 total_blockers:33")
+                && item
+                    .contains("boundary:player_skin_cache_candidates_loaded_runtime_lookup_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_player_skin_cache_runtime_report_texture:minecraft:skins/{hash}")
+                && item
+                    .contains("boundary:player_skin_cache_candidates_loaded_runtime_lookup_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_player_skin_cache_runtime_report_runtime_blocker:player_skin_cache_candidates_loaded_runtime_lookup_pending")
+        }));
     }
 
     #[test]
