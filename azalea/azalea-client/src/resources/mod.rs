@@ -166,6 +166,8 @@ const FONT_MANAGER_RUNTIME_BOUNDARY: &str = "font_glyphs_loaded_runtime_fontset_
 const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
     "cloud_texture_decode_complete_renderer_rebuild_pending";
 const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warning_decision_pending";
+const GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY: &str =
+    "gpu_warnlist_decision_loaded_runtime_manager_pending";
 const REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY: &str =
     "regional_compliancies_loaded_notification_ui_pending";
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
@@ -3394,6 +3396,158 @@ pub struct GpuWarnlistWarningState {
 pub enum GpuWarnlistWarningStateStatus {
     Loaded,
     Blocked,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientGpuWarnlistRuntimeState {
+    warning_state: GpuWarnlistWarningState,
+    warning_shown: bool,
+    warning_dismissed: bool,
+    reset_count: u32,
+}
+
+impl ClientGpuWarnlistRuntimeState {
+    pub fn from_warning_state(warning_state: GpuWarnlistWarningState) -> Self {
+        Self {
+            warning_state,
+            warning_shown: false,
+            warning_dismissed: false,
+            reset_count: 0,
+        }
+    }
+
+    pub fn from_report(report: GpuWarnlistWarningDecisionCandidateReport) -> Self {
+        Self::from_warning_state(report.into_runtime_state())
+    }
+
+    pub fn from_warnlist(device_info: GpuWarnlistDeviceInfo, warnlist: &GpuWarnlist) -> Self {
+        Self::from_warning_state(GpuWarnlistWarningState::from_warnlist(
+            device_info,
+            warnlist,
+        ))
+    }
+
+    pub fn warning_state(&self) -> &GpuWarnlistWarningState {
+        &self.warning_state
+    }
+
+    pub fn status(&self) -> GpuWarnlistWarningStateStatus {
+        self.warning_state.status()
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.warning_state.is_loaded()
+    }
+
+    pub fn is_blocked(&self) -> bool {
+        self.warning_state.is_blocked()
+    }
+
+    pub fn has_warnings(&self) -> bool {
+        self.warning_state.has_warnings()
+    }
+
+    pub fn will_show_warning(&self) -> bool {
+        self.has_warnings() && !self.warning_dismissed
+    }
+
+    pub fn show_warning(&mut self) -> bool {
+        let will_show = self.will_show_warning();
+        if will_show {
+            self.warning_shown = true;
+        }
+        will_show
+    }
+
+    pub fn dismiss_warning(&mut self) -> bool {
+        let had_warning = self.has_warnings();
+        if had_warning {
+            self.warning_dismissed = true;
+        }
+        had_warning
+    }
+
+    pub fn reset_warnings(&mut self) {
+        self.warning_shown = false;
+        self.warning_dismissed = false;
+        self.reset_count = self.reset_count.saturating_add(1);
+    }
+
+    pub fn warning_shown(&self) -> bool {
+        self.warning_shown
+    }
+
+    pub fn warning_dismissed(&self) -> bool {
+        self.warning_dismissed
+    }
+
+    pub fn is_showing_warning(&self) -> bool {
+        self.warning_shown && !self.warning_dismissed
+    }
+
+    pub fn reset_count(&self) -> u32 {
+        self.reset_count
+    }
+
+    pub fn warnings(&self) -> &GpuWarnlistWarnings {
+        self.warning_state.warnings()
+    }
+
+    pub fn matched_category_count(&self) -> usize {
+        self.warning_state.matched_category_count()
+    }
+
+    pub fn matched_warning_count(&self) -> usize {
+        self.warning_state.matched_warning_count()
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        self.warning_state.blockers()
+    }
+
+    pub fn boundary_marker(&self) -> &'static str {
+        GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_gpu_warnlist_runtime:{:?} has_warnings:{} will_show_warning:{} is_showing_warning:{} shown:{} dismissed:{} resets:{} blockers:{} {}",
+            self.status(),
+            self.has_warnings(),
+            self.will_show_warning(),
+            self.is_showing_warning(),
+            self.warning_shown,
+            self.warning_dismissed,
+            self.reset_count,
+            self.blockers().len(),
+            self.boundary_marker()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = Vec::new();
+        items.push(self.summary_fragment());
+        items.extend(
+            self.warning_state
+                .decision_candidate_report()
+                .items()
+                .into_iter(),
+        );
+        items.push(self.boundary_marker().to_owned());
+        items
+    }
+}
+
+impl From<GpuWarnlistWarningState> for ClientGpuWarnlistRuntimeState {
+    fn from(warning_state: GpuWarnlistWarningState) -> Self {
+        Self::from_warning_state(warning_state)
+    }
+}
+
+impl From<GpuWarnlistWarningDecisionCandidateReport> for ClientGpuWarnlistRuntimeState {
+    fn from(report: GpuWarnlistWarningDecisionCandidateReport) -> Self {
+        Self::from_report(report)
+    }
 }
 
 impl GpuWarnlistWarningState {
@@ -37956,6 +38110,131 @@ mod tests {
         assert!(state.loaded_warnlist_report().is_none());
         assert_eq!(state.blockers().len(), 1);
         assert!(state.blockers()[0].contains("missing client resource"));
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_loaded_warning_lifecycle() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel","iris"],"version":["mesa"],"vendor":["corp"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let mut runtime = ClientGpuWarnlistRuntimeState::from_report(
+            GpuWarnlistWarningDecisionCandidateReloadListener::default()
+                .with_device_info(GpuWarnlistDeviceInfo::new(
+                    "OpenGL",
+                    "Intel Iris",
+                    "Mesa 24.1",
+                    "GPU Corp",
+                ))
+                .report(&stack),
+        );
+
+        assert_eq!(runtime.status(), GpuWarnlistWarningStateStatus::Loaded);
+        assert!(runtime.is_loaded());
+        assert!(!runtime.is_blocked());
+        assert!(runtime.has_warnings());
+        assert!(runtime.will_show_warning());
+        assert!(!runtime.warning_shown());
+        assert!(!runtime.warning_dismissed());
+        assert_eq!(runtime.matched_warning_count(), 4);
+        assert_eq!(runtime.matched_category_count(), 3);
+        assert!(
+            runtime
+                .items()
+                .iter()
+                .any(|item| item.contains(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY))
+        );
+
+        assert!(runtime.show_warning());
+        assert!(runtime.warning_shown());
+        assert!(runtime.is_showing_warning());
+        assert!(runtime.will_show_warning());
+
+        assert!(runtime.dismiss_warning());
+        assert!(runtime.warning_dismissed());
+        assert!(!runtime.is_showing_warning());
+        assert!(!runtime.will_show_warning());
+
+        runtime.reset_warnings();
+        assert_eq!(runtime.reset_count(), 1);
+        assert!(!runtime.warning_shown());
+        assert!(!runtime.warning_dismissed());
+        assert!(!runtime.is_showing_warning());
+        assert!(runtime.will_show_warning());
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_loaded_without_warning_does_not_show() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel"],"version":["mesa"],"vendor":["corp"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let warnlist = GpuWarnlistReloadListener::default()
+            .load(&stack)
+            .expect("gpu warnlist should parse");
+        let mut runtime = ClientGpuWarnlistRuntimeState::from_warnlist(
+            GpuWarnlistDeviceInfo::new("Vulkan", "Intel", "Mesa", "Corp"),
+            &warnlist,
+        );
+
+        assert_eq!(runtime.status(), GpuWarnlistWarningStateStatus::Loaded);
+        assert!(runtime.is_loaded());
+        assert!(!runtime.has_warnings());
+        assert!(!runtime.will_show_warning());
+        assert!(!runtime.show_warning());
+        assert!(!runtime.dismiss_warning());
+        assert!(!runtime.warning_shown());
+        assert!(!runtime.warning_dismissed());
+        assert!(!runtime.is_showing_warning());
+        assert!(runtime.warnings().is_empty());
+        assert!(runtime.blockers().is_empty());
+        assert!(
+            runtime
+                .summary_fragment()
+                .contains(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY)
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_blocked_unavailable_lifecycle() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let mut runtime = ClientGpuWarnlistRuntimeState::from_warning_state(
+            GpuWarnlistWarningDecisionCandidateReloadListener::default().state(&stack),
+        );
+
+        assert_eq!(runtime.status(), GpuWarnlistWarningStateStatus::Blocked);
+        assert!(!runtime.is_loaded());
+        assert!(runtime.is_blocked());
+        assert!(!runtime.has_warnings());
+        assert!(!runtime.will_show_warning());
+        assert!(!runtime.show_warning());
+        assert!(!runtime.dismiss_warning());
+        assert!(!runtime.warning_shown());
+        assert!(!runtime.warning_dismissed());
+        assert!(!runtime.is_showing_warning());
+        assert_eq!(runtime.blockers().len(), 1);
+        assert!(runtime.blockers()[0].contains("missing client resource"));
+        assert!(
+            runtime
+                .items()
+                .iter()
+                .any(|item| item.starts_with("gpu_warnlist_blocker:missing client resource"))
+        );
+        assert!(
+            runtime
+                .summary_fragment()
+                .contains(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY)
+        );
+
+        runtime.reset_warnings();
+        assert_eq!(runtime.reset_count(), 1);
+        assert!(!runtime.will_show_warning());
     }
 
     #[test]
