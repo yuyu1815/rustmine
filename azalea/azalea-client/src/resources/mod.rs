@@ -112,6 +112,7 @@ const CLIENT_RESOURCE_PACK_FORMAT: u32 = 84;
 const SOUND_FILE_RESOURCE_GLOB: &str = "assets/*/sounds/**/*.ogg";
 const PARTICLE_SPRITE_SET_BOUNDARY: &str = "sprite_decode_complete_particle_engine_pending";
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
+const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -1971,6 +1972,7 @@ impl ResourceReloadManager {
             .with_listener(ModelDependencyReloadListener::default())
             .with_listener(ModelBakeCandidateReloadListener::default())
             .with_listener(EquipmentAssetsReloadListener::default())
+            .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
             .with_listener(ParticleManifestReloadListener::default())
             .with_listener(ParticleSpriteResourceReloadListener::default())
             .with_listener(ParticleSpriteSetCandidateReloadListener::default())
@@ -3019,6 +3021,498 @@ impl ClientEquipmentAssetReloadReport {
 
     pub fn player_texture_entry_count(&self) -> usize {
         self.player_texture_entry_count
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderAssetCandidateSet {
+    equipment: Vec<ClientEquipmentRenderAssetCandidate>,
+}
+
+impl ClientEquipmentRenderAssetCandidateSet {
+    pub fn equipment(&self) -> &[ClientEquipmentRenderAssetCandidate] {
+        &self.equipment
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientEquipmentRenderAssetCandidateReport> + '_ {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::report)
+    }
+
+    pub fn equipment_count(&self) -> usize {
+        self.equipment.len()
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::layer_count)
+            .sum()
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::texture_count)
+            .sum()
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::available_resource_count)
+            .sum()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::decoded_resource_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.equipment
+            .iter()
+            .map(ClientEquipmentRenderAssetCandidate::byte_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "equipment_render_asset_candidates:equipment:{} layers:{} textures:{} available:{} decoded:{} blocked:{} bytes:{} boundary:{}",
+            self.equipment_count(),
+            self.layer_count(),
+            self.texture_count(),
+            self.available_resource_count(),
+            self.decoded_resource_count(),
+            self.blocker_count(),
+            self.byte_count(),
+            EQUIPMENT_RENDER_ASSET_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| equipment_render_asset_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderAssetCandidate {
+    equipment_id: String,
+    resource: String,
+    pack_id: String,
+    layers: Vec<ClientEquipmentRenderLayerCandidate>,
+}
+
+impl ClientEquipmentRenderAssetCandidate {
+    pub fn equipment_id(&self) -> &str {
+        &self.equipment_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn layers(&self) -> &[ClientEquipmentRenderLayerCandidate] {
+        &self.layers
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layers.len()
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.layers
+            .iter()
+            .map(ClientEquipmentRenderLayerCandidate::texture_count)
+            .sum()
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.layers
+            .iter()
+            .map(ClientEquipmentRenderLayerCandidate::available_resource_count)
+            .sum()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.layers
+            .iter()
+            .map(ClientEquipmentRenderLayerCandidate::decoded_resource_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.layers
+            .iter()
+            .map(ClientEquipmentRenderLayerCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.layers
+            .iter()
+            .map(ClientEquipmentRenderLayerCandidate::byte_count)
+            .sum()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        EQUIPMENT_RENDER_ASSET_BOUNDARY
+    }
+
+    pub fn report(&self) -> ClientEquipmentRenderAssetCandidateReport {
+        ClientEquipmentRenderAssetCandidateReport {
+            equipment_id: self.equipment_id.clone(),
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            layer_count: self.layer_count(),
+            texture_count: self.texture_count(),
+            available_resource_count: self.available_resource_count(),
+            decoded_resource_count: self.decoded_resource_count(),
+            byte_count: self.byte_count(),
+            blocker_count: self.blocker_count(),
+            layers: self.layers.clone(),
+            render_boundary: self.render_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderLayerCandidate {
+    layer_type: String,
+    textures: Vec<ClientEquipmentRenderTextureCandidate>,
+    decoded_texture_resources: Vec<ClientEquipmentRenderDecodedTextureResource>,
+    blockers: Vec<ClientEquipmentRenderAssetBlocker>,
+}
+
+impl ClientEquipmentRenderLayerCandidate {
+    pub fn layer_type(&self) -> &str {
+        &self.layer_type
+    }
+
+    pub fn textures(&self) -> &[ClientEquipmentRenderTextureCandidate] {
+        &self.textures
+    }
+
+    pub fn decoded_texture_resources(&self) -> &[ClientEquipmentRenderDecodedTextureResource] {
+        &self.decoded_texture_resources
+    }
+
+    pub fn blockers(&self) -> &[ClientEquipmentRenderAssetBlocker] {
+        &self.blockers
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.textures.len()
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.decoded_texture_resources.len()
+            + self
+                .blockers
+                .iter()
+                .filter(|blocker| blocker.selected_pack_id.is_some())
+                .count()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_texture_resources.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.decoded_texture_resources
+            .iter()
+            .map(ClientEquipmentRenderDecodedTextureResource::byte_count)
+            .sum()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderTextureCandidate {
+    texture_id: String,
+    texture_resource_id: String,
+    resource: String,
+    dyeable: Option<ClientEquipmentDyeable>,
+    use_player_texture: Option<bool>,
+}
+
+impl ClientEquipmentRenderTextureCandidate {
+    pub fn texture_id(&self) -> &str {
+        &self.texture_id
+    }
+
+    pub fn texture_resource_id(&self) -> &str {
+        &self.texture_resource_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn dyeable(&self) -> Option<&ClientEquipmentDyeable> {
+        self.dyeable.as_ref()
+    }
+
+    pub fn use_player_texture(&self) -> Option<bool> {
+        self.use_player_texture
+    }
+
+    fn item_fragment(&self) -> String {
+        format!(
+            "{}={} resource:{} dyeable:{} player_texture:{}",
+            self.texture_id,
+            self.texture_resource_id,
+            self.resource,
+            equipment_dyeable_fragment(self.dyeable.as_ref()),
+            self.use_player_texture.unwrap_or(false)
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderDecodedTextureResource {
+    layer_type: String,
+    texture_id: String,
+    texture_resource_id: String,
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+    dyeable: Option<ClientEquipmentDyeable>,
+    use_player_texture: Option<bool>,
+}
+
+impl ClientEquipmentRenderDecodedTextureResource {
+    pub fn layer_type(&self) -> &str {
+        &self.layer_type
+    }
+
+    pub fn texture_id(&self) -> &str {
+        &self.texture_id
+    }
+
+    pub fn texture_resource_id(&self) -> &str {
+        &self.texture_resource_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn dyeable(&self) -> Option<&ClientEquipmentDyeable> {
+        self.dyeable.as_ref()
+    }
+
+    pub fn use_player_texture(&self) -> Option<bool> {
+        self.use_player_texture
+    }
+
+    fn item_fragment(&self) -> String {
+        format!(
+            "{}:{}={}@{}:{} bytes:png:{}x{} dyeable:{} player_texture:{}",
+            self.layer_type,
+            self.texture_id,
+            self.resource,
+            self.pack_id,
+            self.byte_count,
+            self.width,
+            self.height,
+            equipment_dyeable_fragment(self.dyeable.as_ref()),
+            self.use_player_texture.unwrap_or(false)
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderAssetBlocker {
+    layer_type: String,
+    texture_id: String,
+    texture_resource_id: String,
+    resource: String,
+    selected_pack_id: Option<String>,
+    byte_count: Option<usize>,
+    dyeable: Option<ClientEquipmentDyeable>,
+    use_player_texture: Option<bool>,
+    reason: ClientEquipmentRenderAssetBlockerReason,
+}
+
+impl ClientEquipmentRenderAssetBlocker {
+    pub fn layer_type(&self) -> &str {
+        &self.layer_type
+    }
+
+    pub fn texture_id(&self) -> &str {
+        &self.texture_id
+    }
+
+    pub fn texture_resource_id(&self) -> &str {
+        &self.texture_resource_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn selected_pack_id(&self) -> Option<&str> {
+        self.selected_pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn dyeable(&self) -> Option<&ClientEquipmentDyeable> {
+        self.dyeable.as_ref()
+    }
+
+    pub fn use_player_texture(&self) -> Option<bool> {
+        self.use_player_texture
+    }
+
+    pub fn reason(&self) -> &ClientEquipmentRenderAssetBlockerReason {
+        &self.reason
+    }
+
+    fn item_fragment(&self) -> String {
+        let selected_pack = self.selected_pack_id.as_deref().unwrap_or("none");
+        let byte_count = self
+            .byte_count
+            .map(|byte_count| byte_count.to_string())
+            .unwrap_or_else(|| "unknown".to_owned());
+        format!(
+            "{}:{}:{}={}@{} bytes:{} dyeable:{} player_texture:{}",
+            self.reason.report_fragment(),
+            self.layer_type,
+            self.texture_id,
+            self.resource,
+            selected_pack,
+            byte_count,
+            equipment_dyeable_fragment(self.dyeable.as_ref()),
+            self.use_player_texture.unwrap_or(false)
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClientEquipmentRenderAssetBlockerReason {
+    MissingTextureResource,
+    ReadTextureResource,
+    InvalidPngSignature,
+    InvalidPngMetadata { reason: String },
+}
+
+impl ClientEquipmentRenderAssetBlockerReason {
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::MissingTextureResource => "missing".to_owned(),
+            Self::ReadTextureResource => "read_error".to_owned(),
+            Self::InvalidPngSignature => "invalid_png_signature".to_owned(),
+            Self::InvalidPngMetadata { reason } => format!("invalid_png_metadata:{reason}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRenderAssetCandidateReport {
+    equipment_id: String,
+    resource: String,
+    pack_id: String,
+    layer_count: usize,
+    texture_count: usize,
+    available_resource_count: usize,
+    decoded_resource_count: usize,
+    byte_count: usize,
+    blocker_count: usize,
+    layers: Vec<ClientEquipmentRenderLayerCandidate>,
+    render_boundary: &'static str,
+}
+
+impl ClientEquipmentRenderAssetCandidateReport {
+    pub fn equipment_id(&self) -> &str {
+        &self.equipment_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layer_count
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.texture_count
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn layers(&self) -> &[ClientEquipmentRenderLayerCandidate] {
+        &self.layers
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        self.render_boundary
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
     }
 }
 
@@ -5781,6 +6275,64 @@ impl ResourceReloadListener for EquipmentAssetsReloadListener {
         Ok(ResourceReloadTaskReport::new(equipment_asset_report_items(
             &assets,
         )))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EquipmentRenderAssetCandidateReloadListener {
+    directory: String,
+}
+
+impl EquipmentRenderAssetCandidateReloadListener {
+    pub fn new(directory: impl Into<String>) -> Self {
+        Self {
+            directory: directory.into(),
+        }
+    }
+
+    pub fn directory(&self) -> &str {
+        &self.directory
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientEquipmentRenderAssetCandidateSet> {
+        load_client_equipment_render_asset_candidates(stack, &self.directory)
+    }
+}
+
+impl Default for EquipmentRenderAssetCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(EQUIPMENT_MANIFEST_DIR)
+    }
+}
+
+impl ResourceReloadListener for EquipmentRenderAssetCandidateReloadListener {
+    fn name(&self) -> &str {
+        "equipment_render_asset_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            manifest_ids_in_directory(stack, &self.directory)?
+                .into_iter()
+                .map(|id| {
+                    manifest_resource_path(&self.directory, &id)
+                        .to_string_lossy()
+                        .into_owned()
+                }),
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
     }
 }
 
@@ -9365,6 +9917,185 @@ pub fn load_client_equipment_assets(
     Ok(ClientEquipmentAssetSet { assets })
 }
 
+pub fn load_client_equipment_render_asset_candidates(
+    stack: &ClientResourceStack,
+    directory: &str,
+) -> ResourceReloadResult<ClientEquipmentRenderAssetCandidateSet> {
+    let assets = load_client_equipment_assets(stack, directory)?;
+    Ok(build_client_equipment_render_asset_candidate_set(
+        stack, &assets,
+    ))
+}
+
+fn build_client_equipment_render_asset_candidate_set(
+    stack: &ClientResourceStack,
+    assets: &ClientEquipmentAssetSet,
+) -> ClientEquipmentRenderAssetCandidateSet {
+    let equipment = assets
+        .assets()
+        .iter()
+        .map(|asset| build_client_equipment_render_asset_candidate(stack, asset))
+        .collect();
+
+    ClientEquipmentRenderAssetCandidateSet { equipment }
+}
+
+fn build_client_equipment_render_asset_candidate(
+    stack: &ClientResourceStack,
+    asset: &ClientEquipmentAsset,
+) -> ClientEquipmentRenderAssetCandidate {
+    let report = asset.report();
+    let layers = asset
+        .layers()
+        .iter()
+        .map(|layer| build_client_equipment_render_layer_candidate(stack, layer))
+        .collect();
+
+    ClientEquipmentRenderAssetCandidate {
+        equipment_id: asset.id().to_owned(),
+        resource: report.resource().to_owned(),
+        pack_id: report.pack_id().to_owned(),
+        layers,
+    }
+}
+
+fn build_client_equipment_render_layer_candidate(
+    stack: &ClientResourceStack,
+    layer: &ClientEquipmentLayer,
+) -> ClientEquipmentRenderLayerCandidate {
+    let mut textures = Vec::new();
+    let mut decoded_texture_resources = Vec::new();
+    let mut blockers = Vec::new();
+
+    for entry in layer.entries() {
+        let texture_resource_id =
+            equipment_layer_texture_location(layer.layer_type(), entry.texture());
+        let resource = resource_path_for_identifier(&texture_resource_id);
+        let texture = ClientEquipmentRenderTextureCandidate {
+            texture_id: entry.texture().to_owned(),
+            texture_resource_id: texture_resource_id.clone(),
+            resource: resource.clone(),
+            dyeable: entry.dyeable().cloned(),
+            use_player_texture: entry.use_player_texture(),
+        };
+
+        match stack.find_resource(&resource) {
+            Some(location) => match load_equipment_render_decoded_texture_resource(
+                layer.layer_type(),
+                entry,
+                &texture_resource_id,
+                &resource,
+                location,
+            ) {
+                Ok(decoded) => decoded_texture_resources.push(decoded),
+                Err(blocker) => blockers.push(blocker),
+            },
+            None => blockers.push(ClientEquipmentRenderAssetBlocker {
+                layer_type: layer.layer_type().to_owned(),
+                texture_id: entry.texture().to_owned(),
+                texture_resource_id: texture_resource_id.clone(),
+                resource: resource.clone(),
+                selected_pack_id: None,
+                byte_count: None,
+                dyeable: entry.dyeable().cloned(),
+                use_player_texture: entry.use_player_texture(),
+                reason: ClientEquipmentRenderAssetBlockerReason::MissingTextureResource,
+            }),
+        }
+
+        textures.push(texture);
+    }
+
+    ClientEquipmentRenderLayerCandidate {
+        layer_type: layer.layer_type().to_owned(),
+        textures,
+        decoded_texture_resources,
+        blockers,
+    }
+}
+
+fn load_equipment_render_decoded_texture_resource(
+    layer_type: &str,
+    entry: &ClientEquipmentLayerEntry,
+    texture_resource_id: &str,
+    resource: &str,
+    location: ResourceLocation,
+) -> Result<ClientEquipmentRenderDecodedTextureResource, ClientEquipmentRenderAssetBlocker> {
+    let pack_id = location.pack_id.clone();
+    let bytes = match read_resource_bytes(resource, &location) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Err(ClientEquipmentRenderAssetBlocker {
+                layer_type: layer_type.to_owned(),
+                texture_id: entry.texture().to_owned(),
+                texture_resource_id: texture_resource_id.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: None,
+                dyeable: entry.dyeable().cloned(),
+                use_player_texture: entry.use_player_texture(),
+                reason: ClientEquipmentRenderAssetBlockerReason::ReadTextureResource,
+            });
+        }
+    };
+    let byte_count = bytes.len();
+    let image = match decode_png_dimensions(resource, &location, &bytes) {
+        Ok(image) => image,
+        Err(ResourceReloadError::InvalidPngSignature { .. }) => {
+            return Err(ClientEquipmentRenderAssetBlocker {
+                layer_type: layer_type.to_owned(),
+                texture_id: entry.texture().to_owned(),
+                texture_resource_id: texture_resource_id.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                dyeable: entry.dyeable().cloned(),
+                use_player_texture: entry.use_player_texture(),
+                reason: ClientEquipmentRenderAssetBlockerReason::InvalidPngSignature,
+            });
+        }
+        Err(ResourceReloadError::InvalidPngMetadata { reason, .. }) => {
+            return Err(ClientEquipmentRenderAssetBlocker {
+                layer_type: layer_type.to_owned(),
+                texture_id: entry.texture().to_owned(),
+                texture_resource_id: texture_resource_id.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                dyeable: entry.dyeable().cloned(),
+                use_player_texture: entry.use_player_texture(),
+                reason: ClientEquipmentRenderAssetBlockerReason::InvalidPngMetadata { reason },
+            });
+        }
+        Err(_) => {
+            return Err(ClientEquipmentRenderAssetBlocker {
+                layer_type: layer_type.to_owned(),
+                texture_id: entry.texture().to_owned(),
+                texture_resource_id: texture_resource_id.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                dyeable: entry.dyeable().cloned(),
+                use_player_texture: entry.use_player_texture(),
+                reason: ClientEquipmentRenderAssetBlockerReason::ReadTextureResource,
+            });
+        }
+    };
+
+    Ok(ClientEquipmentRenderDecodedTextureResource {
+        layer_type: layer_type.to_owned(),
+        texture_id: entry.texture().to_owned(),
+        texture_resource_id: texture_resource_id.to_owned(),
+        resource: resource.to_owned(),
+        pack_id: location.pack_id,
+        byte_count,
+        width: image.width,
+        height: image.height,
+        dyeable: entry.dyeable().cloned(),
+        use_player_texture: entry.use_player_texture(),
+    })
+}
+
 fn parse_client_equipment_asset(
     manifest: &ClientJsonManifest,
 ) -> ResourceReloadResult<ClientEquipmentAsset> {
@@ -10234,6 +10965,93 @@ fn equipment_asset_report_item(report: &ClientEquipmentAssetReloadReport) -> Str
         report.dyeable_entry_count(),
         report.player_texture_entry_count(),
     )
+}
+
+fn equipment_render_asset_candidate_report_item(
+    report: &ClientEquipmentRenderAssetCandidateReport,
+) -> String {
+    format!(
+        "{} id:{} layers:{} textures:{} available:{} decoded:{} bytes:{} blockers:{} layer_candidates:{} resources:{} blocker_details:{} boundary:{}",
+        report.loaded_resource_pack(),
+        report.equipment_id(),
+        report.layer_count(),
+        report.texture_count(),
+        report.available_resource_count(),
+        report.decoded_resource_count(),
+        report.byte_count(),
+        report.blocker_count(),
+        equipment_render_layer_candidates_fragment(report.layers()),
+        equipment_render_resources_fragment(report.layers()),
+        equipment_render_blockers_fragment(report.layers()),
+        report.render_boundary()
+    )
+}
+
+fn equipment_render_layer_candidates_fragment(
+    layers: &[ClientEquipmentRenderLayerCandidate],
+) -> String {
+    if layers.is_empty() {
+        return "none".to_owned();
+    }
+
+    layers
+        .iter()
+        .map(|layer| {
+            format!(
+                "{}:{}",
+                layer.layer_type(),
+                layer
+                    .textures()
+                    .iter()
+                    .map(ClientEquipmentRenderTextureCandidate::item_fragment)
+                    .collect::<Vec<_>>()
+                    .join("|")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+fn equipment_render_resources_fragment(layers: &[ClientEquipmentRenderLayerCandidate]) -> String {
+    let resources = layers
+        .iter()
+        .flat_map(ClientEquipmentRenderLayerCandidate::decoded_texture_resources)
+        .collect::<Vec<_>>();
+    if resources.is_empty() {
+        return "none".to_owned();
+    }
+
+    resources
+        .iter()
+        .map(|resource| resource.item_fragment())
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn equipment_render_blockers_fragment(layers: &[ClientEquipmentRenderLayerCandidate]) -> String {
+    let blockers = layers
+        .iter()
+        .flat_map(ClientEquipmentRenderLayerCandidate::blockers)
+        .collect::<Vec<_>>();
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+
+    blockers
+        .iter()
+        .map(|blocker| blocker.item_fragment())
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn equipment_dyeable_fragment(dyeable: Option<&ClientEquipmentDyeable>) -> String {
+    match dyeable {
+        Some(dyeable) => dyeable
+            .color_when_undyed()
+            .map(|color| format!("color_when_undyed:{color}"))
+            .unwrap_or_else(|| "color_when_undyed:none".to_owned()),
+        None => "none".to_owned(),
+    }
 }
 
 fn particle_description_report_item(report: &ClientParticleDescriptionReloadReport) -> String {
@@ -18737,6 +19555,7 @@ mod tests {
                 "model_dependencies",
                 "model_bake_candidates",
                 "equipment_assets",
+                "equipment_render_asset_candidates",
                 "particle_manifests",
                 "particle_sprite_resources",
                 "particle_sprite_set_candidates",
@@ -21780,6 +22599,137 @@ mod tests {
     }
 
     #[test]
+    fn equipment_render_candidates_decode_pngs_and_report_boundary() {
+        let temp = TempPack::new();
+        let humanoid_png = encode_test_rgba_png(2, 3, &[0, 0, 0, 255].repeat(6));
+        let wings_png = encode_test_rgba_png(1, 1, &[255, 255, 255, 255]);
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:custom","dyeable":{"color_when_undyed":-6265536}}],"wings":[{"texture":"custom:wing","use_player_texture":true}]}}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/custom.png",
+            &humanoid_png,
+        );
+        temp.write_bytes(
+            "assets/custom/textures/entity/equipment/wings/wing.png",
+            &wings_png,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
+            .run()
+            .expect("equipment render candidates should decode without renderer integration");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "equipment_render_asset_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            format!(
+                "equipment_render_asset_candidates:equipment:1 layers:2 textures:2 available:2 decoded:2 blocked:0 bytes:{} boundary:texture_decode_complete_equipment_renderer_pending",
+                humanoid_png.len() + wings_png.len()
+            )
+        );
+        assert!(
+            listener.reload.items()[1].contains(
+                "layer_candidates:humanoid:minecraft:custom=minecraft:textures/entity/equipment/humanoid/custom.png resource:assets/minecraft/textures/entity/equipment/humanoid/custom.png dyeable:color_when_undyed:-6265536 player_texture:false"
+            ) && listener.reload.items()[1].contains(
+                "wings:custom:wing=custom:textures/entity/equipment/wings/wing.png resource:assets/custom/textures/entity/equipment/wings/wing.png dyeable:none player_texture:true"
+            )
+        );
+        assert!(
+            listener.reload.items()[1].contains(
+                "resources:humanoid:minecraft:custom=assets/minecraft/textures/entity/equipment/humanoid/custom.png@test:"
+            ) && listener.reload.items()[1].contains(" bytes:png:2x3 dyeable:color_when_undyed:-6265536 player_texture:false")
+                && listener.reload.items()[1].contains(
+                    "wings:custom:wing=assets/custom/textures/entity/equipment/wings/wing.png@test:"
+                )
+                && listener.reload.items()[1].contains(" bytes:png:1x1 dyeable:none player_texture:true")
+                && listener.reload.items()[1].contains("blocker_details:none")
+                && listener.reload.items()[1]
+                    .ends_with("boundary:texture_decode_complete_equipment_renderer_pending")
+        );
+    }
+
+    #[test]
+    fn equipment_render_candidates_report_missing_and_invalid_texture_blockers() {
+        let temp = TempPack::new();
+        let valid_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:valid"},{"texture":"minecraft:missing"},{"texture":"minecraft:corrupt","dyeable":{}}]}}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/valid.png",
+            &valid_png,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/corrupt.png",
+            b"not a png",
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
+            .run()
+            .expect("missing and invalid equipment textures should be blockers");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(
+            listener.reload.items()[0],
+            format!(
+                "equipment_render_asset_candidates:equipment:1 layers:1 textures:3 available:2 decoded:1 blocked:2 bytes:{} boundary:texture_decode_complete_equipment_renderer_pending",
+                valid_png.len()
+            )
+        );
+        assert!(listener.reload.items()[1].contains(
+            "resources:humanoid:minecraft:valid=assets/minecraft/textures/entity/equipment/humanoid/valid.png@test:"
+        ));
+        assert!(
+            listener.reload.items()[1].contains(
+                "missing:humanoid:minecraft:missing=assets/minecraft/textures/entity/equipment/humanoid/missing.png@none bytes:unknown dyeable:none player_texture:false"
+            ) && listener.reload.items()[1].contains(
+                "invalid_png_signature:humanoid:minecraft:corrupt=assets/minecraft/textures/entity/equipment/humanoid/corrupt.png@test bytes:9 dyeable:color_when_undyed:none player_texture:false"
+            )
+        );
+    }
+
+    #[test]
+    fn equipment_render_candidates_use_stack_priority_for_texture_decode() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let base_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let override_png = encode_test_rgba_png(2, 2, &[255, 0, 0, 255].repeat(4));
+        base.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"horse_body":[{"texture":"minecraft:custom"}]}}"#,
+        );
+        base.write_bytes(
+            "assets/minecraft/textures/entity/equipment/horse_body/custom.png",
+            &base_png,
+        );
+        override_pack.write_bytes(
+            "assets/minecraft/textures/entity/equipment/horse_body/custom.png",
+            &override_png,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let candidates = EquipmentRenderAssetCandidateReloadListener::default()
+            .load(&stack)
+            .expect("equipment render candidate should load");
+        let decoded = &candidates.equipment()[0].layers()[0].decoded_texture_resources()[0];
+
+        assert_eq!(decoded.pack_id(), "override");
+        assert_eq!(decoded.byte_count(), override_png.len());
+        assert_eq!(decoded.width(), 2);
+        assert_eq!(decoded.height(), 2);
+    }
+
+    #[test]
     fn model_entry_smoke_listener_reports_priority_pack_and_shape() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
@@ -23107,6 +24057,59 @@ mod tests {
         assert!(listener.reload.items().contains(
             &"assets/minecraft/equipment/elytra.json@vanilla:layers:1 entries:1 layer_types:wings textures:minecraft:elytra texture_locations:minecraft:textures/entity/equipment/wings/elytra.png dyeable:0 player_textures:1".to_owned()
         ));
+    }
+
+    #[test]
+    fn committed_vanilla_equipment_render_candidates_decode_representative_textures() {
+        let candidates = EquipmentRenderAssetCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla equipment render candidates should load");
+
+        assert!(candidates.equipment().len() >= 40);
+        assert!(candidates.layer_count() > candidates.equipment_count());
+        assert!(candidates.texture_count() > 0);
+        assert_eq!(
+            candidates.texture_count(),
+            candidates.available_resource_count()
+        );
+        assert_eq!(
+            candidates.available_resource_count(),
+            candidates.decoded_resource_count()
+        );
+        assert_eq!(candidates.blocker_count(), 0);
+        assert!(candidates.byte_count() > PNG_SIGNATURE.len());
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:texture_decode_complete_equipment_renderer_pending")
+        );
+        assert!(candidates.equipment().iter().any(|equipment| {
+            equipment.equipment_id() == "diamond"
+                && equipment.layers().iter().any(|layer| {
+                    layer.layer_type() == "humanoid"
+                    && layer.decoded_texture_resources().iter().any(|resource| {
+                        resource.texture_id() == "minecraft:diamond"
+                            && resource.resource()
+                                == "assets/minecraft/textures/entity/equipment/humanoid/diamond.png"
+                            && resource.pack_id() == VANILLA_PACK_ID
+                            && resource.width() > 0
+                            && resource.height() > 0
+                    })
+                })
+        }));
+        assert!(candidates.equipment().iter().any(|equipment| {
+            equipment.equipment_id() == "leather"
+                && equipment.layers().iter().any(|layer| {
+                    layer.layer_type() == "humanoid"
+                        && layer.decoded_texture_resources().iter().any(|resource| {
+                            resource.texture_id() == "minecraft:leather"
+                                && resource
+                                    .dyeable()
+                                    .and_then(ClientEquipmentDyeable::color_when_undyed)
+                                    == Some(-6265536)
+                        })
+                })
+        }));
     }
 
     #[test]
