@@ -113,6 +113,8 @@ const SOUND_FILE_RESOURCE_GLOB: &str = "assets/*/sounds/**/*.ogg";
 const PARTICLE_SPRITE_SET_BOUNDARY: &str = "sprite_decode_complete_particle_engine_pending";
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
+const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
+    "cloud_texture_decode_complete_renderer_rebuild_pending";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -1980,6 +1982,7 @@ impl ResourceReloadManager {
             .with_listener(WaypointStyleAssetReloadListener::default())
             .with_listener(WaypointStyleManagerCandidateReloadListener::default())
             .with_listener(CloudTextureReloadListener::default())
+            .with_listener(CloudRendererRebuildCandidateReloadListener::default())
             .with_listener(GpuWarnlistReloadListener::default())
             .with_listener(RegionalComplianciesReloadListener::default())
     }
@@ -16240,6 +16243,324 @@ fn cloud_render_input_report_item(report: &CloudRenderInputReport) -> String {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CloudRendererRebuildCandidateReloadListener {
+    resource: String,
+}
+
+impl CloudRendererRebuildCandidateReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn load(&self, stack: &ClientResourceStack) -> ClientCloudRendererRebuildCandidateReport {
+        load_cloud_renderer_rebuild_candidate_report(stack, &self.resource)
+    }
+}
+
+impl Default for CloudRendererRebuildCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(CLOUDS_TEXTURE_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for CloudRendererRebuildCandidateReloadListener {
+    fn name(&self) -> &str {
+        "cloud_renderer_rebuild_candidates"
+    }
+
+    fn prepare(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new([self.resource.clone()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack).items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientCloudRendererRebuildCandidateReport {
+    resource: String,
+    pack_id: Option<String>,
+    byte_count: Option<usize>,
+    width: Option<u32>,
+    height: Option<u32>,
+    estimated_cell_count: Option<u64>,
+    rebuild_needed: bool,
+    rebuild_reason: String,
+    blockers: Vec<ClientCloudRendererRebuildBlocker>,
+}
+
+impl ClientCloudRendererRebuildCandidateReport {
+    fn from_render_input(input: CloudRenderInputReport) -> Self {
+        let estimated_cell_count = Some(u64::from(input.width()) * u64::from(input.height()));
+        Self {
+            resource: input.resource,
+            pack_id: Some(input.pack_id),
+            byte_count: Some(input.byte_count),
+            width: Some(input.width),
+            height: Some(input.height),
+            estimated_cell_count,
+            rebuild_needed: input.rebuild_needed,
+            rebuild_reason: input.rebuild_reason,
+            blockers: Vec::new(),
+        }
+    }
+
+    fn blocked(resource: impl Into<String>, blocker: ClientCloudRendererRebuildBlocker) -> Self {
+        Self {
+            resource: resource.into(),
+            pack_id: blocker.selected_pack_id.clone(),
+            byte_count: blocker.byte_count,
+            width: None,
+            height: None,
+            estimated_cell_count: None,
+            rebuild_needed: false,
+            rebuild_reason: "blocked".to_owned(),
+            blockers: vec![blocker],
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> Option<u32> {
+        self.width
+    }
+
+    pub fn height(&self) -> Option<u32> {
+        self.height
+    }
+
+    pub fn estimated_cell_count(&self) -> Option<u64> {
+        self.estimated_cell_count
+    }
+
+    pub fn rebuild_needed(&self) -> bool {
+        self.rebuild_needed
+    }
+
+    pub fn rebuild_reason(&self) -> &str {
+        &self.rebuild_reason
+    }
+
+    pub fn blockers(&self) -> &[ClientCloudRendererRebuildBlocker] {
+        &self.blockers
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        usize::from(self.blockers.is_empty())
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "cloud_renderer_rebuild_candidates:resources:1 candidates:{} blocked:{} bytes:{} cells:{} boundary:{}",
+            self.candidate_count(),
+            self.blocker_count(),
+            self.byte_count.unwrap_or(0),
+            self.estimated_cell_count.unwrap_or(0),
+            CLOUD_RENDERER_REBUILD_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        if self.blockers.is_empty() {
+            items.push(cloud_renderer_rebuild_candidate_report_item(self));
+        } else {
+            items.extend(
+                self.blockers
+                    .iter()
+                    .map(cloud_renderer_rebuild_blocker_report_item),
+            );
+        }
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientCloudRendererRebuildBlocker {
+    resource: String,
+    selected_pack_id: Option<String>,
+    byte_count: Option<usize>,
+    reason: ClientCloudRendererRebuildBlockerReason,
+}
+
+impl ClientCloudRendererRebuildBlocker {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn selected_pack_id(&self) -> Option<&str> {
+        self.selected_pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn reason(&self) -> &ClientCloudRendererRebuildBlockerReason {
+        &self.reason
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientCloudRendererRebuildBlockerReason {
+    MissingTextureResource,
+    ReadTextureResource,
+    InvalidPngSignature,
+    InvalidPngMetadata { reason: String },
+}
+
+impl ClientCloudRendererRebuildBlockerReason {
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::MissingTextureResource => "missing_texture_resource".to_owned(),
+            Self::ReadTextureResource => "read_texture_resource".to_owned(),
+            Self::InvalidPngSignature => "invalid_png_signature".to_owned(),
+            Self::InvalidPngMetadata { reason } => format!("invalid_png_metadata:{reason}"),
+        }
+    }
+}
+
+fn load_cloud_renderer_rebuild_candidate_report(
+    stack: &ClientResourceStack,
+    resource: &str,
+) -> ClientCloudRendererRebuildCandidateReport {
+    let Some(location) = stack.find_resource(resource) else {
+        return ClientCloudRendererRebuildCandidateReport::blocked(
+            resource,
+            ClientCloudRendererRebuildBlocker {
+                resource: resource.to_owned(),
+                selected_pack_id: None,
+                byte_count: None,
+                reason: ClientCloudRendererRebuildBlockerReason::MissingTextureResource,
+            },
+        );
+    };
+
+    let pack_id = location.pack_id.clone();
+    let bytes = match read_resource_bytes(resource, &location) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return ClientCloudRendererRebuildCandidateReport::blocked(
+                resource,
+                ClientCloudRendererRebuildBlocker {
+                    resource: resource.to_owned(),
+                    selected_pack_id: Some(pack_id),
+                    byte_count: None,
+                    reason: ClientCloudRendererRebuildBlockerReason::ReadTextureResource,
+                },
+            );
+        }
+    };
+    let byte_count = bytes.len();
+
+    match decode_png_dimensions(resource, &location, &bytes) {
+        Ok(image) => ClientCloudRendererRebuildCandidateReport::from_render_input(
+            CloudRenderInputReport::from_png_dimensions(
+                resource,
+                location.pack_id,
+                byte_count,
+                image,
+            ),
+        ),
+        Err(ResourceReloadError::InvalidPngSignature { .. }) => {
+            ClientCloudRendererRebuildCandidateReport::blocked(
+                resource,
+                ClientCloudRendererRebuildBlocker {
+                    resource: resource.to_owned(),
+                    selected_pack_id: Some(pack_id),
+                    byte_count: Some(byte_count),
+                    reason: ClientCloudRendererRebuildBlockerReason::InvalidPngSignature,
+                },
+            )
+        }
+        Err(ResourceReloadError::InvalidPngMetadata { reason, .. }) => {
+            ClientCloudRendererRebuildCandidateReport::blocked(
+                resource,
+                ClientCloudRendererRebuildBlocker {
+                    resource: resource.to_owned(),
+                    selected_pack_id: Some(pack_id),
+                    byte_count: Some(byte_count),
+                    reason: ClientCloudRendererRebuildBlockerReason::InvalidPngMetadata { reason },
+                },
+            )
+        }
+        Err(_) => ClientCloudRendererRebuildCandidateReport::blocked(
+            resource,
+            ClientCloudRendererRebuildBlocker {
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                reason: ClientCloudRendererRebuildBlockerReason::ReadTextureResource,
+            },
+        ),
+    }
+}
+
+fn cloud_renderer_rebuild_candidate_report_item(
+    report: &ClientCloudRendererRebuildCandidateReport,
+) -> String {
+    format!(
+        "cloud_renderer_rebuild_candidate:{}@{}:{} bytes:png:{}x{}:cells:{}:rebuild:{}:{}:boundary:{}",
+        report.resource(),
+        report.pack_id().unwrap_or("missing"),
+        report.byte_count().unwrap_or(0),
+        report.width().unwrap_or(0),
+        report.height().unwrap_or(0),
+        report.estimated_cell_count().unwrap_or(0),
+        if report.rebuild_needed() {
+            "needed"
+        } else {
+            "clean"
+        },
+        report.rebuild_reason(),
+        CLOUD_RENDERER_REBUILD_BOUNDARY
+    )
+}
+
+fn cloud_renderer_rebuild_blocker_report_item(
+    blocker: &ClientCloudRendererRebuildBlocker,
+) -> String {
+    format!(
+        "cloud_renderer_rebuild_blocker:{}@{}:bytes:{}:reason:{}:boundary:{}",
+        blocker.resource(),
+        blocker.selected_pack_id().unwrap_or("missing"),
+        blocker
+            .byte_count()
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "unavailable".to_owned()),
+        blocker.reason().report_fragment(),
+        CLOUD_RENDERER_REBUILD_BOUNDARY
+    )
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextureMetadataReloadListener {
     name: String,
     textures: Vec<String>,
@@ -19563,6 +19884,7 @@ mod tests {
                 "waypoint_style_sprite_assets",
                 "waypoint_style_manager_candidates",
                 "cloud_texture",
+                "cloud_renderer_rebuild_candidates",
                 "gpu_warnlist",
                 "regional_compliancies",
             ]
@@ -24961,6 +25283,174 @@ mod tests {
         assert!(width > 0);
         assert!(height > 0);
         assert!(flags.is_empty());
+    }
+
+    #[test]
+    fn cloud_renderer_rebuild_candidate_reports_texture_cells_and_boundary() {
+        let temp = TempPack::new();
+        let cloud_png = encode_test_rgba_png(
+            3,
+            2,
+            &[
+                255, 255, 255, 255, 0, 0, 0, 0, 20, 30, 40, 255, 0, 0, 0, 0, 50, 60, 70, 255, 80,
+                90, 100, 255,
+            ],
+        );
+        temp.write_bytes(CLOUDS_TEXTURE_RESOURCE, &cloud_png);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = CloudRendererRebuildCandidateReloadListener::default();
+        let candidate = listener.load(&stack);
+
+        assert_eq!(candidate.resource(), CLOUDS_TEXTURE_RESOURCE);
+        assert_eq!(candidate.pack_id(), Some("test"));
+        assert_eq!(candidate.byte_count(), Some(cloud_png.len()));
+        assert_eq!(candidate.width(), Some(3));
+        assert_eq!(candidate.height(), Some(2));
+        assert_eq!(candidate.estimated_cell_count(), Some(6));
+        assert_eq!(candidate.candidate_count(), 1);
+        assert_eq!(candidate.blocker_count(), 0);
+        assert!(candidate.rebuild_needed());
+        assert_eq!(candidate.rebuild_reason(), "resource-reload");
+        assert_eq!(
+            candidate.summary_fragment(),
+            format!(
+                "cloud_renderer_rebuild_candidates:resources:1 candidates:1 blocked:0 bytes:{} cells:6 boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}",
+                cloud_png.len()
+            )
+        );
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(listener)
+            .run()
+            .expect("cloud renderer rebuild candidate reload should succeed");
+
+        assert_eq!(
+            report.listener_reports()[0].name,
+            "cloud_renderer_rebuild_candidates"
+        );
+        assert_eq!(
+            report.listener_reports()[0].reload.items(),
+            [
+                candidate.summary_fragment(),
+                format!(
+                    "cloud_renderer_rebuild_candidate:{CLOUDS_TEXTURE_RESOURCE}@test:{} bytes:png:3x2:cells:6:rebuild:needed:resource-reload:boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}",
+                    cloud_png.len()
+                )
+            ]
+        );
+    }
+
+    #[test]
+    fn cloud_renderer_rebuild_candidate_uses_highest_priority_texture_pack() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let base_png = encode_test_rgba_png(1, 1, &[255, 255, 255, 255]);
+        let override_png = encode_test_rgba_png(
+            2,
+            2,
+            &[0, 0, 0, 0, 255, 255, 255, 255, 10, 20, 30, 255, 0, 0, 0, 0],
+        );
+        base.write_bytes(CLOUDS_TEXTURE_RESOURCE, &base_png);
+        override_pack.write_bytes(CLOUDS_TEXTURE_RESOURCE, &override_png);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let candidate = CloudRendererRebuildCandidateReloadListener::default().load(&stack);
+
+        assert_eq!(candidate.pack_id(), Some("override"));
+        assert_eq!(candidate.byte_count(), Some(override_png.len()));
+        assert_eq!(candidate.width(), Some(2));
+        assert_eq!(candidate.height(), Some(2));
+        assert_eq!(candidate.estimated_cell_count(), Some(4));
+        assert!(candidate.blockers().is_empty());
+    }
+
+    #[test]
+    fn cloud_renderer_rebuild_candidate_reports_missing_texture_blocker() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let candidate = CloudRendererRebuildCandidateReloadListener::default().load(&stack);
+
+        assert_eq!(candidate.candidate_count(), 0);
+        assert_eq!(candidate.blocker_count(), 1);
+        assert_eq!(candidate.pack_id(), None);
+        assert_eq!(candidate.byte_count(), None);
+        assert_eq!(candidate.estimated_cell_count(), None);
+        assert_eq!(candidate.rebuild_reason(), "blocked");
+        assert_eq!(
+            candidate.blockers()[0].reason(),
+            &ClientCloudRendererRebuildBlockerReason::MissingTextureResource
+        );
+        assert_eq!(
+            candidate.items(),
+            [
+                format!(
+                    "cloud_renderer_rebuild_candidates:resources:1 candidates:0 blocked:1 bytes:0 cells:0 boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}"
+                ),
+                format!(
+                    "cloud_renderer_rebuild_blocker:{CLOUDS_TEXTURE_RESOURCE}@missing:bytes:unavailable:reason:missing_texture_resource:boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}"
+                )
+            ]
+        );
+    }
+
+    #[test]
+    fn cloud_renderer_rebuild_candidate_reports_invalid_png_blocker() {
+        let temp = TempPack::new();
+        temp.write_bytes(CLOUDS_TEXTURE_RESOURCE, b"not a png");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let candidate = CloudRendererRebuildCandidateReloadListener::default().load(&stack);
+
+        assert_eq!(candidate.candidate_count(), 0);
+        assert_eq!(candidate.blocker_count(), 1);
+        assert_eq!(candidate.pack_id(), Some("test"));
+        assert_eq!(candidate.byte_count(), Some(9));
+        assert_eq!(
+            candidate.blockers()[0].reason(),
+            &ClientCloudRendererRebuildBlockerReason::InvalidPngSignature
+        );
+        assert_eq!(
+            candidate.items()[1],
+            format!(
+                "cloud_renderer_rebuild_blocker:{CLOUDS_TEXTURE_RESOURCE}@test:bytes:9:reason:invalid_png_signature:boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}"
+            )
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_cloud_renderer_rebuild_candidate_reports_boundary_surface() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(CloudRendererRebuildCandidateReloadListener::default())
+            .run()
+            .expect("committed vanilla cloud renderer rebuild candidate should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "cloud_renderer_rebuild_candidates");
+        assert_eq!(
+            listener.preparation.items(),
+            [CLOUDS_TEXTURE_RESOURCE.to_owned()]
+        );
+        assert_eq!(listener.reload.items().len(), 2);
+        assert!(listener.reload.items()[0].starts_with(
+            "cloud_renderer_rebuild_candidates:resources:1 candidates:1 blocked:0 bytes:"
+        ));
+        assert!(
+            listener.reload.items()[0]
+                .contains(&format!("boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}"))
+        );
+        assert!(listener.reload.items()[1].starts_with(&format!(
+            "cloud_renderer_rebuild_candidate:{CLOUDS_TEXTURE_RESOURCE}@{VANILLA_PACK_ID}:"
+        )));
+        assert!(listener.reload.items()[1].contains(" bytes:png:"));
+        assert!(listener.reload.items()[1].contains(":cells:"));
+        assert!(listener.reload.items()[1].contains(":rebuild:needed:resource-reload:"));
+        assert!(
+            listener.reload.items()[1]
+                .contains(&format!("boundary:{CLOUD_RENDERER_REBUILD_BOUNDARY}"))
+        );
     }
 
     #[test]
