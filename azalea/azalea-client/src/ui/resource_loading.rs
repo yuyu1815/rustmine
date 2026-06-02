@@ -9,9 +9,9 @@ use super::{
     account_flow::StoredLauncherAccount,
     startup_flow::{
         ResourceLoadingEvent, ResourceLoadingUpdate, StartupDestination, StartupFlow,
-        StartupLoadingPhase, StartupScreen, VanillaLoadingBackground, VanillaLoadingOverlay,
-        VanillaLoadingOverlayView, VanillaLoadingTextView, WeightedReloadProgress,
-        WeightedReloadStageProgress,
+        StartupLoadingPhase, StartupScreen, VanillaLoadingBackground, VanillaLoadingLogoView,
+        VanillaLoadingOverlay, VanillaLoadingOverlayView, VanillaLoadingProgressBarView,
+        VanillaLoadingTextView, WeightedReloadProgress, WeightedReloadStageProgress,
     },
 };
 use crate::resources::{
@@ -283,6 +283,224 @@ pub struct MojangLoadingOverlayViewModel {
     pub reload: ResourceLoadingReloadView,
     pub smoothing: LoadingOverlaySmoothing,
     pub fade: LoadingOverlayFadeTiming,
+}
+
+impl MojangLoadingOverlayViewModel {
+    pub fn frame(&self, gui_width: f32, gui_height: f32) -> MojangLoadingOverlayFrame {
+        MojangLoadingOverlayFrame::from_view_model(self, gui_width, gui_height)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLoadingOverlayFrame {
+    pub background_argb: u32,
+    pub fade_alpha: f32,
+    pub should_render: bool,
+    pub progress: MojangLoadingProgress,
+    pub logo: MojangLogoPlacement,
+    pub progress_bar: MojangProgressBarFrame,
+}
+
+impl MojangLoadingOverlayFrame {
+    pub fn from_view_model(
+        view: &MojangLoadingOverlayViewModel,
+        gui_width: f32,
+        gui_height: f32,
+    ) -> Self {
+        let logo = MojangLogoPlacement::from_view_model(view, gui_width, gui_height);
+        let progress = MojangLoadingProgress::new(
+            view.vanilla.actual_progress,
+            view.vanilla.displayed_progress,
+        );
+        Self {
+            background_argb: view.background_argb,
+            fade_alpha: view.vanilla.fade_alpha.clamp(0.0, 1.0),
+            should_render: view.vanilla.should_render,
+            progress,
+            logo,
+            progress_bar: MojangProgressBarFrame::from_logo(
+                &logo,
+                gui_height,
+                progress.clamped_displayed_progress,
+                view.vanilla.progress_bar.border_width,
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLoadingProgress {
+    pub actual_progress: f32,
+    pub displayed_progress: f32,
+    pub clamped_displayed_progress: f32,
+}
+
+impl MojangLoadingProgress {
+    pub fn new(actual_progress: f32, displayed_progress: f32) -> Self {
+        Self {
+            actual_progress: actual_progress.clamp(0.0, 1.0),
+            displayed_progress,
+            clamped_displayed_progress: displayed_progress.clamp(0.0, 1.0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLogoPlacement {
+    pub texture: Option<MojangLogoTexture>,
+    pub target_rect: MojangLoadingRect,
+    pub left_half: MojangLogoHalfPlacement,
+    pub right_half: MojangLogoHalfPlacement,
+    pub fallback: MojangFallbackLogoMetadata,
+}
+
+impl MojangLogoPlacement {
+    pub const CENTER_X_FRACTION: f32 = 0.5;
+    pub const CENTER_Y_FRACTION: f32 = 0.5;
+    pub const WIDTH_PER_HEIGHT: f32 = 4.0;
+
+    fn from_view_model(
+        view: &MojangLoadingOverlayViewModel,
+        gui_width: f32,
+        gui_height: f32,
+    ) -> Self {
+        let logo_height = VanillaLoadingLogoView::height_for_viewport(gui_width, gui_height);
+        let logo_width = logo_height * Self::WIDTH_PER_HEIGHT;
+        let center_x = gui_width * Self::CENTER_X_FRACTION;
+        let center_y = gui_height * Self::CENTER_Y_FRACTION;
+        let half_width = logo_width * 0.5;
+        let top = center_y - logo_height * 0.5;
+        let target_rect = MojangLoadingRect {
+            x: center_x - half_width,
+            y: top,
+            width: logo_width,
+            height: logo_height,
+        };
+        Self {
+            texture: view.logo_texture,
+            target_rect,
+            left_half: MojangLogoHalfPlacement {
+                target_rect: MojangLoadingRect {
+                    x: target_rect.x,
+                    y: top,
+                    width: half_width,
+                    height: logo_height,
+                },
+                source_rect: MojangLogoSourceRect::LEFT_HALF,
+            },
+            right_half: MojangLogoHalfPlacement {
+                target_rect: MojangLoadingRect {
+                    x: center_x,
+                    y: top,
+                    width: half_width,
+                    height: logo_height,
+                },
+                source_rect: MojangLogoSourceRect::RIGHT_HALF,
+            },
+            fallback: MojangFallbackLogoMetadata::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLogoHalfPlacement {
+    pub target_rect: MojangLoadingRect,
+    pub source_rect: MojangLogoSourceRect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLogoSourceRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl MojangLogoSourceRect {
+    pub const TEXTURE_SIZE: f32 = 120.0;
+    pub const HALF_SOURCE_HEIGHT: f32 = 60.0;
+    pub const LEFT_HALF: Self = Self {
+        x: -0.0625,
+        y: 0.0,
+        width: Self::TEXTURE_SIZE,
+        height: Self::HALF_SOURCE_HEIGHT,
+    };
+    pub const RIGHT_HALF: Self = Self {
+        x: 0.0625,
+        y: Self::HALF_SOURCE_HEIGHT,
+        width: Self::TEXTURE_SIZE,
+        height: Self::HALF_SOURCE_HEIGHT,
+    };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MojangFallbackLogoMetadata {
+    pub primary_word: &'static str,
+    pub secondary_word: &'static str,
+    pub glyph_columns: u8,
+    pub glyph_rows: u8,
+}
+
+impl Default for MojangFallbackLogoMetadata {
+    fn default() -> Self {
+        Self {
+            primary_word: "MOJANG",
+            secondary_word: "STUDIOS",
+            glyph_columns: 5,
+            glyph_rows: 7,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangProgressBarFrame {
+    pub outer_rect: MojangLoadingRect,
+    pub inner_fill_rect: MojangLoadingRect,
+    pub inner_fill_width: f32,
+    pub clamped_progress: f32,
+    pub border_width: f32,
+}
+
+impl MojangProgressBarFrame {
+    fn from_logo(
+        logo: &MojangLogoPlacement,
+        gui_height: f32,
+        displayed_progress: f32,
+        border_width: f32,
+    ) -> Self {
+        let center_y = gui_height * VanillaLoadingProgressBarView::CENTER_Y_FRACTION;
+        let outer_rect = MojangLoadingRect {
+            x: logo.target_rect.x,
+            y: center_y - VanillaLoadingProgressBarView::OUTER_HEIGHT * 0.5,
+            width: logo.target_rect.width,
+            height: VanillaLoadingProgressBarView::OUTER_HEIGHT,
+        };
+        let clamped_progress = displayed_progress.clamp(0.0, 1.0);
+        let inner_width = ((outer_rect.width - border_width * 2.0) * clamped_progress)
+            .ceil()
+            .max(0.0);
+        let inner_fill_rect = MojangLoadingRect {
+            x: outer_rect.x + border_width,
+            y: outer_rect.y + border_width,
+            width: inner_width,
+            height: (outer_rect.height - border_width * 2.0).max(0.0),
+        };
+        Self {
+            outer_rect,
+            inner_fill_rect,
+            inner_fill_width: inner_width,
+            clamped_progress,
+            border_width,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLoadingRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -806,6 +1024,163 @@ mod tests {
         );
         assert_eq!(red_view.fade.fade_in, Duration::from_millis(500));
         assert_eq!(red_view.fade.fade_out, Duration::from_millis(1_000));
+    }
+
+    #[test]
+    fn resource_loading_overlay_frame_exposes_desktop_mojang_geometry() {
+        let mut overlay = VanillaLoadingOverlay::new();
+        overlay.tick(1.0);
+        let view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&overlay, Duration::from_millis(250));
+
+        let frame = view.frame(900.0, 520.0);
+
+        assert_eq!(frame.background_argb, MOJANG_STUDIOS_RED_BACKGROUND_ARGB);
+        assert_eq!(frame.fade_alpha, 0.5);
+        assert_eq!(frame.progress.actual_progress, 0.0);
+        assert_eq!(frame.progress.displayed_progress, 0.05);
+        assert_eq!(frame.progress.clamped_displayed_progress, 0.05);
+        assert_eq!(
+            frame.logo.target_rect,
+            MojangLoadingRect {
+                x: 190.0,
+                y: 195.0,
+                width: 520.0,
+                height: 130.0,
+            }
+        );
+        assert_eq!(
+            frame.logo.left_half.target_rect,
+            MojangLoadingRect {
+                x: 190.0,
+                y: 195.0,
+                width: 260.0,
+                height: 130.0,
+            }
+        );
+        assert_eq!(
+            frame.logo.right_half.target_rect,
+            MojangLoadingRect {
+                x: 450.0,
+                y: 195.0,
+                width: 260.0,
+                height: 130.0,
+            }
+        );
+        assert_eq!(
+            frame.logo.left_half.source_rect,
+            MojangLogoSourceRect::LEFT_HALF
+        );
+        assert_eq!(
+            frame.logo.right_half.source_rect,
+            MojangLogoSourceRect::RIGHT_HALF
+        );
+        assert_eq!(
+            frame.progress_bar.outer_rect,
+            MojangLoadingRect {
+                x: 190.0,
+                y: 427.9,
+                width: 520.0,
+                height: 10.0,
+            }
+        );
+        assert_eq!(
+            frame.progress_bar.inner_fill_rect,
+            MojangLoadingRect {
+                x: 191.0,
+                y: 428.9,
+                width: 26.0,
+                height: 8.0,
+            }
+        );
+    }
+
+    #[test]
+    fn resource_loading_overlay_frame_exposes_narrow_mojang_geometry() {
+        let view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+
+        let frame = view.frame(320.0, 640.0);
+
+        assert_eq!(
+            frame.logo.target_rect,
+            MojangLoadingRect {
+                x: 40.0,
+                y: 290.0,
+                width: 240.0,
+                height: 60.0,
+            }
+        );
+        assert_eq!(
+            frame.progress_bar.outer_rect,
+            MojangLoadingRect {
+                x: 40.0,
+                y: 527.8,
+                width: 240.0,
+                height: 10.0,
+            }
+        );
+        assert_eq!(frame.progress_bar.inner_fill_width, 0.0);
+    }
+
+    #[test]
+    fn resource_loading_overlay_frame_clamps_progress_for_fill_geometry() {
+        let mut view = ResourceLoadingTracker::new(Vec::new())
+            .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        view.vanilla.actual_progress = 2.0;
+        view.vanilla.displayed_progress = 1.5;
+
+        let full_frame = view.frame(900.0, 520.0);
+
+        assert_eq!(full_frame.progress.actual_progress, 1.0);
+        assert_eq!(full_frame.progress.displayed_progress, 1.5);
+        assert_eq!(full_frame.progress.clamped_displayed_progress, 1.0);
+        assert_eq!(full_frame.progress_bar.clamped_progress, 1.0);
+        assert_eq!(full_frame.progress_bar.inner_fill_width, 518.0);
+
+        view.vanilla.displayed_progress = -0.25;
+        let empty_frame = view.frame(900.0, 520.0);
+
+        assert_eq!(empty_frame.progress.clamped_displayed_progress, 0.0);
+        assert_eq!(empty_frame.progress_bar.clamped_progress, 0.0);
+        assert_eq!(empty_frame.progress_bar.inner_fill_width, 0.0);
+    }
+
+    #[test]
+    fn resource_loading_overlay_frame_preserves_black_background_and_logo_metadata() {
+        let mut view = ResourceLoadingTracker::new(Vec::new()).loading_overlay_view(
+            &VanillaLoadingOverlay::new().with_background(VanillaLoadingBackground::Black),
+            Duration::ZERO,
+        );
+
+        let textured_frame = view.frame(900.0, 520.0);
+
+        assert_eq!(
+            textured_frame.background_argb,
+            MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB
+        );
+        assert_eq!(
+            textured_frame.logo.texture,
+            Some(MojangLogoTexture::default())
+        );
+        assert_eq!(
+            textured_frame.logo.fallback,
+            MojangFallbackLogoMetadata {
+                primary_word: "MOJANG",
+                secondary_word: "STUDIOS",
+                glyph_columns: 5,
+                glyph_rows: 7,
+            }
+        );
+
+        view.logo_texture = None;
+        let fallback_frame = view.frame(900.0, 520.0);
+
+        assert_eq!(fallback_frame.logo.texture, None);
+        assert_eq!(
+            fallback_frame.logo.fallback,
+            MojangFallbackLogoMetadata::default()
+        );
     }
 
     #[test]
