@@ -26114,6 +26114,240 @@ impl ClientFontManagerStateStatus {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientFontRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientFontRuntimeStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontRuntimeReport {
+    status: ClientFontRuntimeStatus,
+    font_definition_count: usize,
+    provider_count: usize,
+    asset_candidate_count: usize,
+    ready_asset_count: usize,
+    reference_edge_count: usize,
+    glyph_source_count: usize,
+    glyph_atlas_blocker_count: usize,
+    runtime_candidate_count: usize,
+    runtime_blocker_count: usize,
+    representative_font_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    blockers: Vec<String>,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientFontRuntimeReport {
+    pub fn from_state(state: &ClientFontManagerState) -> Self {
+        Self {
+            status: font_runtime_status_from_state(state),
+            font_definition_count: state.definition_count(),
+            provider_count: state.provider_count(),
+            asset_candidate_count: state.asset_candidate_count(),
+            ready_asset_count: state.ready_asset_count(),
+            reference_edge_count: state.reference_edge_count(),
+            glyph_source_count: state.estimated_glyph_source_count(),
+            glyph_atlas_blocker_count: state.glyph_atlas_blocker_count(),
+            runtime_candidate_count: state.runtime_candidates().candidate_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_font_ids: state.runtime_candidates().font_ids().to_vec(),
+            representative_resources: state.runtime_candidates().representative_assets().to_vec(),
+            blockers: font_runtime_representative_blockers(state),
+            boundary: state.boundary(),
+            error: None,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientFontRuntimeStatus::Missing
+            } else {
+                ClientFontRuntimeStatus::Failed
+            },
+            font_definition_count: 0,
+            provider_count: 0,
+            asset_candidate_count: 0,
+            ready_asset_count: 0,
+            reference_edge_count: 0,
+            glyph_source_count: 0,
+            glyph_atlas_blocker_count: 0,
+            runtime_candidate_count: 0,
+            runtime_blocker_count: 0,
+            representative_font_ids: Vec::new(),
+            representative_resources: Vec::new(),
+            blockers: Vec::new(),
+            boundary: FONT_MANAGER_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientFontRuntimeStatus {
+        self.status
+    }
+
+    pub fn font_definition_count(&self) -> usize {
+        self.font_definition_count
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_count
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.asset_candidate_count
+    }
+
+    pub fn ready_asset_count(&self) -> usize {
+        self.ready_asset_count
+    }
+
+    pub fn reference_edge_count(&self) -> usize {
+        self.reference_edge_count
+    }
+
+    pub fn glyph_source_count(&self) -> usize {
+        self.glyph_source_count
+    }
+
+    pub fn glyph_atlas_blocker_count(&self) -> usize {
+        self.glyph_atlas_blocker_count
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidate_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.glyph_atlas_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_font_ids(&self) -> &[String] {
+        &self.representative_font_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_font_runtime:status:{} fonts:{} providers:{} assets:{} ready_assets:{} refs:{} glyph_sources:{} glyph_atlas_blockers:{} runtime_candidates:{} runtime_blockers:{} total_blockers:{} representative_fonts:{} representative_resources:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.font_definition_count(),
+            self.provider_count(),
+            self.asset_candidate_count(),
+            self.ready_asset_count(),
+            self.reference_edge_count(),
+            self.glyph_source_count(),
+            self.glyph_atlas_blocker_count(),
+            self.runtime_candidate_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            font_manager_runtime_list_fragment(self.representative_font_ids()),
+            font_manager_runtime_list_fragment(self.representative_resources()),
+            font_manager_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_font_ids.iter().take(5).map(|font_id| {
+            format!(
+                "client_font_runtime_font:{font_id} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(
+            self.representative_resources
+                .iter()
+                .take(5)
+                .map(|resource| {
+                    format!(
+                        "client_font_runtime_resource:{resource} boundary:{}",
+                        self.boundary()
+                    )
+                }),
+        );
+        items.extend(self.blockers.iter().take(8).map(|blocker| {
+            format!(
+                "client_font_runtime_blocker:{blocker} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_font_runtime_failure:error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
+        items
+    }
+}
+
+fn font_runtime_status_from_state(state: &ClientFontManagerState) -> ClientFontRuntimeStatus {
+    if state.glyph_atlas_blocker_count() > 0 || state.definition_count() == 0 {
+        ClientFontRuntimeStatus::Missing
+    } else {
+        match state.status() {
+            ClientFontManagerStateStatus::Loaded => ClientFontRuntimeStatus::Loaded,
+            ClientFontManagerStateStatus::Blocked => ClientFontRuntimeStatus::Blocked,
+            ClientFontManagerStateStatus::Missing => ClientFontRuntimeStatus::Missing,
+        }
+    }
+}
+
+fn font_runtime_representative_blockers(state: &ClientFontManagerState) -> Vec<String> {
+    let mut blockers = state
+        .runtime_candidates()
+        .candidates()
+        .iter()
+        .flat_map(ClientFontManagerRuntimeCandidate::blockers)
+        .map(|blocker| format!("runtime:{blocker}"))
+        .collect::<BTreeSet<_>>();
+
+    for item in state.items() {
+        if item.glyph_atlas_blocker_count() > 0 {
+            blockers.insert(format!("glyph_atlas:{}", item.loaded_resource_pack()));
+        }
+    }
+
+    blockers.into_iter().take(8).collect()
+}
+
 pub fn load_client_font_manager_state(
     stack: &ClientResourceStack,
     definitions: &[String],
@@ -26372,6 +26606,13 @@ impl FontManagerRuntimeCandidateReloadListener {
     ) -> ResourceReloadResult<ClientFontManagerState> {
         load_client_font_manager_state(stack, &self.definitions)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientFontRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientFontRuntimeReport::from_state(&state),
+            Err(error) => ClientFontRuntimeReport::from_failure(&error),
+        }
+    }
 }
 
 impl Default for FontManagerRuntimeCandidateReloadListener {
@@ -26400,8 +26641,11 @@ impl ResourceReloadListener for FontManagerRuntimeCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let candidates = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(candidates.report_items()))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientFontRuntimeReport::from_state(&state);
+        let mut items = state.runtime_candidates().report_items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -39365,7 +39609,7 @@ mod tests {
             listener.reload.items()[0],
             "font_manager_runtime_candidates:candidates:5 fonts:1 providers:1 ready_assets:1 glyph_sources:2 refs:0 blockers:12 representative_fonts:example:default representative_assets:assets/example/textures/font/custom.png@test boundary:font_glyphs_loaded_runtime_fontset_pending"
         );
-        assert_eq!(listener.reload.items().len(), 6);
+        assert!(listener.reload.items().len() > 6);
         assert!(listener.reload.items()[1].contains(
             "font_manager_runtime_candidate:font_set_replacement_cache category:font_set_replacement_cache"
         ));
@@ -39375,6 +39619,136 @@ mod tests {
         assert!(listener.reload.items()[4].contains("category:player_glyph_provider_binding"));
         assert!(listener.reload.items()[5]
             .contains("blockers:runtime_text_layout_missing|glyph_texture_stitch_upload_missing|glyph_draw_pipeline_missing"));
+        assert!(listener.reload.items()[6].starts_with("client_font_runtime:status:blocked"));
+    }
+
+    #[test]
+    fn font_runtime_report_reports_blocked_runtime_surface_without_losing_candidate_items() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/custom.png","ascent":7,"chars":["ab"]},
+                {"type":"space","advances":{" ":4}}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/font/custom.png", b"bitmap");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener =
+            FontManagerRuntimeCandidateReloadListener::new(["assets/example/font/default.json"]);
+        let report = listener.runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientFontRuntimeStatus::Blocked);
+        assert_eq!(report.font_definition_count(), 1);
+        assert_eq!(report.provider_count(), 2);
+        assert_eq!(report.asset_candidate_count(), 1);
+        assert_eq!(report.ready_asset_count(), 1);
+        assert_eq!(report.reference_edge_count(), 0);
+        assert_eq!(report.glyph_source_count(), 3);
+        assert_eq!(report.glyph_atlas_blocker_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert_eq!(report.runtime_blocker_count(), 12);
+        assert_eq!(report.total_blocker_count(), 12);
+        assert_eq!(report.representative_font_ids(), &["example:default"]);
+        assert_eq!(
+            report.representative_resources(),
+            &["assets/example/textures/font/custom.png@test"]
+        );
+        assert!(report.error().is_none());
+        assert_eq!(report.boundary(), FONT_MANAGER_RUNTIME_BOUNDARY);
+        assert!(
+            report
+                .blockers()
+                .contains(&"runtime:atlas_glyph_provider_binding_missing".to_owned())
+        );
+        assert_eq!(
+            report.summary_fragment(),
+            "client_font_runtime:status:blocked fonts:1 providers:2 assets:1 ready_assets:1 refs:0 glyph_sources:3 glyph_atlas_blockers:0 runtime_candidates:5 runtime_blockers:12 total_blockers:12 representative_fonts:example:default representative_resources:assets/example/textures/font/custom.png@test blockers:runtime:atlas_glyph_provider_binding_missing|runtime:font_description_dispatch_missing|runtime:font_option_reload_missing|runtime:font_provider_runtime_cache_missing|runtime:glyph_draw_pipeline_missing error:none boundary:font_glyphs_loaded_runtime_fontset_pending"
+        );
+
+        let reload = ResourceReloadManager::new(stack)
+            .with_listener(listener)
+            .run()
+            .expect("font manager runtime report should append to candidate output");
+        let items = reload.listener_reports()[0].reload.items();
+        assert_eq!(
+            items[0],
+            "font_manager_runtime_candidates:candidates:5 fonts:1 providers:2 ready_assets:1 glyph_sources:3 refs:0 blockers:12 representative_fonts:example:default representative_assets:assets/example/textures/font/custom.png@test boundary:font_glyphs_loaded_runtime_fontset_pending"
+        );
+        assert!(items[1].starts_with("font_manager_runtime_candidate:font_set_replacement_cache"));
+        assert!(items[6].starts_with("client_font_runtime:status:blocked"));
+    }
+
+    #[test]
+    fn font_runtime_report_marks_missing_assets_without_panicking() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/missing.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/missing.png","ascent":7,"chars":["a"]}
+            ]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report =
+            FontManagerRuntimeCandidateReloadListener::new(["assets/example/font/missing.json"])
+                .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientFontRuntimeStatus::Missing);
+        assert_eq!(report.font_definition_count(), 1);
+        assert_eq!(report.asset_candidate_count(), 1);
+        assert_eq!(report.ready_asset_count(), 0);
+        assert_eq!(report.glyph_atlas_blocker_count(), 1);
+        assert_eq!(report.runtime_blocker_count(), 12);
+        assert_eq!(report.total_blocker_count(), 13);
+        assert!(
+            report
+                .blockers()
+                .contains(&"glyph_atlas:assets/example/font/missing.json@test".to_owned())
+        );
+        assert!(report.error().is_none());
+    }
+
+    #[test]
+    fn font_runtime_report_reports_failed_invalid_definition() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[{"type":"bogus"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report =
+            FontManagerRuntimeCandidateReloadListener::new(["assets/example/font/default.json"])
+                .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientFontRuntimeStatus::Failed);
+        assert_eq!(report.font_definition_count(), 0);
+        assert_eq!(report.total_blocker_count(), 0);
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("unsupported type `bogus`"))
+        );
+        assert!(report.items()[1].starts_with("client_font_runtime_failure:error:"));
+    }
+
+    #[test]
+    fn font_runtime_report_reports_missing_definition_resource() {
+        let temp = TempPack::new();
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report =
+            FontManagerRuntimeCandidateReloadListener::new(["assets/example/font/missing.json"])
+                .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientFontRuntimeStatus::Missing);
+        assert_eq!(report.font_definition_count(), 0);
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("assets/example/font/missing.json"))
+        );
     }
 
     #[test]
@@ -39520,6 +39894,33 @@ mod tests {
                     .blockers()
                     .contains(&"atlas_glyph_provider_binding_missing")
         }));
+    }
+
+    #[test]
+    fn font_runtime_report_committed_vanilla_reports_blocked_boundary_surface() {
+        let report = FontManagerRuntimeCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientFontRuntimeStatus::Blocked);
+        assert_eq!(report.font_definition_count(), 7);
+        assert!(report.asset_candidate_count() > 0);
+        assert!(report.ready_asset_count() > 0);
+        assert_eq!(report.glyph_atlas_blocker_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert_eq!(report.runtime_blocker_count(), 12);
+        assert_eq!(report.total_blocker_count(), 12);
+        assert_eq!(report.boundary(), FONT_MANAGER_RUNTIME_BOUNDARY);
+        assert!(
+            report
+                .representative_font_ids()
+                .contains(&"minecraft:default".to_owned())
+        );
+        assert!(!report.representative_resources().is_empty());
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_font_runtime:status:blocked fonts:7")
+        );
     }
 
     #[test]
