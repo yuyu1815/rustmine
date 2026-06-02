@@ -129,12 +129,28 @@ fn resource_pack_apply_ack_sequence(
     let mut acks = vec![downloaded];
     match pack.open_downloaded() {
         Ok(()) if reload_accepted_resource_pack(pack, base_stack).is_ok() => {
-            acks.push(pack.apply_opened())
+            let ack = pack.apply_opened();
+            push_resource_pack_apply_ack(&mut acks, pack, ack);
         }
         Ok(()) => acks.push(pack.reload_failed()),
         Err(ack) => acks.push(ack),
     }
     acks
+}
+
+#[cfg(any(feature = "online-mode", test))]
+fn push_resource_pack_apply_ack(
+    acks: &mut Vec<ServerResourcePackAck>,
+    pack: &ServerResourcePackApplyState,
+    ack: ServerResourcePackAck,
+) {
+    if ack.action == ServerResourcePackAckAction::SuccessfullyLoaded
+        && !pack.apply_plan().can_send_successfully_loaded()
+    {
+        return;
+    }
+
+    acks.push(ack);
 }
 
 #[cfg(any(feature = "online-mode", test))]
@@ -347,6 +363,56 @@ mod tests {
         );
         assert!(acks.iter().all(|ack| ack.id == id));
         assert_eq!(pack.status(), ServerResourcePackStatus::Applied);
+    }
+
+    #[test]
+    fn opened_pack_does_not_send_successfully_loaded_until_applied() {
+        let id = Uuid::from_u128(8);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"test"}}"#,
+        );
+        let mut pack = test_pack(id);
+
+        pack.accept();
+        pack.start_download();
+        let downloaded = pack
+            .download_path_succeeded(temp.path())
+            .expect("directory pack with valid metadata should download");
+        let mut acks = vec![downloaded];
+        pack.open_downloaded()
+            .expect("downloaded directory pack should open");
+
+        assert_eq!(pack.status(), ServerResourcePackStatus::Opened);
+        assert!(!pack.apply_plan().can_send_successfully_loaded());
+
+        push_resource_pack_apply_ack(
+            &mut acks,
+            &pack,
+            ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::SuccessfullyLoaded,
+            },
+        );
+
+        assert_eq!(
+            ack_actions(&acks),
+            [ServerResourcePackAckAction::Downloaded]
+        );
+
+        let applied_ack = pack.apply_opened();
+        assert_eq!(pack.status(), ServerResourcePackStatus::Applied);
+        assert!(pack.apply_plan().can_send_successfully_loaded());
+        push_resource_pack_apply_ack(&mut acks, &pack, applied_ack);
+
+        assert_eq!(
+            ack_actions(&acks),
+            [
+                ServerResourcePackAckAction::Downloaded,
+                ServerResourcePackAckAction::SuccessfullyLoaded,
+            ]
+        );
     }
 
     #[test]
