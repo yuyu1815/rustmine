@@ -12783,6 +12783,7 @@ pub struct ClientWaypointStyleRuntimeCandidate {
     resource: String,
     pack_id: String,
     sprite_count: usize,
+    sprites: Vec<String>,
     decoded_resource_count: usize,
     blocker_count: usize,
     missing_candidate_blocker_count: usize,
@@ -12804,6 +12805,10 @@ impl ClientWaypointStyleRuntimeCandidate {
 
     pub fn sprite_count(&self) -> usize {
         self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
     }
 
     pub fn decoded_resource_count(&self) -> usize {
@@ -12840,6 +12845,7 @@ impl ClientWaypointStyleRuntimeCandidate {
             resource: self.resource.clone(),
             pack_id: self.pack_id.clone(),
             sprite_count: self.sprite_count,
+            sprites: self.sprites.clone(),
             decoded_resource_count: self.decoded_resource_count,
             blocker_count: self.blocker_count,
             missing_candidate_blocker_count: self.missing_candidate_blocker_count,
@@ -12855,6 +12861,317 @@ pub enum ClientWaypointStyleLoadStatus {
     Loaded,
     Blocked,
     Missing,
+}
+
+impl ClientWaypointStyleLoadStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleRuntimeReport {
+    status: ClientWaypointStyleRuntimeStatus,
+    style_count: usize,
+    sprite_count: usize,
+    decoded_resource_count: usize,
+    runtime_ready_count: usize,
+    runtime_candidate_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_style_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_sprites: Vec<String>,
+    representative_runtime_surfaces: Vec<String>,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientWaypointStyleRuntimeReport {
+    pub fn from_state(state: &ClientWaypointStyleState) -> Self {
+        Self {
+            status: waypoint_style_runtime_status_from_state(state),
+            style_count: state.style_count(),
+            sprite_count: state.sprite_count(),
+            decoded_resource_count: state.decoded_resource_count(),
+            runtime_ready_count: state.runtime_ready_count(),
+            runtime_candidate_count: state.candidates().style_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_style_ids: representative_style_ids_from_waypoint_style_state(state),
+            representative_resources: representative_resources_from_waypoint_style_state(state),
+            representative_sprites: representative_sprites_from_waypoint_style_state(state),
+            representative_runtime_surfaces: state
+                .pending_surfaces()
+                .iter()
+                .take(8)
+                .map(|surface| (*surface).to_owned())
+                .collect(),
+            blockers: waypoint_style_runtime_representative_blockers(state),
+            runtime_boundary: WAYPOINT_STYLE_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientWaypointStyleRuntimeStatus::Missing
+            } else {
+                ClientWaypointStyleRuntimeStatus::Failed
+            },
+            style_count: 0,
+            sprite_count: 0,
+            decoded_resource_count: 0,
+            runtime_ready_count: 0,
+            runtime_candidate_count: 0,
+            candidate_blocker_count: 0,
+            runtime_blocker_count: 0,
+            representative_style_ids: Vec::new(),
+            representative_resources: Vec::new(),
+            representative_sprites: Vec::new(),
+            representative_runtime_surfaces: Vec::new(),
+            blockers: Vec::new(),
+            runtime_boundary: WAYPOINT_STYLE_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientWaypointStyleRuntimeStatus {
+        self.status
+    }
+
+    pub fn style_count(&self) -> usize {
+        self.style_count
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn runtime_ready_count(&self) -> usize {
+        self.runtime_ready_count
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidate_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_style_ids(&self) -> &[String] {
+        &self.representative_style_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_sprites(&self) -> &[String] {
+        &self.representative_sprites
+    }
+
+    pub fn representative_runtime_surfaces(&self) -> &[String] {
+        &self.representative_runtime_surfaces
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_waypoint_style_runtime:status:{} styles:{} sprites:{} decoded:{} runtime_ready:{} runtime_candidates:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_styles:{} representative_resources:{} representative_sprites:{} representative_runtime_surfaces:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.style_count(),
+            self.sprite_count(),
+            self.decoded_resource_count(),
+            self.runtime_ready_count(),
+            self.runtime_candidate_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            waypoint_style_runtime_list_fragment(self.representative_style_ids()),
+            waypoint_style_runtime_list_fragment(self.representative_resources()),
+            waypoint_style_runtime_list_fragment(self.representative_sprites()),
+            waypoint_style_runtime_list_fragment(self.representative_runtime_surfaces()),
+            waypoint_style_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_style_ids.iter().take(5).map(|id| {
+            format!(
+                "client_waypoint_style_runtime_style:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(
+            self.representative_resources
+                .iter()
+                .take(5)
+                .map(|resource| {
+                    format!(
+                        "client_waypoint_style_runtime_resource:{resource} boundary:{}",
+                        self.runtime_boundary()
+                    )
+                }),
+        );
+        items.extend(self.representative_sprites.iter().take(8).map(|sprite| {
+            format!(
+                "client_waypoint_style_runtime_sprite:{sprite} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(
+            self.representative_runtime_surfaces
+                .iter()
+                .take(8)
+                .map(|surface| {
+                    format!(
+                        "client_waypoint_style_runtime_surface:{surface} boundary:{}",
+                        self.runtime_boundary()
+                    )
+                }),
+        );
+        items.extend(self.blockers.iter().take(8).map(|blocker| {
+            format!(
+                "client_waypoint_style_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_waypoint_style_runtime_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientWaypointStyleRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientWaypointStyleRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+fn waypoint_style_runtime_status_from_state(
+    state: &ClientWaypointStyleState,
+) -> ClientWaypointStyleRuntimeStatus {
+    match state.status() {
+        ClientWaypointStyleLoadStatus::Loaded => ClientWaypointStyleRuntimeStatus::Loaded,
+        ClientWaypointStyleLoadStatus::Blocked => ClientWaypointStyleRuntimeStatus::Blocked,
+        ClientWaypointStyleLoadStatus::Missing => ClientWaypointStyleRuntimeStatus::Missing,
+    }
+}
+
+fn representative_style_ids_from_waypoint_style_state(
+    state: &ClientWaypointStyleState,
+) -> Vec<String> {
+    state
+        .styles()
+        .iter()
+        .take(5)
+        .map(|style| style.style_id().to_owned())
+        .collect()
+}
+
+fn representative_resources_from_waypoint_style_state(
+    state: &ClientWaypointStyleState,
+) -> Vec<String> {
+    state
+        .styles()
+        .iter()
+        .take(5)
+        .map(|style| style.resource().to_owned())
+        .collect()
+}
+
+fn representative_sprites_from_waypoint_style_state(
+    state: &ClientWaypointStyleState,
+) -> Vec<String> {
+    let mut sprites = BTreeSet::new();
+    for style in state.styles() {
+        for sprite in style.sprites() {
+            sprites.insert(sprite.to_owned());
+            if sprites.len() >= 8 {
+                return sprites.into_iter().collect();
+            }
+        }
+    }
+    sprites.into_iter().collect()
+}
+
+fn waypoint_style_runtime_representative_blockers(state: &ClientWaypointStyleState) -> Vec<String> {
+    state
+        .styles()
+        .iter()
+        .filter_map(|style| {
+            style.blocker_reason().map(|reason| {
+                format!(
+                    "{}:{} candidate:{} runtime:{} total:{}",
+                    style.style_id(),
+                    reason,
+                    style.candidate_blocker_count(),
+                    style.runtime_blocker_count(),
+                    style.total_blocker_count()
+                )
+            })
+        })
+        .take(8)
+        .collect()
+}
+
+fn waypoint_style_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join(",")
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13007,6 +13324,7 @@ pub struct ClientWaypointStyleRuntimeState {
     resource: String,
     pack_id: String,
     sprite_count: usize,
+    sprites: Vec<String>,
     decoded_resource_count: usize,
     candidate_blocker_count: usize,
     runtime_blocker_count: usize,
@@ -13045,6 +13363,7 @@ impl ClientWaypointStyleRuntimeState {
             resource: candidate.resource().to_owned(),
             pack_id: candidate.pack_id().to_owned(),
             sprite_count: candidate.sprite_count(),
+            sprites: candidate.sprites().to_vec(),
             decoded_resource_count: candidate.decoded_resource_count(),
             candidate_blocker_count: candidate.candidate_blocker_count(),
             runtime_blocker_count,
@@ -13069,6 +13388,10 @@ impl ClientWaypointStyleRuntimeState {
 
     pub fn sprite_count(&self) -> usize {
         self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
     }
 
     pub fn decoded_resource_count(&self) -> usize {
@@ -13129,6 +13452,7 @@ pub struct ClientWaypointStyleRuntimeCandidateReport {
     resource: String,
     pack_id: String,
     sprite_count: usize,
+    sprites: Vec<String>,
     decoded_resource_count: usize,
     blocker_count: usize,
     missing_candidate_blocker_count: usize,
@@ -13152,6 +13476,10 @@ impl ClientWaypointStyleRuntimeCandidateReport {
 
     pub fn sprite_count(&self) -> usize {
         self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
     }
 
     pub fn decoded_resource_count(&self) -> usize {
@@ -15476,6 +15804,13 @@ impl WaypointStyleRuntimeCandidateReloadListener {
         self.load(stack)
             .map(ClientWaypointStyleState::from_candidates)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientWaypointStyleRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientWaypointStyleRuntimeReport::from_state(&state),
+            Err(error) => ClientWaypointStyleRuntimeReport::from_failure(&error),
+        }
+    }
 }
 
 impl Default for WaypointStyleRuntimeCandidateReloadListener {
@@ -15504,9 +15839,11 @@ impl ResourceReloadListener for WaypointStyleRuntimeCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(
-            self.load_state(stack)?.items(),
-        ))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientWaypointStyleRuntimeReport::from_state(&state);
+        let mut items = state.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -23766,6 +24103,7 @@ fn build_client_waypoint_style_runtime_candidate(
         resource: candidate.resource().to_owned(),
         pack_id: candidate.pack_id().to_owned(),
         sprite_count: candidate.sprite_count(),
+        sprites: candidate.sprites().to_vec(),
         decoded_resource_count: candidate.decoded_resource_count(),
         blocker_count: candidate.blocker_count(),
         missing_candidate_blocker_count: candidate
@@ -44309,6 +44647,164 @@ mod tests {
     }
 
     #[test]
+    fn waypoint_runtime_report_reports_blocked_runtime_surface_after_sprite_decode() {
+        let temp = TempPack::new();
+        let default_png = encode_test_rgba_png(2, 3, &[0, 0, 0, 255].repeat(6));
+        let custom_png = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0","custom:pin"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &default_png,
+        );
+        temp.write_bytes(
+            "assets/custom/textures/gui/sprites/hud/locator_bar_dot/pin.png",
+            &custom_png,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report =
+            WaypointStyleRuntimeCandidateReloadListener::new(["default"]).runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientWaypointStyleRuntimeStatus::Blocked);
+        assert_eq!(report.style_count(), 1);
+        assert_eq!(report.sprite_count(), 2);
+        assert_eq!(report.decoded_resource_count(), 2);
+        assert_eq!(report.runtime_ready_count(), 1);
+        assert_eq!(report.runtime_candidate_count(), 1);
+        assert_eq!(report.candidate_blocker_count(), 0);
+        assert_eq!(report.runtime_blocker_count(), 1);
+        assert_eq!(report.total_blocker_count(), 1);
+        assert_eq!(report.representative_style_ids(), &["default".to_owned()]);
+        assert_eq!(
+            report.representative_resources(),
+            &["assets/minecraft/waypoint_style/default.json".to_owned()]
+        );
+        assert_eq!(
+            report.representative_sprites(),
+            &["custom:pin".to_owned(), "minecraft:default_0".to_owned()]
+        );
+        assert!(
+            report
+                .representative_runtime_surfaces()
+                .contains(&"locator_bar_sprite_lookup".to_owned())
+        );
+        assert_eq!(
+            report.blockers(),
+            &["default:waypoint_style_sprites_loaded_runtime_binding_pending candidate:0 runtime:1 total:1".to_owned()]
+        );
+        assert_eq!(report.runtime_boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+        assert_eq!(
+            report.summary_fragment(),
+            "client_waypoint_style_runtime:status:blocked styles:1 sprites:2 decoded:2 runtime_ready:1 runtime_candidates:1 candidate_blockers:0 runtime_blockers:1 total_blockers:1 representative_styles:default representative_resources:assets/minecraft/waypoint_style/default.json representative_sprites:custom:pin,minecraft:default_0 representative_runtime_surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission blockers:default:waypoint_style_sprites_loaded_runtime_binding_pending candidate:0 runtime:1 total:1 error:none boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
+        );
+    }
+
+    #[test]
+    fn waypoint_runtime_report_reports_missing_candidate_blocker_without_panicking() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:missing"]}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report =
+            WaypointStyleRuntimeCandidateReloadListener::new(["default"]).runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientWaypointStyleRuntimeStatus::Missing);
+        assert_eq!(report.style_count(), 1);
+        assert_eq!(report.sprite_count(), 1);
+        assert_eq!(report.decoded_resource_count(), 0);
+        assert_eq!(report.runtime_ready_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 1);
+        assert_eq!(report.candidate_blocker_count(), 1);
+        assert_eq!(report.runtime_blocker_count(), 0);
+        assert_eq!(
+            report.blockers(),
+            &["default:sprite_decode_complete_waypoint_manager_pending candidate:1 runtime:0 total:1".to_owned()]
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("client_waypoint_style_runtime_blocker:default:"))
+        );
+        assert_eq!(report.error(), None);
+    }
+
+    #[test]
+    fn waypoint_runtime_report_reports_failed_error_without_panicking() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/waypoint_style/default.json", "{not json");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report =
+            WaypointStyleRuntimeCandidateReloadListener::new(["default"]).runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientWaypointStyleRuntimeStatus::Failed);
+        assert_eq!(report.style_count(), 0);
+        assert_eq!(report.sprite_count(), 0);
+        assert_eq!(report.decoded_resource_count(), 0);
+        assert_eq!(report.runtime_ready_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 0);
+        assert_eq!(report.total_blocker_count(), 0);
+        assert!(report.representative_style_ids().is_empty());
+        assert!(report.representative_resources().is_empty());
+        assert!(report.representative_sprites().is_empty());
+        assert!(report.representative_runtime_surfaces().is_empty());
+        assert!(report.blockers().is_empty());
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("assets/minecraft/waypoint_style/default.json"))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_waypoint_style_runtime_failure:error:"))
+        );
+    }
+
+    #[test]
+    fn waypoint_runtime_report_reload_appends_report_rows_without_replacing_state_rows() {
+        let temp = TempPack::new();
+        let png = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &png,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(WaypointStyleRuntimeCandidateReloadListener::new([
+                "default",
+            ]))
+            .run()
+            .expect("waypoint runtime report rows should append to existing state rows");
+        let items = &report.listener_reports()[0].reload.items;
+
+        assert!(items[0].starts_with("waypoint_style_state:status:Blocked"));
+        assert!(items[1].starts_with("waypoint_style_state_style:default"));
+        assert!(
+            items
+                .iter()
+                .any(|item| { item.starts_with("client_waypoint_style_runtime:status:blocked") })
+        );
+        assert!(items.iter().any(|item| {
+            item.starts_with("client_waypoint_style_runtime_surface:locator_bar_sprite_lookup")
+        }));
+    }
+
+    #[test]
     fn waypoint_style_manifest_reload_rejects_invalid_sprite_shape() {
         let temp = TempPack::new();
         temp.write(
@@ -46733,6 +47229,52 @@ mod tests {
             Some(WAYPOINT_STYLE_RUNTIME_BOUNDARY)
         );
         assert_eq!(default_style.boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+    }
+
+    #[test]
+    fn waypoint_runtime_report_committed_vanilla_reports_representatives_and_boundaries() {
+        let report = WaypointStyleRuntimeCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientWaypointStyleRuntimeStatus::Blocked);
+        assert_eq!(report.style_count(), 2);
+        assert!(report.sprite_count() > 0);
+        assert_eq!(report.sprite_count(), report.decoded_resource_count());
+        assert_eq!(report.runtime_ready_count(), 2);
+        assert_eq!(report.runtime_candidate_count(), report.style_count());
+        assert_eq!(report.candidate_blocker_count(), 0);
+        assert_eq!(report.runtime_blocker_count(), 2);
+        assert_eq!(report.total_blocker_count(), 2);
+        assert!(
+            report
+                .representative_style_ids()
+                .contains(&"default".to_owned())
+        );
+        assert!(
+            report
+                .representative_resources()
+                .iter()
+                .any(|resource| resource == "assets/minecraft/waypoint_style/default.json")
+        );
+        assert!(!report.representative_sprites().is_empty());
+        assert!(
+            report
+                .representative_runtime_surfaces()
+                .contains(&"locator_bar_sprite_lookup".to_owned())
+        );
+        assert!(
+            report
+                .blockers()
+                .iter()
+                .any(|blocker| blocker.contains(WAYPOINT_STYLE_RUNTIME_BOUNDARY))
+        );
+        assert_eq!(report.runtime_boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_waypoint_style_runtime:status:blocked")
+        );
     }
 
     #[test]
