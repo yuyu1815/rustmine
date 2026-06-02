@@ -3120,6 +3120,10 @@ impl ResourceReloadManager {
         self.plan().schedule_state()
     }
 
+    pub fn runtime_report(&self) -> ClientResourceReloadManagerRuntimeReport {
+        ClientResourceReloadManagerRuntimeReport::from_manager(self)
+    }
+
     pub fn run(&self) -> ResourceReloadResult<ResourceReloadReport> {
         self.run_with_events(|_| {})
     }
@@ -3161,6 +3165,232 @@ impl ResourceReloadManager {
             events,
             listener_reports,
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientResourceReloadManagerRuntimeStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+impl ClientResourceReloadManagerRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientResourceReloadManagerRuntimeReport {
+    pack_ids: Vec<String>,
+    listener_names: Vec<String>,
+    listener_count: usize,
+    plan: ResourceReloadPlan,
+    schedule_state: ResourceReloadScheduleState,
+    progress: f32,
+    actual_progress: f32,
+    progress_snapshot: ResourceReloadProgressSnapshot,
+    completed_listener_reports: Vec<CompletedResourceReloadListener>,
+    status: ClientResourceReloadManagerRuntimeStatus,
+    error: Option<String>,
+    boundary: &'static str,
+}
+
+impl ClientResourceReloadManagerRuntimeReport {
+    pub fn from_manager(manager: &ResourceReloadManager) -> Self {
+        let plan = manager.plan();
+        let state = ResourceReloadState::new(plan);
+        Self::from_manager_and_state(
+            manager,
+            &state,
+            Vec::new(),
+            ClientResourceReloadManagerRuntimeStatus::Pending,
+            None,
+        )
+    }
+
+    pub fn from_running(manager: &ResourceReloadManager, state: &ResourceReloadState) -> Self {
+        Self::from_manager_and_state(
+            manager,
+            state,
+            Vec::new(),
+            ClientResourceReloadManagerRuntimeStatus::Running,
+            None,
+        )
+    }
+
+    pub fn from_completed(manager: &ResourceReloadManager, report: &ResourceReloadReport) -> Self {
+        Self::from_manager_and_state(
+            manager,
+            report.state(),
+            report.listener_reports().to_vec(),
+            ClientResourceReloadManagerRuntimeStatus::Completed,
+            None,
+        )
+    }
+
+    pub fn from_failure(manager: &ResourceReloadManager, error: &ResourceReloadError) -> Self {
+        let plan = manager.plan();
+        let state = ResourceReloadState::new(plan);
+        Self::from_manager_and_state(
+            manager,
+            &state,
+            Vec::new(),
+            ClientResourceReloadManagerRuntimeStatus::Failed,
+            Some(error.to_string()),
+        )
+    }
+
+    pub fn from_result(
+        manager: &ResourceReloadManager,
+        result: &ResourceReloadResult<ResourceReloadReport>,
+    ) -> Self {
+        match result {
+            Ok(report) => Self::from_completed(manager, report),
+            Err(error) => Self::from_failure(manager, error),
+        }
+    }
+
+    fn from_manager_and_state(
+        manager: &ResourceReloadManager,
+        state: &ResourceReloadState,
+        completed_listener_reports: Vec<CompletedResourceReloadListener>,
+        status: ClientResourceReloadManagerRuntimeStatus,
+        error: Option<String>,
+    ) -> Self {
+        let pack_ids = manager
+            .stack
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+        let plan = state.plan().clone();
+        let progress_snapshot = state.progress_snapshot();
+
+        Self {
+            pack_ids,
+            listener_names: plan.listeners().to_vec(),
+            listener_count: plan.listeners().len(),
+            schedule_state: plan.schedule_state(),
+            progress: state.progress(),
+            actual_progress: progress_snapshot.actual_progress(),
+            progress_snapshot,
+            completed_listener_reports,
+            status,
+            error,
+            plan,
+            boundary: CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn pack_ids(&self) -> &[String] {
+        &self.pack_ids
+    }
+
+    pub fn listener_names(&self) -> &[String] {
+        &self.listener_names
+    }
+
+    pub fn listener_count(&self) -> usize {
+        self.listener_count
+    }
+
+    pub fn plan(&self) -> &ResourceReloadPlan {
+        &self.plan
+    }
+
+    pub fn schedule_state(&self) -> &ResourceReloadScheduleState {
+        &self.schedule_state
+    }
+
+    pub fn progress(&self) -> f32 {
+        self.progress
+    }
+
+    pub fn actual_progress(&self) -> f32 {
+        self.actual_progress
+    }
+
+    pub fn progress_snapshot(&self) -> &ResourceReloadProgressSnapshot {
+        &self.progress_snapshot
+    }
+
+    pub fn completed_listener_reports(&self) -> &[CompletedResourceReloadListener] {
+        &self.completed_listener_reports
+    }
+
+    pub fn completed_listener_report_count(&self) -> usize {
+        self.completed_listener_reports.len()
+    }
+
+    pub fn status(&self) -> ClientResourceReloadManagerRuntimeStatus {
+        self.status
+    }
+
+    pub fn error_text(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_resource_reload_manager_runtime:status:{} progress:{:.3} actual_progress:{:.3} packs:{} listeners:{} completed_reports:{} completed_weight:{} total_weight:{} error:{} boundary:{}",
+            self.status.as_str(),
+            self.progress(),
+            self.actual_progress(),
+            self.pack_ids().len(),
+            self.listener_count(),
+            self.completed_listener_report_count(),
+            self.progress_snapshot().completed_weight(),
+            self.progress_snapshot().total_weight(),
+            self.error_text().unwrap_or("none"),
+            self.boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.pack_ids().iter().map(|pack_id| {
+            format!(
+                "client_resource_reload_manager_runtime_pack:{pack_id} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.listener_names().iter().enumerate().map(|(index, listener)| {
+            format!(
+                "client_resource_reload_manager_runtime_listener:{index}:{listener} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.completed_listener_reports().iter().map(|listener| {
+            format!(
+                "client_resource_reload_manager_runtime_completed_listener:{} preparation_items:{} reload_items:{} boundary:{}",
+                listener.name,
+                listener.preparation.items().len(),
+                listener.reload.items().len(),
+                self.boundary()
+            )
+        }));
+
+        if let Some(error) = self.error_text() {
+            items.push(format!(
+                "client_resource_reload_manager_runtime_failure:error:{} boundary:{}",
+                error,
+                self.boundary()
+            ));
+        }
+
+        items
     }
 }
 
@@ -43288,6 +43518,148 @@ mod tests {
             .expect("default manager should include waypoint style runtime candidates");
 
         assert_eq!(runtime_index, manager_index + 1);
+    }
+
+    #[test]
+    fn client_resource_reload_manager_state_reports_default_listener_order_and_count() {
+        let manager =
+            ResourceReloadManager::with_default_client_resources(ClientResourceStack::vanilla());
+        let state = manager.runtime_report();
+        let listeners = state.listener_names();
+
+        assert_eq!(state.pack_ids(), &[VANILLA_PACK_ID.to_owned()]);
+        assert_eq!(state.listener_count(), listeners.len());
+        assert!(state.listener_count() >= 46);
+        assert_eq!(
+            listeners.first().map(String::as_str),
+            Some("client_languages")
+        );
+        assert_eq!(
+            listeners.last().map(String::as_str),
+            Some("regional_compliance_notification_decision_candidates")
+        );
+        assert!(listeners.windows(2).any(|window| window
+            == [
+                "texture_manager_registered_textures",
+                "texture_manager_upload_candidates"
+            ]));
+        assert!(listeners.windows(2).any(|window| window
+            == [
+                "waypoint_style_manager_candidates",
+                "waypoint_style_runtime_candidates"
+            ]));
+        assert_eq!(
+            state.status(),
+            ClientResourceReloadManagerRuntimeStatus::Pending
+        );
+        assert_eq!(state.boundary(), CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY);
+    }
+
+    #[test]
+    fn client_resource_reload_manager_state_exposes_plan_and_schedule() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(ListingResourceReloadListener::new(
+                "first",
+                std::iter::empty::<&str>(),
+            ))
+            .with_listener(ListingResourceReloadListener::new(
+                "second",
+                std::iter::empty::<&str>(),
+            ));
+
+        let state = manager.runtime_report();
+
+        assert_eq!(
+            state.listener_names(),
+            &["first".to_owned(), "second".to_owned()]
+        );
+        assert_eq!(state.plan().listeners(), state.listener_names());
+        assert_eq!(state.listener_count(), 2);
+        assert_eq!(state.schedule_state().listener_count(), 2);
+        assert_eq!(state.schedule_state().steps().len(), 7);
+        assert_eq!(
+            state
+                .schedule_state()
+                .steps_for_listener("first")
+                .iter()
+                .map(|step| step.step())
+                .collect::<Vec<_>>(),
+            [
+                ResourceReloadStep::Preparation,
+                ResourceReloadStep::Reload,
+                ResourceReloadStep::ListenerComplete
+            ]
+        );
+        assert_eq!(state.progress(), 0.0);
+        assert_eq!(state.progress_snapshot().completed_weight(), 0);
+        assert!(state.summary_fragment().contains("status:pending"));
+    }
+
+    #[test]
+    fn client_resource_reload_manager_state_reports_completed_progress_and_listeners() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(ListingResourceReloadListener::new(
+                "first",
+                std::iter::empty::<&str>(),
+            ))
+            .with_listener(ListingResourceReloadListener::new(
+                "second",
+                std::iter::empty::<&str>(),
+            ));
+        let report = manager.run().expect("reload should complete");
+
+        let state = ClientResourceReloadManagerRuntimeReport::from_completed(&manager, &report);
+
+        assert_eq!(
+            state.status(),
+            ClientResourceReloadManagerRuntimeStatus::Completed
+        );
+        assert_eq!(state.listener_count(), 2);
+        assert_eq!(state.completed_listener_report_count(), 2);
+        assert_eq!(state.completed_listener_reports()[0].name, "first");
+        assert_eq!(state.progress(), 1.0);
+        assert_eq!(state.actual_progress(), 1.0);
+        assert_eq!(
+            state.progress_snapshot().completed_weight(),
+            state.progress_snapshot().total_weight()
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("client_resource_reload_manager_runtime_completed_listener:first")
+        }));
+    }
+
+    #[test]
+    fn client_resource_reload_manager_state_reports_failure_status_and_plan() {
+        let manager =
+            ResourceReloadManager::new(ClientResourceStack::new(Vec::new())).with_listener(
+                ListingResourceReloadListener::new("missing", ["assets/minecraft/lang/en_us.json"]),
+            );
+        let result = manager.run();
+
+        let state = ClientResourceReloadManagerRuntimeReport::from_result(&manager, &result);
+
+        assert!(result.is_err());
+        assert_eq!(
+            state.status(),
+            ClientResourceReloadManagerRuntimeStatus::Failed
+        );
+        assert_eq!(state.listener_names(), &["missing".to_owned()]);
+        assert_eq!(state.listener_count(), 1);
+        assert_eq!(state.completed_listener_report_count(), 0);
+        assert_eq!(state.progress(), 0.0);
+        assert_eq!(state.progress_snapshot().completed_weight(), 0);
+        assert!(
+            state
+                .error_text()
+                .is_some_and(|error| error.contains("missing client resource"))
+        );
+        assert!(state.summary_fragment().contains("status:failed"));
+        assert!(
+            state
+                .items()
+                .iter()
+                .any(|item| item.contains("client_resource_reload_manager_runtime_failure"))
+        );
     }
 
     #[test]
