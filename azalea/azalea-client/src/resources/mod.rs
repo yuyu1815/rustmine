@@ -176,6 +176,13 @@ const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_com
 const CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY: &str =
     "client_resources_reloaded_runtime_application_pending";
 const DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE: &str = "ZZZ";
+const CLIENT_RESOURCE_RELOAD_RUNTIME_HANDOFF_BOUNDARIES: &[&str] = &[
+    GPU_WARNLIST_WARNING_DECISION_BOUNDARY,
+    GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY,
+    REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY,
+    REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY,
+    MAP_TEXTURE_MANAGER_BOUNDARY,
+];
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -2868,18 +2875,166 @@ impl ClientResourceReloadRuntimeProgressSummary {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct ClientResourceReloadRuntimeHandoff {
+    status: ClientResourceReloadRuntimeStatus,
+    listener_count: usize,
+    report_count: usize,
+    last_listener: Option<String>,
+    last_step: Option<ResourceReloadStep>,
+    tail_runtime_items: Vec<String>,
+    runtime_boundary_counts: BTreeMap<String, usize>,
+}
+
+impl ClientResourceReloadRuntimeHandoff {
+    fn from_report(report: &ResourceReloadReport) -> Self {
+        let progress = ClientResourceReloadRuntimeProgressSummary::from_report(report);
+        let mut tail_runtime_items = Vec::new();
+        let mut runtime_boundary_counts = BTreeMap::new();
+
+        for listener in report.listener_reports() {
+            for item in listener
+                .preparation
+                .items()
+                .iter()
+                .chain(listener.reload.items())
+            {
+                let mut matched = false;
+                for boundary in CLIENT_RESOURCE_RELOAD_RUNTIME_HANDOFF_BOUNDARIES {
+                    if item.contains(boundary) {
+                        matched = true;
+                        *runtime_boundary_counts
+                            .entry((*boundary).to_owned())
+                            .or_insert(0) += 1;
+                    }
+                }
+                if matched {
+                    tail_runtime_items.push(format!("{}:{item}", listener.name));
+                }
+            }
+        }
+
+        Self {
+            status: ClientResourceReloadRuntimeStatus::Succeeded,
+            listener_count: progress.listener_count(),
+            report_count: progress.report_count(),
+            last_listener: progress.last_listener().map(ToOwned::to_owned),
+            last_step: progress.last_step(),
+            tail_runtime_items,
+            runtime_boundary_counts,
+        }
+    }
+
+    pub fn status(&self) -> ClientResourceReloadRuntimeStatus {
+        self.status
+    }
+
+    pub fn listener_count(&self) -> usize {
+        self.listener_count
+    }
+
+    pub fn report_count(&self) -> usize {
+        self.report_count
+    }
+
+    pub fn last_listener(&self) -> Option<&str> {
+        self.last_listener.as_deref()
+    }
+
+    pub fn last_step(&self) -> Option<ResourceReloadStep> {
+        self.last_step
+    }
+
+    pub fn runtime_boundary_count(&self, boundary: &str) -> usize {
+        self.runtime_boundary_counts
+            .get(boundary)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn contains_boundary(&self, boundary: &str) -> bool {
+        self.runtime_boundary_count(boundary) > 0
+    }
+
+    pub fn tail_runtime_items(&self) -> &[String] {
+        &self.tail_runtime_items
+    }
+
+    pub fn tail_runtime_item_count(&self) -> usize {
+        self.tail_runtime_items.len()
+    }
+
+    pub fn has_gpu_warnlist_decision(&self) -> bool {
+        self.contains_boundary(GPU_WARNLIST_WARNING_DECISION_BOUNDARY)
+    }
+
+    pub fn has_gpu_warnlist_runtime(&self) -> bool {
+        self.contains_boundary(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY)
+    }
+
+    pub fn has_regional_compliance_decision(&self) -> bool {
+        self.contains_boundary(REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY)
+    }
+
+    pub fn has_regional_compliance_runtime(&self) -> bool {
+        self.contains_boundary(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
+    }
+
+    pub fn has_map_texture_manager_state(&self) -> bool {
+        self.contains_boundary(MAP_TEXTURE_MANAGER_BOUNDARY)
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_resource_reload_runtime_handoff:status:{} listeners:{} reports:{} last_listener:{} last_step:{} tail_runtime_items:{} boundaries:{} boundary:{}",
+            self.status.as_str(),
+            self.listener_count(),
+            self.report_count(),
+            self.last_listener().unwrap_or("none"),
+            self.last_step()
+                .map(ResourceReloadStep::as_str)
+                .unwrap_or("none"),
+            self.tail_runtime_item_count(),
+            self.runtime_boundary_counts.len(),
+            CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.runtime_boundary_counts
+                .iter()
+                .map(|(boundary, count)| {
+                    format!(
+                        "client_resource_reload_runtime_handoff_boundary:{boundary} count:{count}"
+                    )
+                }),
+        );
+        items.extend(
+            self.tail_runtime_items
+                .iter()
+                .map(|item| format!("client_resource_reload_runtime_handoff_item:{item}")),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClientResourceReloadRuntimeState {
     status: ClientResourceReloadRuntimeStatus,
     progress: ClientResourceReloadRuntimeProgressSummary,
+    handoff: Option<ClientResourceReloadRuntimeHandoff>,
     last_successful_report: Option<ResourceReloadReport>,
     last_failure: Option<String>,
 }
 
 impl ClientResourceReloadRuntimeState {
     pub fn from_success(report: ResourceReloadReport) -> Self {
+        let handoff = ClientResourceReloadRuntimeHandoff::from_report(&report);
         Self {
             status: ClientResourceReloadRuntimeStatus::Succeeded,
             progress: ClientResourceReloadRuntimeProgressSummary::from_report(&report),
+            handoff: Some(handoff),
             last_successful_report: Some(report),
             last_failure: None,
         }
@@ -2889,6 +3044,7 @@ impl ClientResourceReloadRuntimeState {
         Self {
             status: ClientResourceReloadRuntimeStatus::Failed,
             progress: ClientResourceReloadRuntimeProgressSummary::failed(),
+            handoff: None,
             last_successful_report: None,
             last_failure: Some(error.to_string()),
         }
@@ -2904,6 +3060,7 @@ impl ClientResourceReloadRuntimeState {
     pub fn record_success(&mut self, report: ResourceReloadReport) {
         self.status = ClientResourceReloadRuntimeStatus::Succeeded;
         self.progress = ClientResourceReloadRuntimeProgressSummary::from_report(&report);
+        self.handoff = Some(ClientResourceReloadRuntimeHandoff::from_report(&report));
         self.last_successful_report = Some(report);
         self.last_failure = None;
     }
@@ -2911,6 +3068,7 @@ impl ClientResourceReloadRuntimeState {
     pub fn record_failure(&mut self, error: &ResourceReloadError) {
         self.status = ClientResourceReloadRuntimeStatus::Failed;
         self.progress = ClientResourceReloadRuntimeProgressSummary::failed();
+        self.handoff = None;
         self.last_failure = Some(error.to_string());
     }
 
@@ -2946,6 +3104,27 @@ impl ClientResourceReloadRuntimeState {
         self.last_failure.as_deref()
     }
 
+    pub fn handoff(&self) -> Option<&ClientResourceReloadRuntimeHandoff> {
+        self.handoff.as_ref()
+    }
+
+    pub fn runtime_boundary_count(&self, boundary: &str) -> usize {
+        self.handoff()
+            .map(|handoff| handoff.runtime_boundary_count(boundary))
+            .unwrap_or_default()
+    }
+
+    pub fn contains_boundary(&self, boundary: &str) -> bool {
+        self.handoff()
+            .is_some_and(|handoff| handoff.contains_boundary(boundary))
+    }
+
+    pub fn tail_runtime_items(&self) -> &[String] {
+        self.handoff()
+            .map(ClientResourceReloadRuntimeHandoff::tail_runtime_items)
+            .unwrap_or_default()
+    }
+
     pub fn last_successful_report(&self) -> Option<&ResourceReloadReport> {
         self.last_successful_report.as_ref()
     }
@@ -2974,6 +3153,10 @@ impl ClientResourceReloadRuntimeState {
 
     pub fn items(&self) -> Vec<String> {
         let mut items = vec![self.summary_fragment()];
+
+        if let Some(handoff) = self.handoff() {
+            items.extend(handoff.items());
+        }
 
         if let Some(report) = &self.last_successful_report {
             items.extend(report.listener_reports().iter().map(|listener| {
@@ -34959,11 +35142,92 @@ mod tests {
         assert_eq!(runtime.error_text(), None);
         assert_eq!(runtime.boundary(), CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY);
         assert!(runtime.last_successful_report().is_some());
-        assert_eq!(runtime.items().len(), 3);
+        assert_eq!(runtime.items().len(), 4);
         assert!(
             runtime
                 .summary_fragment()
                 .contains("boundary:client_resources_reloaded_runtime_application_pending")
+        );
+    }
+
+    #[test]
+    fn client_resource_reload_runtime_handoff_extracts_tail_boundaries() {
+        #[derive(Debug)]
+        struct TailRuntimeBoundaryListener;
+
+        impl ResourceReloadListener for TailRuntimeBoundaryListener {
+            fn name(&self) -> &str {
+                "tail_runtime_boundaries"
+            }
+
+            fn prepare(
+                &self,
+                _stack: &ClientResourceStack,
+            ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+                Ok(ResourceReloadTaskReport::new([
+                    format!("gpu_decision_ready boundary:{GPU_WARNLIST_WARNING_DECISION_BOUNDARY}"),
+                    format!("map_state_ready boundary:{MAP_TEXTURE_MANAGER_BOUNDARY}"),
+                ]))
+            }
+
+            fn reload(
+                &self,
+                _stack: &ClientResourceStack,
+            ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+                Ok(ResourceReloadTaskReport::new([
+                    format!("gpu_runtime_ready boundary:{GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY}"),
+                    format!(
+                        "regional_decision_ready boundary:{REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY}"
+                    ),
+                    format!(
+                        "regional_runtime_ready boundary:{REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY}"
+                    ),
+                    format!("map_state_repeated boundary:{MAP_TEXTURE_MANAGER_BOUNDARY}"),
+                ]))
+            }
+        }
+
+        let runtime = ClientResourceReloadRuntimeState::from_success(
+            ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+                .with_listener(TailRuntimeBoundaryListener)
+                .run()
+                .expect("tail runtime boundary listener should run"),
+        );
+        let handoff = runtime.handoff().expect("success should retain handoff");
+
+        assert_eq!(
+            handoff.status(),
+            ClientResourceReloadRuntimeStatus::Succeeded
+        );
+        assert_eq!(handoff.listener_count(), 1);
+        assert_eq!(handoff.report_count(), 1);
+        assert_eq!(handoff.last_listener(), Some("tail_runtime_boundaries"));
+        assert_eq!(
+            handoff.last_step(),
+            Some(ResourceReloadStep::ListenerComplete)
+        );
+        assert!(handoff.has_gpu_warnlist_decision());
+        assert!(handoff.has_gpu_warnlist_runtime());
+        assert!(handoff.has_regional_compliance_decision());
+        assert!(handoff.has_regional_compliance_runtime());
+        assert!(handoff.has_map_texture_manager_state());
+        assert_eq!(
+            handoff.runtime_boundary_count(MAP_TEXTURE_MANAGER_BOUNDARY),
+            2
+        );
+        assert_eq!(
+            runtime.runtime_boundary_count(MAP_TEXTURE_MANAGER_BOUNDARY),
+            2
+        );
+        assert!(runtime.contains_boundary(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY));
+        assert_eq!(runtime.tail_runtime_items().len(), 6);
+        assert!(
+            handoff
+                .items()
+                .iter()
+                .any(|item| item.contains(
+                    "client_resource_reload_runtime_handoff_boundary:gpu_warnlist_decision_loaded_runtime_manager_pending count:1"
+                ))
         );
     }
 
@@ -35011,6 +35275,12 @@ mod tests {
 
         let failed_runtime = ClientResourceReloadRuntimeState::from_failure(&error);
         assert!(failed_runtime.last_successful_report().is_none());
+        assert!(failed_runtime.handoff().is_none());
+        assert!(failed_runtime.tail_runtime_items().is_empty());
+        assert_eq!(
+            failed_runtime.runtime_boundary_count(GPU_WARNLIST_WARNING_DECISION_BOUNDARY),
+            0
+        );
     }
 
     #[test]
@@ -35027,6 +35297,18 @@ mod tests {
         assert!(runtime.listener_count() > 30);
         assert_eq!(runtime.report_count(), runtime.listener_count());
         assert!(runtime.last_successful_report().is_some());
+        let handoff = runtime
+            .handoff()
+            .expect("successful vanilla client resources should retain handoff");
+        assert!(handoff.has_gpu_warnlist_decision());
+        assert!(handoff.has_regional_compliance_decision());
+        assert!(handoff.has_map_texture_manager_state());
+        assert!(
+            handoff
+                .tail_runtime_items()
+                .iter()
+                .any(|item| item.contains("map_texture_manager_candidates:"))
+        );
         assert!(runtime.items().len() > runtime.listener_count());
         assert!(runtime.items().iter().any(|item| {
             item.contains("client_resource_reload_listener:client_languages")
