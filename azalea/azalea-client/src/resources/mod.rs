@@ -54,6 +54,8 @@ const DEFAULT_ATLAS_MANIFESTS: &[&str] = &[
     "assets/minecraft/atlases/particles.json",
 ];
 const ATLAS_MANIFEST_RESOURCE_GLOB: &str = "assets/*/atlases/*.json";
+const CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY: &str = "atlas_sources_loaded_stitch_pending";
+const CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT: usize = 3;
 const DEFAULT_COLORMAPS: &[&str] = &[
     GRASS_COLORMAP_RESOURCE,
     FOLIAGE_COLORMAP_RESOURCE,
@@ -34061,6 +34063,282 @@ impl AtlasSourceManifestReport {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientAtlasSourceRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientAtlasSourceRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasSourceRuntimeReport {
+    status: ClientAtlasSourceRuntimeStatus,
+    requested_atlas_count: usize,
+    loaded_atlas_count: usize,
+    missing_failed_count: usize,
+    source_entry_count: usize,
+    sprite_count: usize,
+    referenced_resource_count: usize,
+    byte_count: usize,
+    representative_atlases: Vec<String>,
+    representative_packs: Vec<String>,
+    representative_source_types: Vec<String>,
+    blockers: Vec<String>,
+    errors: Vec<String>,
+    boundary: &'static str,
+}
+
+impl ClientAtlasSourceRuntimeReport {
+    pub fn from_collection(
+        requested_atlas_count: usize,
+        collection: &AtlasSourceCollection,
+    ) -> Self {
+        let reports = collection.reports().collect::<Vec<_>>();
+        let mut source_type_counts = BTreeMap::new();
+        for report in &reports {
+            for (source_type, count) in report.source_type_counts() {
+                *source_type_counts.entry(source_type.clone()).or_insert(0) += count;
+            }
+        }
+
+        Self {
+            status: if reports.is_empty() {
+                ClientAtlasSourceRuntimeStatus::Missing
+            } else {
+                ClientAtlasSourceRuntimeStatus::Loaded
+            },
+            requested_atlas_count,
+            loaded_atlas_count: reports.len(),
+            missing_failed_count: 0,
+            source_entry_count: reports
+                .iter()
+                .map(AtlasSourceManifestReport::source_count)
+                .sum(),
+            sprite_count: reports
+                .iter()
+                .map(AtlasSourceManifestReport::sprite_count)
+                .sum(),
+            referenced_resource_count: reports
+                .iter()
+                .map(AtlasSourceManifestReport::referenced_resource_count)
+                .sum(),
+            byte_count: 0,
+            representative_atlases: reports
+                .iter()
+                .take(CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT)
+                .map(AtlasSourceManifestReport::loaded_resource_pack)
+                .collect(),
+            representative_packs: atlas_source_runtime_representative_packs(&reports),
+            representative_source_types: source_type_counts
+                .keys()
+                .take(CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT)
+                .cloned()
+                .collect(),
+            blockers: Vec::new(),
+            errors: Vec::new(),
+            boundary: CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    fn from_stack_result(
+        requested_atlas_count: usize,
+        loaded: Vec<AtlasSourceRuntimeLoadedManifest>,
+        missing_count: usize,
+        errors: Vec<String>,
+    ) -> Self {
+        let mut source_type_counts = BTreeMap::new();
+        for manifest in &loaded {
+            for source in manifest.atlas.sources() {
+                *source_type_counts
+                    .entry(source.source_type().to_owned())
+                    .or_insert(0) += 1;
+            }
+        }
+        let missing_failed_count = errors.len();
+        let failed_count = missing_failed_count.saturating_sub(missing_count);
+        let loaded_atlas_count = loaded.len();
+
+        Self {
+            status: atlas_source_runtime_status(
+                requested_atlas_count,
+                loaded_atlas_count,
+                missing_count,
+                failed_count,
+            ),
+            requested_atlas_count,
+            loaded_atlas_count,
+            missing_failed_count,
+            source_entry_count: loaded
+                .iter()
+                .map(|manifest| manifest.atlas.source_count())
+                .sum(),
+            sprite_count: loaded
+                .iter()
+                .map(|manifest| manifest.atlas.sprite_inventory().len())
+                .sum(),
+            referenced_resource_count: loaded
+                .iter()
+                .map(|manifest| manifest.atlas.referenced_resources().len())
+                .sum(),
+            byte_count: loaded.iter().map(|manifest| manifest.byte_count).sum(),
+            representative_atlases: loaded
+                .iter()
+                .take(CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT)
+                .map(|manifest| {
+                    format!(
+                        "{}@{}",
+                        manifest.atlas.resource().report().resource(),
+                        manifest.atlas.resource().report().pack_id()
+                    )
+                })
+                .collect(),
+            representative_packs: atlas_source_runtime_representative_loaded_packs(&loaded),
+            representative_source_types: source_type_counts
+                .keys()
+                .take(CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT)
+                .cloned()
+                .collect(),
+            blockers: Vec::new(),
+            errors,
+            boundary: CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientAtlasSourceRuntimeStatus::Missing
+            } else {
+                ClientAtlasSourceRuntimeStatus::Failed
+            },
+            requested_atlas_count: 0,
+            loaded_atlas_count: 0,
+            missing_failed_count: 1,
+            source_entry_count: 0,
+            sprite_count: 0,
+            referenced_resource_count: 0,
+            byte_count: 0,
+            representative_atlases: Vec::new(),
+            representative_packs: Vec::new(),
+            representative_source_types: Vec::new(),
+            blockers: Vec::new(),
+            errors: vec![error.to_string()],
+            boundary: CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn status(&self) -> ClientAtlasSourceRuntimeStatus {
+        self.status
+    }
+
+    pub fn requested_atlas_count(&self) -> usize {
+        self.requested_atlas_count
+    }
+
+    pub fn loaded_atlas_count(&self) -> usize {
+        self.loaded_atlas_count
+    }
+
+    pub fn missing_failed_count(&self) -> usize {
+        self.missing_failed_count
+    }
+
+    pub fn source_entry_count(&self) -> usize {
+        self.source_entry_count
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn referenced_resource_count(&self) -> usize {
+        self.referenced_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn representative_atlases(&self) -> &[String] {
+        &self.representative_atlases
+    }
+
+    pub fn representative_packs(&self) -> &[String] {
+        &self.representative_packs
+    }
+
+    pub fn representative_source_types(&self) -> &[String] {
+        &self.representative_source_types
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn errors(&self) -> &[String] {
+        &self.errors
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_atlas_source_runtime:status:{} requested:{} loaded:{} missing_failed:{} sources:{} sprites:{} refs:{} bytes:{} representative_atlases:{} representative_packs:{} source_types:{} blockers:{} errors:{} boundary:{}",
+            self.status().as_str(),
+            self.requested_atlas_count(),
+            self.loaded_atlas_count(),
+            self.missing_failed_count(),
+            self.source_entry_count(),
+            self.sprite_count(),
+            self.referenced_resource_count(),
+            self.byte_count(),
+            atlas_source_runtime_list_fragment(self.representative_atlases()),
+            atlas_source_runtime_list_fragment(self.representative_packs()),
+            atlas_source_runtime_list_fragment(self.representative_source_types()),
+            atlas_source_runtime_list_fragment(self.blockers()),
+            atlas_source_runtime_list_fragment(self.errors()),
+            self.boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_atlases.iter().map(|atlas| {
+            format!(
+                "client_atlas_source_runtime_atlas:{atlas} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.representative_source_types.iter().map(|source_type| {
+            format!(
+                "client_atlas_source_runtime_source_type:{source_type} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.errors.iter().map(|error| {
+            format!(
+                "client_atlas_source_runtime_error:{error} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AtlasSourceReloadListener {
     name: String,
@@ -34086,6 +34364,13 @@ impl AtlasSourceReloadListener {
             load_discovered_client_atlas_sources(stack)
         } else {
             load_client_atlas_sources(stack, &self.manifests)
+        }
+    }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientAtlasSourceRuntimeReport {
+        match self.resolved_manifests(stack) {
+            Ok(manifests) => atlas_source_runtime_report_from_manifests(stack, &manifests),
+            Err(error) => ClientAtlasSourceRuntimeReport::from_failure(&error),
         }
     }
 
@@ -34129,13 +34414,150 @@ impl ResourceReloadListener for AtlasSourceReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let manifests = self.resolved_manifests(stack)?;
         let sources = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(
-            sources
-                .reports()
-                .map(|report| atlas_source_report_item(&report)),
-        ))
+        let runtime_report =
+            ClientAtlasSourceRuntimeReport::from_collection(manifests.len(), &sources);
+        let mut items = sources
+            .reports()
+            .map(|report| atlas_source_report_item(&report))
+            .collect::<Vec<_>>();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
+}
+
+#[derive(Clone, Debug)]
+struct AtlasSourceRuntimeLoadedManifest {
+    atlas: AtlasSourceManifest,
+    byte_count: usize,
+}
+
+fn atlas_source_runtime_report_from_manifests(
+    stack: &ClientResourceStack,
+    manifests: &[String],
+) -> ClientAtlasSourceRuntimeReport {
+    let mut loaded = Vec::new();
+    let mut missing_count = 0;
+    let mut errors = Vec::new();
+
+    for manifest in manifests {
+        let locations = stack.resource_stack(manifest);
+        if locations.is_empty() {
+            missing_count += 1;
+            errors.push(ResourceReloadError::MissingResource(manifest.clone()).to_string());
+            continue;
+        }
+
+        for location in locations {
+            let pack_id = location.pack_id.clone();
+            let path = location.path.clone();
+            match load_atlas_source_runtime_manifest(stack, manifest, location) {
+                Ok(manifest) => loaded.push(manifest),
+                Err(error) => errors.push(format!("{manifest}@{pack_id} ({path:?}): {error}")),
+            }
+        }
+    }
+
+    ClientAtlasSourceRuntimeReport::from_stack_result(
+        manifests.len(),
+        loaded,
+        missing_count,
+        errors,
+    )
+}
+
+fn load_atlas_source_runtime_manifest(
+    stack: &ClientResourceStack,
+    manifest: &str,
+    location: ResourceLocation,
+) -> ResourceReloadResult<AtlasSourceRuntimeLoadedManifest> {
+    let pack_id = location.pack_id.clone();
+    let path = location.path.clone();
+    let contents =
+        location
+            .read_to_string()
+            .map_err(|source| ResourceReloadError::ReadResource {
+                resource: manifest.to_owned(),
+                path: path.clone(),
+                source,
+            })?;
+    let byte_count = contents.len();
+    let value = serde_json::from_str::<serde_json::Value>(&contents).map_err(|source| {
+        ResourceReloadError::ParseResourceJson {
+            resource: manifest.to_owned(),
+            path: path.clone(),
+            source,
+        }
+    })?;
+    let top_level_shape = ClientJsonTopLevelShape::from_value(&value);
+    let resource = ClientJsonResource {
+        value,
+        report: ClientJsonResourceReloadReport::new(manifest, pack_id, top_level_shape),
+    };
+    let parsed = parse_atlas_sources(stack, &resource)?;
+
+    Ok(AtlasSourceRuntimeLoadedManifest {
+        atlas: AtlasSourceManifest {
+            resource,
+            sources: parsed.sources,
+            sprite_inventory: parsed.sprite_inventory,
+            referenced_resources: parsed.referenced_resources,
+            filter_removed_sprites: parsed.filter_removed_sprites,
+        },
+        byte_count,
+    })
+}
+
+fn atlas_source_runtime_status(
+    requested_atlas_count: usize,
+    loaded_atlas_count: usize,
+    missing_count: usize,
+    failed_count: usize,
+) -> ClientAtlasSourceRuntimeStatus {
+    if failed_count > 0 {
+        ClientAtlasSourceRuntimeStatus::Failed
+    } else if loaded_atlas_count > 0 && missing_count > 0 {
+        ClientAtlasSourceRuntimeStatus::Blocked
+    } else if loaded_atlas_count > 0 {
+        ClientAtlasSourceRuntimeStatus::Loaded
+    } else if requested_atlas_count > 0 {
+        ClientAtlasSourceRuntimeStatus::Missing
+    } else {
+        ClientAtlasSourceRuntimeStatus::Missing
+    }
+}
+
+fn atlas_source_runtime_representative_packs(reports: &[AtlasSourceManifestReport]) -> Vec<String> {
+    let mut packs = BTreeSet::new();
+    for report in reports {
+        packs.insert(report.pack_id().to_owned());
+        if packs.len() >= CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT {
+            break;
+        }
+    }
+    packs.into_iter().collect()
+}
+
+fn atlas_source_runtime_representative_loaded_packs(
+    manifests: &[AtlasSourceRuntimeLoadedManifest],
+) -> Vec<String> {
+    let mut packs = BTreeSet::new();
+    for manifest in manifests {
+        packs.insert(manifest.atlas.resource().report().pack_id().to_owned());
+        if packs.len() >= CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT {
+            break;
+        }
+    }
+    packs.into_iter().collect()
+}
+
+fn atlas_source_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+
+    items.join("|")
 }
 
 pub fn load_client_atlas_sources(
@@ -46456,7 +46878,7 @@ mod tests {
         assert_eq!(listener.name, "atlas_sources");
         assert_eq!(listener.preparation.items(), DEFAULT_ATLAS_MANIFESTS);
         assert_eq!(
-            listener.reload.items(),
+            &listener.reload.items()[..4],
             [
                 "assets/minecraft/atlases/blocks.json@base:1 sources types:directory=1 sprites:1 refs:1".to_owned(),
                 "assets/minecraft/atlases/items.json@base:1 sources types:directory=1 sprites:2 refs:2".to_owned(),
@@ -46478,7 +46900,22 @@ mod tests {
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "atlas_sources");
         assert_eq!(listener.preparation.items().len(), 15);
-        assert_eq!(listener.reload.items().len(), 15);
+        assert_eq!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .filter(|item| item.starts_with("assets/"))
+                .count(),
+            15
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_atlas_source_runtime:status:loaded"))
+        );
         assert!(listener.reload.items().iter().any(|item| {
             item.starts_with("assets/minecraft/atlases/blocks.json@vanilla:4 sources")
         }));
@@ -46499,6 +46936,104 @@ mod tests {
                     "assets/minecraft/atlases/armor_trims.json@vanilla:1 sources types:paletted_permutations=1"
                 ))
         );
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_source_runtime_report_reports_loaded_surface() {
+        let report =
+            AtlasSourceReloadListener::default().runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientAtlasSourceRuntimeStatus::Loaded);
+        assert_eq!(report.requested_atlas_count(), 15);
+        assert_eq!(report.loaded_atlas_count(), 15);
+        assert_eq!(report.missing_failed_count(), 0);
+        assert!(report.source_entry_count() > 0);
+        assert!(report.sprite_count() > 0);
+        assert!(report.referenced_resource_count() > 0);
+        assert!(report.byte_count() > 0);
+        assert_eq!(report.boundary(), CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY);
+        assert!(
+            report
+                .representative_atlases()
+                .iter()
+                .any(|atlas| atlas == "assets/minecraft/atlases/armor_trims.json@vanilla")
+        );
+        assert_eq!(report.representative_packs(), ["vanilla".to_owned()]);
+        assert!(
+            report
+                .representative_source_types()
+                .contains(&"directory".to_owned())
+        );
+        assert!(report.errors().is_empty());
+        assert!(
+            report
+                .items()
+                .first()
+                .expect("summary should be first")
+                .contains("boundary:atlas_sources_loaded_stitch_pending")
+        );
+    }
+
+    #[test]
+    fn atlas_source_runtime_report_missing_corrupt_manifest_does_not_panic() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/atlases/corrupt.json", r#"{"sources":["#);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = AtlasSourceReloadListener::new([
+            "assets/minecraft/atlases/missing.json",
+            "assets/minecraft/atlases/corrupt.json",
+        ]);
+
+        let report = listener.runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientAtlasSourceRuntimeStatus::Failed);
+        assert_eq!(report.requested_atlas_count(), 2);
+        assert_eq!(report.loaded_atlas_count(), 0);
+        assert_eq!(report.missing_failed_count(), 2);
+        assert_eq!(report.source_entry_count(), 0);
+        assert_eq!(report.sprite_count(), 0);
+        assert_eq!(report.referenced_resource_count(), 0);
+        assert_eq!(report.boundary(), CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY);
+        assert_eq!(report.errors().len(), 2);
+        assert!(
+            report
+                .errors()
+                .iter()
+                .any(|error| error.contains("assets/minecraft/atlases/missing.json"))
+        );
+        assert!(
+            report
+                .errors()
+                .iter()
+                .any(|error| error.contains("assets/minecraft/atlases/corrupt.json"))
+        );
+    }
+
+    #[test]
+    fn atlas_source_runtime_report_reload_rows_append_after_source_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/custom.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:block/stone"}]}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(AtlasSourceReloadListener::new([
+                "assets/minecraft/atlases/custom.json",
+            ]))
+            .run()
+            .expect("atlas source reload should succeed");
+
+        let items = report.listener_reports()[0].reload.items();
+        assert_eq!(
+            items[0],
+            "assets/minecraft/atlases/custom.json@test:1 sources types:single=1 sprites:1 refs:1"
+        );
+        assert!(items[1].starts_with("client_atlas_source_runtime:status:loaded"));
+        assert!(items[1].contains("boundary:atlas_sources_loaded_stitch_pending"));
+        assert!(items[2].starts_with(
+            "client_atlas_source_runtime_atlas:assets/minecraft/atlases/custom.json@test"
+        ));
     }
 
     #[test]
@@ -46540,7 +47075,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            listener.reload.items(),
+            &listener.reload.items()[..2],
             [
                 "assets/example/atlases/custom.json@dir:1 sources types:single=1 sprites:1 refs:1"
                     .to_owned(),
