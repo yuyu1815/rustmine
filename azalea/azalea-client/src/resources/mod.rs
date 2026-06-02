@@ -178,6 +178,8 @@ const REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY: &str =
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
 const CLIENT_LANGUAGE_RUNTIME_BOUNDARY: &str =
     "client_language_assets_loaded_runtime_lookup_pending";
+const CLIENT_REQUIRED_VANILLA_ASSETS_RUNTIME_BOUNDARY: &str =
+    "required_vanilla_assets_loaded_client_resources_pending";
 const CLIENT_COLORMAP_RUNTIME_BOUNDARY: &str = "colormap_pixels_loaded_biome_tint_runtime_pending";
 const CLIENT_COLORMAP_RUNTIME_SAMPLE_LIMIT: usize = 3;
 const CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY: &str =
@@ -32566,6 +32568,196 @@ pub struct RequiredVanillaAssetsListener {
     required_assets: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientRequiredVanillaAssetsRuntimeStatus {
+    Loaded,
+    Missing,
+    Failed,
+}
+
+impl ClientRequiredVanillaAssetsRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientRequiredVanillaAssetsRuntimeReport {
+    status: ClientRequiredVanillaAssetsRuntimeStatus,
+    required_asset_count: usize,
+    found_readable_asset_count: usize,
+    missing_count: usize,
+    failed_read_count: usize,
+    byte_count: usize,
+    representative_assets: Vec<String>,
+    representative_loaded_assets: Vec<String>,
+    blockers: Vec<String>,
+    error: Option<String>,
+    boundary: &'static str,
+}
+
+impl ClientRequiredVanillaAssetsRuntimeReport {
+    fn from_listener_and_stack(
+        listener: &RequiredVanillaAssetsListener,
+        stack: &ClientResourceStack,
+    ) -> Self {
+        let mut found_readable_asset_count = 0;
+        let mut missing_count = 0;
+        let mut failed_read_count = 0;
+        let mut byte_count = 0;
+        let mut representative_loaded_assets = Vec::new();
+        let mut blockers = Vec::new();
+
+        for resource in listener.required_assets() {
+            let Some(location) = stack.find_resource(resource) else {
+                missing_count += 1;
+                blockers.push(format!("missing_resource:{resource}"));
+                continue;
+            };
+
+            match location.read_bytes() {
+                Ok(bytes) => {
+                    found_readable_asset_count += 1;
+                    byte_count += bytes.len();
+                    if representative_loaded_assets.len() < 6 {
+                        representative_loaded_assets.push(format!(
+                            "{}@{}:{} bytes",
+                            resource,
+                            location.pack_id,
+                            bytes.len()
+                        ));
+                    }
+                }
+                Err(error) => {
+                    failed_read_count += 1;
+                    blockers.push(format!(
+                        "read_failed:{resource}@{}:{}",
+                        location.pack_id, error
+                    ));
+                }
+            }
+        }
+
+        let status = if failed_read_count > 0 {
+            ClientRequiredVanillaAssetsRuntimeStatus::Failed
+        } else if missing_count > 0 {
+            ClientRequiredVanillaAssetsRuntimeStatus::Missing
+        } else {
+            ClientRequiredVanillaAssetsRuntimeStatus::Loaded
+        };
+        let error = blockers.first().cloned();
+
+        Self {
+            status,
+            required_asset_count: listener.required_assets().len(),
+            found_readable_asset_count,
+            missing_count,
+            failed_read_count,
+            byte_count,
+            representative_assets: listener.required_assets().iter().take(6).cloned().collect(),
+            representative_loaded_assets,
+            blockers,
+            error,
+            boundary: CLIENT_REQUIRED_VANILLA_ASSETS_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn status(&self) -> ClientRequiredVanillaAssetsRuntimeStatus {
+        self.status
+    }
+
+    pub fn required_asset_count(&self) -> usize {
+        self.required_asset_count
+    }
+
+    pub fn found_readable_asset_count(&self) -> usize {
+        self.found_readable_asset_count
+    }
+
+    pub fn missing_count(&self) -> usize {
+        self.missing_count
+    }
+
+    pub fn failed_read_count(&self) -> usize {
+        self.failed_read_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn representative_assets(&self) -> &[String] {
+        &self.representative_assets
+    }
+
+    pub fn representative_loaded_assets(&self) -> &[String] {
+        &self.representative_loaded_assets
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_required_vanilla_assets_runtime_report:status:{} required:{} found_readable:{} missing:{} failed_reads:{} bytes:{} representative_assets:{} representative_loaded_assets:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.required_asset_count(),
+            self.found_readable_asset_count(),
+            self.missing_count(),
+            self.failed_read_count(),
+            self.byte_count(),
+            required_vanilla_assets_runtime_list_fragment(self.representative_assets()),
+            required_vanilla_assets_runtime_list_fragment(self.representative_loaded_assets()),
+            self.blockers().len(),
+            self.error().unwrap_or("none"),
+            self.boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.push(format!(
+            "client_required_vanilla_assets_runtime_required:{} boundary:{}",
+            required_vanilla_assets_runtime_list_fragment(self.representative_assets()),
+            self.boundary()
+        ));
+        items.push(format!(
+            "client_required_vanilla_assets_runtime_loaded:{} boundary:{}",
+            required_vanilla_assets_runtime_list_fragment(self.representative_loaded_assets()),
+            self.boundary()
+        ));
+
+        if self.blockers().is_empty() {
+            items.push(format!(
+                "client_required_vanilla_assets_runtime_blockers:none boundary:{}",
+                self.boundary()
+            ));
+        } else {
+            items.extend(self.blockers().iter().take(6).map(|blocker| {
+                format!(
+                    "client_required_vanilla_assets_runtime_blocker:{blocker} boundary:{}",
+                    self.boundary()
+                )
+            }));
+        }
+
+        items
+    }
+}
+
 impl RequiredVanillaAssetsListener {
     pub fn new(required_assets: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
@@ -32576,6 +32768,13 @@ impl RequiredVanillaAssetsListener {
 
     pub fn required_assets(&self) -> &[String] {
         &self.required_assets
+    }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientRequiredVanillaAssetsRuntimeReport {
+        ClientRequiredVanillaAssetsRuntimeReport::from_listener_and_stack(self, stack)
     }
 }
 
@@ -32618,8 +32817,17 @@ impl ResourceReloadListener for RequiredVanillaAssetsListener {
                     })?;
             loaded.push(format!("{}:{} bytes", resource, bytes.len()));
         }
+        loaded.extend(self.runtime_report(stack).items());
 
         Ok(ResourceReloadTaskReport::new(loaded))
+    }
+}
+
+fn required_vanilla_assets_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join("|")
     }
 }
 
@@ -43451,7 +43659,7 @@ mod tests {
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "vanilla_required_assets");
         assert_eq!(listener.preparation.items().len(), 4);
-        assert_eq!(listener.reload.items().len(), 4);
+        assert!(listener.reload.items().len() > 4);
         for resource in DEFAULT_REQUIRED_VANILLA_ASSETS {
             assert!(
                 listener
@@ -43462,6 +43670,127 @@ mod tests {
                 "reload report should include {resource}"
             );
         }
+    }
+
+    #[test]
+    fn required_vanilla_assets_runtime_report_committed_vanilla_assets_are_loaded() {
+        let report = RequiredVanillaAssetsListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientRequiredVanillaAssetsRuntimeStatus::Loaded
+        );
+        assert_eq!(
+            report.required_asset_count(),
+            DEFAULT_REQUIRED_VANILLA_ASSETS.len()
+        );
+        assert_eq!(
+            report.found_readable_asset_count(),
+            DEFAULT_REQUIRED_VANILLA_ASSETS.len()
+        );
+        assert_eq!(report.missing_count(), 0);
+        assert_eq!(report.failed_read_count(), 0);
+        assert!(report.byte_count() > 0);
+        assert_eq!(
+            report.boundary(),
+            CLIENT_REQUIRED_VANILLA_ASSETS_RUNTIME_BOUNDARY
+        );
+        assert!(
+            report
+                .representative_assets()
+                .iter()
+                .any(|asset| asset == INITIAL_MOJANG_LOGO_RESOURCE)
+        );
+        assert!(
+            report
+                .representative_loaded_assets()
+                .iter()
+                .any(|asset| asset.contains(INITIAL_MOJANG_LOGO_RESOURCE))
+        );
+        assert!(report.blockers().is_empty());
+        assert!(report.error().is_none());
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_required_vanilla_assets_runtime_report:status:loaded")
+        );
+        assert!(report.items().iter().all(|item| {
+            item.contains("boundary:required_vanilla_assets_loaded_client_resources_pending")
+        }));
+    }
+
+    #[test]
+    fn required_vanilla_assets_runtime_report_missing_asset_is_non_panicking() {
+        let temp = TempPack::new();
+        temp.write_bytes("assets/minecraft/lang/en_us.json", b"{}");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = RequiredVanillaAssetsListener::new([
+            "assets/minecraft/lang/en_us.json",
+            INITIAL_MOJANG_LOGO_RESOURCE,
+        ]);
+
+        let report = listener.runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientRequiredVanillaAssetsRuntimeStatus::Missing
+        );
+        assert_eq!(report.required_asset_count(), 2);
+        assert_eq!(report.found_readable_asset_count(), 1);
+        assert_eq!(report.missing_count(), 1);
+        assert_eq!(report.failed_read_count(), 0);
+        assert_eq!(report.byte_count(), 2);
+        assert!(
+            report
+                .blockers()
+                .contains(&format!("missing_resource:{INITIAL_MOJANG_LOGO_RESOURCE}"))
+        );
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains(INITIAL_MOJANG_LOGO_RESOURCE))
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_required_vanilla_assets_runtime_blocker:missing_resource:")
+                && item.contains(INITIAL_MOJANG_LOGO_RESOURCE)
+        }));
+    }
+
+    #[test]
+    fn required_vanilla_assets_runtime_report_reload_rows_append_after_loaded_rows() {
+        let temp = TempPack::new();
+        temp.write_bytes("assets/minecraft/lang/en_us.json", b"{}");
+        temp.write_bytes(INITIAL_MOJANG_LOGO_RESOURCE, b"logo");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = RequiredVanillaAssetsListener::new([
+            "assets/minecraft/lang/en_us.json",
+            INITIAL_MOJANG_LOGO_RESOURCE,
+        ]);
+
+        let report = listener
+            .reload(&stack)
+            .expect("required assets should reload");
+
+        assert_eq!(
+            &report.items()[..2],
+            [
+                "assets/minecraft/lang/en_us.json:2 bytes".to_owned(),
+                format!("{INITIAL_MOJANG_LOGO_RESOURCE}:4 bytes"),
+            ]
+        );
+        let runtime_report_index = report
+            .items()
+            .iter()
+            .position(|item| {
+                item.starts_with("client_required_vanilla_assets_runtime_report:status:loaded")
+            })
+            .expect("runtime report row should be appended");
+        assert_eq!(runtime_report_index, 2);
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_required_vanilla_assets_runtime_loaded:")
+                && item.contains(INITIAL_MOJANG_LOGO_RESOURCE)
+        }));
     }
 
     #[test]
