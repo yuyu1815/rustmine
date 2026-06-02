@@ -5,6 +5,9 @@
 
 use std::{path::PathBuf, time::Duration};
 
+use bevy_app::{App, Plugin, Update};
+use bevy_ecs::prelude::{ResMut, Resource};
+
 use super::{
     account_flow::StoredLauncherAccount,
     startup_flow::{
@@ -31,6 +34,100 @@ pub const MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB: u32 = 0xFF00_0000;
 pub const FALLBACK_RELOAD_LABEL: &str = VanillaLoadingTextView::FALLBACK_LOADING_MINECRAFT;
 pub const STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY: &str =
     "startup_resource_loading_runtime_report";
+pub const STARTUP_CLIENT_RESOURCE_RELOAD_PLUGIN_BOUNDARY: &str =
+    "startup_client_resources_reload_plugin";
+
+#[derive(Default)]
+pub struct StartupClientResourceReloadPlugin;
+
+impl Plugin for StartupClientResourceReloadPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<StartupClientResourceReload>()
+            .add_systems(Update, run_startup_client_resource_reload_once);
+    }
+}
+
+#[derive(Debug, Resource)]
+pub struct StartupClientResourceReload {
+    tracker: ResourceLoadingTracker,
+    state: StartupClientResourceReloadState,
+    run_count: u32,
+    last_result: Option<ResourceReloadResult<ResourceReloadReport>>,
+}
+
+impl Default for StartupClientResourceReload {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StartupClientResourceReload {
+    pub fn new() -> Self {
+        Self {
+            tracker: ResourceLoadingTracker::new(Vec::new()),
+            state: StartupClientResourceReloadState::Waiting,
+            run_count: 0,
+            last_result: None,
+        }
+    }
+
+    pub fn tracker(&self) -> &ResourceLoadingTracker {
+        &self.tracker
+    }
+
+    pub fn tracker_mut(&mut self) -> &mut ResourceLoadingTracker {
+        &mut self.tracker
+    }
+
+    pub fn state(&self) -> StartupClientResourceReloadState {
+        self.state
+    }
+
+    pub fn run_count(&self) -> u32 {
+        self.run_count
+    }
+
+    pub fn last_result(&self) -> Option<&ResourceReloadResult<ResourceReloadReport>> {
+        self.last_result.as_ref()
+    }
+
+    pub fn runtime_report(&self) -> ResourceLoadingStartupRuntimeReport {
+        self.tracker.startup_runtime_report()
+    }
+
+    pub fn manager_report(&self) -> Option<&ClientResourceReloadManagerRuntimeReport> {
+        self.tracker.resource_reload_manager_report()
+    }
+
+    pub fn run_initial_reload_once(&mut self) {
+        if self.state != StartupClientResourceReloadState::Waiting {
+            return;
+        }
+
+        self.state = StartupClientResourceReloadState::Running;
+        self.run_count += 1;
+        let result = self.tracker.run_vanilla_client_resource_reload();
+        self.state = match result {
+            Ok(_) => StartupClientResourceReloadState::Completed,
+            Err(_) => StartupClientResourceReloadState::Failed,
+        };
+        self.last_result = Some(result);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StartupClientResourceReloadState {
+    Waiting,
+    Running,
+    Completed,
+    Failed,
+}
+
+pub fn run_startup_client_resource_reload_once(
+    mut startup_reload: ResMut<StartupClientResourceReload>,
+) {
+    startup_reload.run_initial_reload_once();
+}
 
 #[derive(Clone, Debug)]
 pub struct ResourceLoadingTracker {
@@ -1266,6 +1363,8 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use bevy_app::App;
+
     use super::*;
     use crate::{
         resources::{
@@ -2489,6 +2588,103 @@ mod tests {
             StartupLoadingPhase::Complete
         );
         assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
+    }
+
+    #[test]
+    fn resource_loading_startup_plugin_initializes_waiting_state() {
+        let mut app = App::new();
+
+        app.add_plugins(StartupClientResourceReloadPlugin);
+
+        let startup_reload = app.world().resource::<StartupClientResourceReload>();
+        assert_eq!(
+            startup_reload.state(),
+            StartupClientResourceReloadState::Waiting
+        );
+        assert_eq!(startup_reload.run_count(), 0);
+        assert_eq!(
+            startup_reload.tracker().flow().loading_phase(),
+            StartupLoadingPhase::WaitingForTasks
+        );
+        assert_eq!(startup_reload.manager_report(), None);
+    }
+
+    #[test]
+    fn resource_loading_startup_plugin_runs_initial_reload_to_title_menu() {
+        let mut app = App::new();
+        app.add_plugins(StartupClientResourceReloadPlugin);
+
+        app.update();
+
+        let startup_reload = app.world().resource::<StartupClientResourceReload>();
+        assert_eq!(
+            startup_reload.state(),
+            StartupClientResourceReloadState::Completed
+        );
+        assert_eq!(startup_reload.run_count(), 1);
+        assert!(
+            startup_reload
+                .last_result()
+                .expect("startup reload should record the run result")
+                .is_ok()
+        );
+        assert_eq!(
+            startup_reload.tracker().flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+        assert_eq!(
+            startup_reload.tracker().flow().startup_destination(),
+            Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(
+            startup_reload.tracker().screen().title_menu,
+            Some(StartupTitleMenuView::vanilla_initial())
+        );
+
+        let manager_report = startup_reload
+            .manager_report()
+            .expect("startup reload should retain manager runtime report");
+        assert_eq!(
+            manager_report.status(),
+            ClientResourceReloadManagerRuntimeStatus::Completed
+        );
+        assert!(!manager_report.listener_names().is_empty());
+        assert_eq!(manager_report.actual_progress(), 1.0);
+
+        let runtime_report = startup_reload.runtime_report();
+        assert_eq!(runtime_report.loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            runtime_report.startup_destination,
+            Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(
+            runtime_report.manager_runtime_status,
+            Some(ClientResourceReloadManagerRuntimeStatus::Completed)
+        );
+    }
+
+    #[test]
+    fn resource_loading_startup_plugin_does_not_rerun_after_completion() {
+        let mut app = App::new();
+        app.add_plugins(StartupClientResourceReloadPlugin);
+
+        app.update();
+        let first_report = app
+            .world()
+            .resource::<StartupClientResourceReload>()
+            .manager_report()
+            .expect("startup reload should retain manager runtime report")
+            .clone();
+
+        app.update();
+
+        let startup_reload = app.world().resource::<StartupClientResourceReload>();
+        assert_eq!(
+            startup_reload.state(),
+            StartupClientResourceReloadState::Completed
+        );
+        assert_eq!(startup_reload.run_count(), 1);
+        assert_eq!(startup_reload.manager_report(), Some(&first_report));
     }
 
     #[test]
