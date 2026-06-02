@@ -7579,6 +7579,164 @@ impl ClientSoundEvents {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientSoundManagerStatus {
+    Loaded,
+    Missing,
+    Blocked,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientSoundManagerState {
+    status: ClientSoundManagerStatus,
+    events: BTreeMap<String, ClientSoundEvent>,
+    report: ClientSoundEventsReloadReport,
+    preload_candidates_by_event_id: BTreeMap<String, Vec<ClientSoundPreloadBufferCandidate>>,
+    preload_candidates_by_sound_name: BTreeMap<String, Vec<ClientSoundPreloadBufferCandidate>>,
+    runtime_report: SoundManagerRuntimeCandidateReport,
+}
+
+impl ClientSoundManagerState {
+    const AUDIO_RUNTIME_BOUNDARY: &'static str =
+        "sound_events_loaded_audio_backend_playback_pending_unavailable";
+
+    fn from_sound_events(sound_events: ClientSoundEvents) -> Self {
+        let runtime_report = SoundManagerRuntimeCandidateReport::from_sound_events(&sound_events);
+        let report = sound_events.report.clone();
+        let mut preload_candidates_by_event_id =
+            BTreeMap::<String, Vec<ClientSoundPreloadBufferCandidate>>::new();
+        let mut preload_candidates_by_sound_name =
+            BTreeMap::<String, Vec<ClientSoundPreloadBufferCandidate>>::new();
+
+        for candidate in report.preload_buffer_candidates() {
+            preload_candidates_by_event_id
+                .entry(candidate.event_id().to_owned())
+                .or_default()
+                .push(candidate.clone());
+            preload_candidates_by_sound_name
+                .entry(candidate.sound_name().to_owned())
+                .or_default()
+                .push(candidate.clone());
+        }
+
+        let status = if report.missing_file_sound_count() > 0 {
+            ClientSoundManagerStatus::Missing
+        } else if runtime_report.blocker_count() > 0 {
+            ClientSoundManagerStatus::Blocked
+        } else {
+            ClientSoundManagerStatus::Loaded
+        };
+
+        Self {
+            status,
+            events: sound_events.events,
+            report,
+            preload_candidates_by_event_id,
+            preload_candidates_by_sound_name,
+            runtime_report,
+        }
+    }
+
+    pub fn status(&self) -> ClientSoundManagerStatus {
+        self.status
+    }
+
+    pub fn event(&self, event_id: &str) -> Option<&ClientSoundEvent> {
+        self.events.get(event_id)
+    }
+
+    pub fn events(&self) -> &BTreeMap<String, ClientSoundEvent> {
+        &self.events
+    }
+
+    pub fn event_count(&self) -> usize {
+        self.report.event_count()
+    }
+
+    pub fn entry_count(&self) -> usize {
+        self.report.sound_entry_count()
+    }
+
+    pub fn file_sound_count(&self) -> usize {
+        self.report.file_sound_count()
+    }
+
+    pub fn missing_file_count(&self) -> usize {
+        self.report.missing_file_sound_count()
+    }
+
+    pub fn preload_candidate_count(&self) -> usize {
+        self.report.preload_buffer_candidates().len()
+    }
+
+    pub fn available_preload_count(&self) -> usize {
+        self.report
+            .preload_buffer_candidates()
+            .iter()
+            .filter(|candidate| candidate.missing_blockers().is_empty())
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.runtime_report.blocker_count()
+            + self
+                .report
+                .preload_buffer_candidates()
+                .iter()
+                .map(|candidate| candidate.missing_blockers().len())
+                .sum::<usize>()
+    }
+
+    pub fn preload_candidates_for_event(
+        &self,
+        event_id: &str,
+    ) -> &[ClientSoundPreloadBufferCandidate] {
+        self.preload_candidates_by_event_id
+            .get(event_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn preload_candidates_for_sound(
+        &self,
+        sound_name: &str,
+    ) -> &[ClientSoundPreloadBufferCandidate] {
+        self.preload_candidates_by_sound_name
+            .get(sound_name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn report(&self) -> &ClientSoundEventsReloadReport {
+        &self.report
+    }
+
+    pub fn runtime_report(&self) -> &SoundManagerRuntimeCandidateReport {
+        &self.runtime_report
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "sound_manager_state:{:?} events:{} entries:{} files:{} missing_files:{} preload_candidates:{} available_preloads:{} blockers:{} boundary:{}",
+            self.status,
+            self.event_count(),
+            self.entry_count(),
+            self.file_sound_count(),
+            self.missing_file_count(),
+            self.preload_candidate_count(),
+            self.available_preload_count(),
+            self.blocker_count(),
+            Self::AUDIO_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.runtime_report.items());
+        items
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientSoundEvent {
     subtitle: Option<String>,
@@ -7935,6 +8093,14 @@ impl SoundEventsReloadListener {
     pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientSoundEvents> {
         load_client_sound_events(stack, &self.resource)
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientSoundManagerState> {
+        self.load(stack)
+            .map(ClientSoundManagerState::from_sound_events)
+    }
 }
 
 impl Default for SoundEventsReloadListener {
@@ -7987,6 +8153,14 @@ impl SoundManagerRuntimeCandidateReloadListener {
         Ok(SoundManagerRuntimeCandidateReport::from_sound_events(
             &sound_events,
         ))
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientSoundManagerState> {
+        load_client_sound_events(stack, &self.resource)
+            .map(ClientSoundManagerState::from_sound_events)
     }
 }
 
@@ -8133,12 +8307,14 @@ impl SoundManagerRuntimeCandidateReport {
         &self.candidates
     }
 
-    pub fn summary_fragment(&self) -> String {
-        let blocker_count = self
-            .candidates
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
             .iter()
             .map(|candidate| candidate.blockers.len())
-            .sum::<usize>();
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
         let categories = self
             .candidates
             .iter()
@@ -8148,7 +8324,7 @@ impl SoundManagerRuntimeCandidateReport {
         format!(
             "sound_manager_runtime_candidates:{} blockers:{} boundary:sound_events_loaded_audio_runtime_pending categories:{}",
             self.candidates.len(),
-            blocker_count,
+            self.blocker_count(),
             categories
         )
     }
@@ -31190,6 +31366,122 @@ mod tests {
                 .iter()
                 .any(|blocker| blocker == "audio runtime not implemented")
         }));
+    }
+
+    #[test]
+    fn sound_manager_state_stacked_pack_lookup_retains_deterministic_counts() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"sounds":["dig.stone"]}}"#,
+        );
+        base.write_bytes("assets/minecraft/sounds/dig.stone.ogg", b"base");
+        override_pack.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"block.stone.break":{"sounds":[{"name":"override.stone","preload":true}]},"ui.click":{"sounds":["ui.click"]}}"#,
+        );
+        override_pack.write_bytes("assets/minecraft/sounds/override.stone.ogg", b"override");
+        override_pack.write_bytes("assets/minecraft/sounds/ui.click.ogg", b"click");
+
+        let state = SoundEventsReloadListener::default()
+            .load_state(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("base", base.path()),
+                ClientResourcePack::new("override", override_pack.path()),
+            ]))
+            .expect("sound manager state should load from stacked packs");
+
+        assert_eq!(state.status(), ClientSoundManagerStatus::Blocked);
+        assert_eq!(state.event_count(), 2);
+        assert_eq!(state.entry_count(), 3);
+        assert_eq!(state.file_sound_count(), 3);
+        assert_eq!(state.missing_file_count(), 0);
+        assert_eq!(state.preload_candidate_count(), 1);
+        assert_eq!(state.available_preload_count(), 1);
+        assert_eq!(state.blocker_count(), 10);
+        assert_eq!(
+            state
+                .event("minecraft:block.stone.break")
+                .expect("stone event should be indexed")
+                .sounds()
+                .iter()
+                .map(ClientSoundEntry::name)
+                .collect::<Vec<_>>(),
+            vec!["dig.stone", "override.stone"]
+        );
+        assert_eq!(
+            state.preload_candidates_for_event("minecraft:block.stone.break")[0].sound_name(),
+            "override.stone"
+        );
+        assert_eq!(
+            state.preload_candidates_for_sound("override.stone")[0].byte_count(),
+            Some("override".len())
+        );
+        assert!(
+            state.summary_fragment().contains(
+                "boundary:sound_events_loaded_audio_backend_playback_pending_unavailable"
+            )
+        );
+    }
+
+    #[test]
+    fn sound_manager_state_missing_preload_blocker_is_retained() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"missing.music","preload":true}]}}"#,
+        );
+
+        let state = SoundManagerRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("state should retain missing preload blockers");
+
+        assert_eq!(state.status(), ClientSoundManagerStatus::Missing);
+        assert_eq!(state.event_count(), 1);
+        assert_eq!(state.entry_count(), 1);
+        assert_eq!(state.file_sound_count(), 0);
+        assert_eq!(state.missing_file_count(), 1);
+        assert_eq!(state.preload_candidate_count(), 1);
+        assert_eq!(state.available_preload_count(), 0);
+        assert_eq!(state.blocker_count(), 11);
+        assert_eq!(
+            state.preload_candidates_for_event("minecraft:music.menu")[0].missing_blockers(),
+            &[
+                "missing top-priority resource `assets/minecraft/sounds/missing.music.ogg`"
+                    .to_owned()
+            ]
+        );
+        assert!(
+            state
+                .items()
+                .iter()
+                .any(|item| item.contains("candidate:preload_buffers")
+                    && item.contains("preload_blockers:1"))
+        );
+    }
+
+    #[test]
+    fn sound_manager_state_committed_vanilla_reports_pending_audio_runtime_boundary_when_present() {
+        match SoundEventsReloadListener::default().load_state(&ClientResourceStack::vanilla()) {
+            Ok(state) => {
+                assert_eq!(state.status(), ClientSoundManagerStatus::Blocked);
+                assert!(state.event_count() > 0);
+                assert!(
+                    state
+                        .summary_fragment()
+                        .contains("audio_backend_playback_pending_unavailable")
+                );
+            }
+            Err(ResourceReloadError::MissingResource(resource)) => {
+                assert_eq!(resource, SOUND_EVENTS_RESOURCE_GLOB);
+            }
+            Err(error) => panic!(
+                "vanilla sound manager state should load or report missing fixture sounds.json: {error:?}"
+            ),
+        }
     }
 
     #[test]
