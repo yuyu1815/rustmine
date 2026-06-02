@@ -563,11 +563,19 @@ pub struct ServerResourcePackAck {
     pub action: ServerResourcePackAckAction,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackReloadOutcome {
+    Succeeded { successfully_loaded_ack_sent: bool },
+    Failed,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServerResourcePackApplyState {
     request: ServerResourcePackRequest,
     status: ServerResourcePackStatus,
     downloaded: Option<ServerResourcePackDownload>,
+    ack_history: Vec<ServerResourcePackAck>,
+    reload_outcome: Option<ServerResourcePackReloadOutcome>,
 }
 
 impl ServerResourcePackApplyState {
@@ -576,6 +584,8 @@ impl ServerResourcePackApplyState {
             request,
             status: ServerResourcePackStatus::Pending,
             downloaded: None,
+            ack_history: Vec::new(),
+            reload_outcome: None,
         }
     }
 
@@ -742,6 +752,14 @@ impl ServerResourcePackApplyState {
         self.downloaded.as_ref()
     }
 
+    pub fn ack_history(&self) -> &[ServerResourcePackAck] {
+        &self.ack_history
+    }
+
+    pub fn reload_outcome(&self) -> Option<ServerResourcePackReloadOutcome> {
+        self.reload_outcome
+    }
+
     pub fn apply_plan(&self) -> ServerResourcePackApplyPlan {
         use ServerResourcePackApplyPhase as Phase;
 
@@ -833,6 +851,9 @@ impl ServerResourcePackApplyState {
         }
 
         self.status = ServerResourcePackStatus::Applied;
+        self.reload_outcome = Some(ServerResourcePackReloadOutcome::Succeeded {
+            successfully_loaded_ack_sent: true,
+        });
         self.ack(ServerResourcePackAckAction::SuccessfullyLoaded)
     }
 
@@ -850,6 +871,7 @@ impl ServerResourcePackApplyState {
 
     pub fn open_failed(&mut self) -> ServerResourcePackAck {
         self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open);
+        self.reload_outcome = Some(ServerResourcePackReloadOutcome::Failed);
         self.ack(ServerResourcePackAckAction::FailedReload)
     }
 
@@ -860,7 +882,14 @@ impl ServerResourcePackApplyState {
 
     pub fn reload_failed(&mut self) -> ServerResourcePackAck {
         self.status = ServerResourcePackStatus::Failed(ServerResourcePackFailure::Reload);
+        self.reload_outcome = Some(ServerResourcePackReloadOutcome::Failed);
         self.ack(ServerResourcePackAckAction::FailedReload)
+    }
+
+    pub fn successfully_loaded_ack_suppressed(&mut self) {
+        self.reload_outcome = Some(ServerResourcePackReloadOutcome::Succeeded {
+            successfully_loaded_ack_sent: false,
+        });
     }
 
     pub fn discarded(&mut self) -> ServerResourcePackAck {
@@ -881,11 +910,13 @@ impl ServerResourcePackApplyState {
             .unwrap_or_else(|| self.placeholder_pack())
     }
 
-    fn ack(&self, action: ServerResourcePackAckAction) -> ServerResourcePackAck {
-        ServerResourcePackAck {
+    fn ack(&mut self, action: ServerResourcePackAckAction) -> ServerResourcePackAck {
+        let ack = ServerResourcePackAck {
             id: self.request.id,
             action,
-        }
+        };
+        self.ack_history.push(ack);
+        ack
     }
 
     fn hash_matches(&self, actual_sha1: &str) -> bool {
@@ -27371,6 +27402,76 @@ mod tests {
     }
 
     #[test]
+    fn server_resource_pack_apply_state_retains_emitted_ack_order_and_reload_success() {
+        let id = resource_pack_id(501);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("valid server directory pack should download");
+        pack.open_downloaded()
+            .expect("valid server directory pack should open");
+        pack.apply_opened();
+
+        assert_eq!(
+            pack.ack_history()
+                .iter()
+                .map(|ack| ack.action)
+                .collect::<Vec<_>>(),
+            [
+                ServerResourcePackAckAction::Accepted,
+                ServerResourcePackAckAction::Downloaded,
+                ServerResourcePackAckAction::SuccessfullyLoaded,
+            ]
+        );
+        assert!(pack.ack_history().iter().all(|ack| ack.id == id));
+        assert_eq!(
+            pack.reload_outcome(),
+            Some(ServerResourcePackReloadOutcome::Succeeded {
+                successfully_loaded_ack_sent: true,
+            })
+        );
+    }
+
+    #[test]
+    fn server_resource_pack_apply_state_retains_reload_failure_without_success_outcome() {
+        let id = resource_pack_id(502);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_bytes_succeeded(b"abc")
+            .expect("test pack has no enforced hash");
+        pack.reload_failed();
+
+        assert_eq!(
+            pack.ack_history()
+                .iter()
+                .map(|ack| ack.action)
+                .collect::<Vec<_>>(),
+            [
+                ServerResourcePackAckAction::Accepted,
+                ServerResourcePackAckAction::Downloaded,
+                ServerResourcePackAckAction::FailedReload,
+            ]
+        );
+        assert_eq!(
+            pack.reload_outcome(),
+            Some(ServerResourcePackReloadOutcome::Failed)
+        );
+        assert_eq!(
+            pack.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Reload)
+        );
+    }
+
+    #[test]
     fn applied_server_packs_stay_above_vanilla_in_priority_order() {
         let first_id = resource_pack_id(6);
         let second_id = resource_pack_id(7);
@@ -27488,6 +27589,34 @@ mod tests {
             pack_ids,
             [VANILLA_PACK_ID.to_owned(), format!("server:{kept_id}")]
         );
+    }
+
+    #[test]
+    fn server_resource_pack_pop_does_not_erase_unrelated_pack_ack_history() {
+        let removed_id = resource_pack_id(901);
+        let kept_id = resource_pack_id(902);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model
+            .receive(server_pack_request(removed_id, true))
+            .apply_test_server_pack();
+        model
+            .receive(server_pack_request(kept_id, true))
+            .apply_test_server_pack();
+        let kept_history = model
+            .packs()
+            .iter()
+            .find(|pack| pack.request().id() == kept_id)
+            .expect("kept pack should be present")
+            .ack_history()
+            .to_vec();
+
+        assert!(model.pop(removed_id));
+
+        let packs = model.packs();
+        assert_eq!(packs.len(), 1);
+        assert_eq!(packs[0].request().id(), kept_id);
+        assert_eq!(packs[0].ack_history(), kept_history);
     }
 
     #[test]

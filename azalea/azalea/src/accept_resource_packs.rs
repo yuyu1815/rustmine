@@ -142,12 +142,13 @@ fn resource_pack_apply_ack_sequence(
 #[cfg(any(feature = "online-mode", test))]
 fn push_resource_pack_apply_ack(
     acks: &mut Vec<ServerResourcePackAck>,
-    pack: &ServerResourcePackApplyState,
+    pack: &mut ServerResourcePackApplyState,
     ack: ServerResourcePackAck,
 ) {
     if ack.action == ServerResourcePackAckAction::SuccessfullyLoaded
         && !pack.apply_plan().can_send_successfully_loaded()
     {
+        pack.successfully_loaded_ack_suppressed();
         return;
     }
 
@@ -360,7 +361,7 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use azalea_client::resources::ServerResourcePackStatus;
+    use azalea_client::resources::{ServerResourcePackReloadOutcome, ServerResourcePackStatus};
     use uuid::Uuid;
 
     use super::*;
@@ -413,6 +414,12 @@ mod tests {
         );
         assert!(acks.iter().all(|ack| ack.id == id));
         assert_eq!(pack.status(), ServerResourcePackStatus::Applied);
+        assert_eq!(
+            pack.reload_outcome(),
+            Some(ServerResourcePackReloadOutcome::Succeeded {
+                successfully_loaded_ack_sent: true,
+            })
+        );
     }
 
     #[test]
@@ -439,7 +446,7 @@ mod tests {
 
         push_resource_pack_apply_ack(
             &mut acks,
-            &pack,
+            &mut pack,
             ServerResourcePackAck {
                 id,
                 action: ServerResourcePackAckAction::SuccessfullyLoaded,
@@ -450,11 +457,17 @@ mod tests {
             ack_actions(&acks),
             [ServerResourcePackAckAction::Downloaded]
         );
+        assert_eq!(
+            pack.reload_outcome(),
+            Some(ServerResourcePackReloadOutcome::Succeeded {
+                successfully_loaded_ack_sent: false,
+            })
+        );
 
         let applied_ack = pack.apply_opened();
         assert_eq!(pack.status(), ServerResourcePackStatus::Applied);
         assert!(pack.apply_plan().can_send_successfully_loaded());
-        push_resource_pack_apply_ack(&mut acks, &pack, applied_ack);
+        push_resource_pack_apply_ack(&mut acks, &mut pack, applied_ack);
 
         assert_eq!(
             ack_actions(&acks),
@@ -548,6 +561,10 @@ mod tests {
             ServerResourcePackStatus::Failed(
                 azalea_client::resources::ServerResourcePackFailure::Reload
             )
+        );
+        assert_eq!(
+            pack.reload_outcome(),
+            Some(ServerResourcePackReloadOutcome::Failed)
         );
     }
 
