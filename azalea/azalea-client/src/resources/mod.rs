@@ -178,6 +178,8 @@ const REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY: &str =
     "regional_compliancies_loaded_notification_ui_pending";
 const REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY: &str =
     "regional_compliance_notifications_scheduled_runtime_ui_pending";
+const SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY: &str =
+    "shader_sources_loaded_manager_reload_pending";
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
 const CLIENT_LANGUAGE_RUNTIME_BOUNDARY: &str =
     "client_language_assets_loaded_runtime_lookup_pending";
@@ -22500,8 +22502,308 @@ impl ResourceReloadListener for HeadlessShaderSourceReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        let _ = stack;
-        Ok(ResourceReloadTaskReport::empty())
+        Ok(ResourceReloadTaskReport::new(
+            self.runtime_report(stack).items(),
+        ))
+    }
+}
+
+impl HeadlessShaderSourceReloadListener {
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientShaderSourceInventoryRuntimeReport {
+        ClientShaderSourceInventoryRuntimeReport::from_stack(stack)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientShaderSourceInventoryRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientShaderSourceInventoryRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientShaderSourceInventoryRuntimeReport {
+    status: ClientShaderSourceInventoryRuntimeStatus,
+    shader_source_count: usize,
+    vertex_count: usize,
+    fragment_count: usize,
+    include_count: usize,
+    post_chain_count: usize,
+    total_byte_count: usize,
+    representative_shader_source_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_packs: Vec<String>,
+    representative_kinds: Vec<String>,
+    representative_includes: Vec<String>,
+    representative_post_chains: Vec<String>,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientShaderSourceInventoryRuntimeReport {
+    fn from_stack(stack: &ClientResourceStack) -> Self {
+        match discover_headless_shader_manager_resources(stack) {
+            Ok(resources) => Self::from_discovered(stack, resources),
+            Err(error) => Self::from_failure(error.to_string()),
+        }
+    }
+
+    fn from_discovered(
+        stack: &ClientResourceStack,
+        resources: HeadlessShaderManagerResources,
+    ) -> Self {
+        let include_count = resources.includes.len();
+        let post_chain_count = resources.post_chains.len();
+        let representative_includes = resources.includes.iter().take(3).cloned().collect();
+        let representative_post_chains = resources.post_chains.iter().take(3).cloned().collect();
+        let mut sources = Vec::new();
+        let mut blockers = Vec::new();
+
+        for resource in resources.shader_sources {
+            match load_headless_shader_source_inventory(stack, &resource) {
+                Ok(source) => sources.push(source),
+                Err(blocker) => blockers.push(blocker.short_string()),
+            }
+        }
+
+        blockers.extend(sources.iter().flat_map(|source| {
+            source
+                .blockers
+                .iter()
+                .map(HeadlessShaderManagerReloadBlocker::short_string)
+        }));
+        blockers.sort();
+        blockers.dedup();
+        if sources.is_empty() && blockers.is_empty() {
+            blockers.push("shader_sources:no shader sources discovered".to_owned());
+        }
+
+        let status = if blockers.iter().any(|blocker| {
+            blocker.contains("missing shader")
+                || blocker.contains("missing resource")
+                || blocker.contains("no shader sources discovered")
+        }) {
+            ClientShaderSourceInventoryRuntimeStatus::Missing
+        } else if blockers.is_empty() {
+            ClientShaderSourceInventoryRuntimeStatus::Loaded
+        } else {
+            ClientShaderSourceInventoryRuntimeStatus::Blocked
+        };
+        let vertex_count = sources
+            .iter()
+            .filter(|source| source.kind == HeadlessShaderSourceKind::Vertex)
+            .count();
+        let fragment_count = sources
+            .iter()
+            .filter(|source| source.kind == HeadlessShaderSourceKind::Fragment)
+            .count();
+        let total_byte_count = sources.iter().map(|source| source.byte_count).sum();
+        let representative_shader_source_ids = sources
+            .iter()
+            .take(3)
+            .map(|source| source.id.clone())
+            .collect();
+        let representative_resources = sources
+            .iter()
+            .take(3)
+            .map(HeadlessShaderSourceInventory::loaded_resource_pack)
+            .collect();
+        let representative_packs = sources
+            .iter()
+            .map(|source| source.pack_id.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .take(3)
+            .collect();
+        let representative_kinds = sources
+            .iter()
+            .map(|source| source.kind.as_str().to_owned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        Self {
+            status,
+            shader_source_count: sources.len(),
+            vertex_count,
+            fragment_count,
+            include_count,
+            post_chain_count,
+            total_byte_count,
+            representative_shader_source_ids,
+            representative_resources,
+            representative_packs,
+            representative_kinds,
+            representative_includes,
+            representative_post_chains,
+            blockers,
+            runtime_boundary: SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    fn from_failure(error: impl Into<String>) -> Self {
+        Self {
+            status: ClientShaderSourceInventoryRuntimeStatus::Failed,
+            shader_source_count: 0,
+            vertex_count: 0,
+            fragment_count: 0,
+            include_count: 0,
+            post_chain_count: 0,
+            total_byte_count: 0,
+            representative_shader_source_ids: Vec::new(),
+            representative_resources: Vec::new(),
+            representative_packs: Vec::new(),
+            representative_kinds: Vec::new(),
+            representative_includes: Vec::new(),
+            representative_post_chains: Vec::new(),
+            blockers: Vec::new(),
+            runtime_boundary: SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY,
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn status(&self) -> ClientShaderSourceInventoryRuntimeStatus {
+        self.status
+    }
+
+    pub fn shader_source_count(&self) -> usize {
+        self.shader_source_count
+    }
+
+    pub fn vertex_count(&self) -> usize {
+        self.vertex_count
+    }
+
+    pub fn fragment_count(&self) -> usize {
+        self.fragment_count
+    }
+
+    pub fn include_count(&self) -> usize {
+        self.include_count
+    }
+
+    pub fn post_chain_count(&self) -> usize {
+        self.post_chain_count
+    }
+
+    pub fn total_byte_count(&self) -> usize {
+        self.total_byte_count
+    }
+
+    pub fn representative_shader_source_ids(&self) -> &[String] {
+        &self.representative_shader_source_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_packs(&self) -> &[String] {
+        &self.representative_packs
+    }
+
+    pub fn representative_kinds(&self) -> &[String] {
+        &self.representative_kinds
+    }
+
+    pub fn representative_includes(&self) -> &[String] {
+        &self.representative_includes
+    }
+
+    pub fn representative_post_chains(&self) -> &[String] {
+        &self.representative_post_chains
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_shader_source_inventory_runtime_report:status:{} shader_sources:{} vertex:{} fragment:{} includes:{} post_chains:{} bytes:{} ids:{} resources:{} packs:{} kinds:{} representative_includes:{} representative_post_chains:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.shader_source_count(),
+            self.vertex_count(),
+            self.fragment_count(),
+            self.include_count(),
+            self.post_chain_count(),
+            self.total_byte_count(),
+            shader_manager_runtime_list_fragment(self.representative_shader_source_ids()),
+            shader_manager_runtime_list_fragment(self.representative_resources()),
+            shader_manager_runtime_list_fragment(self.representative_packs()),
+            shader_manager_runtime_list_fragment(self.representative_kinds()),
+            shader_manager_runtime_list_fragment(self.representative_includes()),
+            shader_manager_runtime_list_fragment(self.representative_post_chains()),
+            shader_manager_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.runtime_boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_shader_source_ids.iter().map(|id| {
+            format!(
+                "client_shader_source_inventory_runtime_report_id:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_shader_source_inventory_runtime_report_resource:{resource} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_includes.iter().map(|include| {
+            format!(
+                "client_shader_source_inventory_runtime_report_include:{include} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_post_chains.iter().map(|post_chain| {
+            format!(
+                "client_shader_source_inventory_runtime_report_post_chain:{post_chain} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_shader_source_inventory_runtime_report_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_shader_source_inventory_runtime_report_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        items
     }
 }
 
@@ -23761,6 +24063,7 @@ struct HeadlessShaderSourceInventory {
     kind: HeadlessShaderSourceKind,
     resource: String,
     pack_id: String,
+    byte_count: usize,
     imports: Vec<String>,
     blockers: Vec<HeadlessShaderManagerReloadBlocker>,
 }
@@ -24788,6 +25091,7 @@ fn load_headless_shader_source_inventory(
         kind,
         resource: resource.to_owned(),
         pack_id: location.pack_id,
+        byte_count: bytes.len(),
         imports,
         blockers,
     })
@@ -47844,7 +48148,157 @@ mod tests {
                 .iter()
                 .any(|item| item.starts_with("post_chain:minecraft:spider "))
         );
-        assert!(listener.reload.items().is_empty());
+        assert!(
+            listener.reload.items()[0]
+                .starts_with("client_shader_source_inventory_runtime_report:status:loaded")
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .iter()
+                .all(|item| item.contains(SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY))
+        );
+    }
+
+    #[test]
+    fn shader_source_inventory_runtime_report_committed_vanilla_exposes_source_inventory() {
+        let report = HeadlessShaderSourceReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientShaderSourceInventoryRuntimeStatus::Loaded
+        );
+        assert_eq!(report.shader_source_count(), 79);
+        assert!(report.vertex_count() > 0);
+        assert!(report.fragment_count() > 0);
+        assert_eq!(report.include_count(), 9);
+        assert_eq!(report.post_chain_count(), 6);
+        assert!(report.total_byte_count() > 0);
+        assert_eq!(
+            report.runtime_boundary(),
+            SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY
+        );
+        assert!(!report.representative_shader_source_ids().is_empty());
+        assert!(!report.representative_resources().is_empty());
+        assert!(
+            report
+                .representative_packs()
+                .iter()
+                .any(|pack| pack == "vanilla")
+        );
+        assert!(
+            report
+                .representative_kinds()
+                .iter()
+                .any(|kind| kind == "vertex")
+        );
+        assert!(report.error().is_none());
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_shader_source_inventory_runtime_report:status:loaded")
+        );
+    }
+
+    #[test]
+    fn shader_source_inventory_runtime_report_missing_or_corrupt_pack_is_non_panicking_surface() {
+        let empty_report = HeadlessShaderSourceReloadListener::default()
+            .runtime_report(&ClientResourceStack::new(Vec::new()));
+
+        assert_eq!(
+            empty_report.status(),
+            ClientShaderSourceInventoryRuntimeStatus::Missing
+        );
+        assert_eq!(empty_report.shader_source_count(), 0);
+        assert!(
+            empty_report
+                .blockers()
+                .iter()
+                .any(|blocker| blocker == "shader_sources:no shader sources discovered")
+        );
+        assert!(empty_report.error().is_none());
+
+        let temp = TempPack::new();
+        temp.write_bytes("assets/minecraft/shaders/core/bad.vsh", &[0xff]);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let corrupt_report = HeadlessShaderSourceReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(
+            corrupt_report.status(),
+            ClientShaderSourceInventoryRuntimeStatus::Blocked
+        );
+        assert_eq!(corrupt_report.shader_source_count(), 0);
+        assert!(corrupt_report.blockers().iter().any(|blocker| {
+            blocker.contains("assets/minecraft/shaders/core/bad.vsh")
+                && blocker.contains("shader source is not utf-8")
+        }));
+        assert!(corrupt_report.error().is_none());
+        assert!(
+            corrupt_report
+                .items()
+                .iter()
+                .any(|item| item.contains("client_shader_source_inventory_runtime_report_blocker"))
+        );
+    }
+
+    #[test]
+    fn shader_source_inventory_runtime_report_reload_rows_expose_report_shape() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/common.glsl",
+            "#define COMMON 1\n",
+        );
+        temp.write(
+            "assets/minecraft/post_effect/example.json",
+            r#"{"targets":{},"passes":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let reload = HeadlessShaderSourceReloadListener::default()
+            .reload(&stack)
+            .expect("shader source inventory runtime reload rows should be report-only");
+
+        assert!(reload.items()[0].starts_with(
+            "client_shader_source_inventory_runtime_report:status:loaded shader_sources:2 vertex:1 fragment:1 includes:1 post_chains:1"
+        ));
+        assert!(reload.items()[0].contains("bytes:56"));
+        assert!(reload.items()[0].contains("packs:test"));
+        assert!(reload.items()[0].contains("kinds:fragment|vertex"));
+        assert!(reload.items().iter().any(|item| item.starts_with(
+            "client_shader_source_inventory_runtime_report_id:minecraft:core/example"
+        )));
+        assert!(
+            reload
+                .items()
+                .iter()
+                .any(|item| item.contains(
+                    "client_shader_source_inventory_runtime_report_include:assets/minecraft/shaders/include/common.glsl"
+                ))
+        );
+        assert!(
+            reload
+                .items()
+                .iter()
+                .any(|item| item.contains(
+                    "client_shader_source_inventory_runtime_report_post_chain:assets/minecraft/post_effect/example.json"
+                ))
+        );
+        assert!(
+            reload
+                .items()
+                .iter()
+                .all(|item| item.contains(SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY))
+        );
     }
 
     #[test]
