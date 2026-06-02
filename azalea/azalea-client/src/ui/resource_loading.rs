@@ -8,9 +8,10 @@ use std::time::Duration;
 use super::{
     account_flow::StoredLauncherAccount,
     startup_flow::{
-        ResourceLoadingEvent, ResourceLoadingUpdate, StartupFlow, StartupLoadingPhase,
-        StartupScreen, VanillaLoadingBackground, VanillaLoadingOverlay, VanillaLoadingOverlayView,
-        VanillaLoadingTextView, WeightedReloadProgress, WeightedReloadStageProgress,
+        ResourceLoadingEvent, ResourceLoadingUpdate, StartupDestination, StartupFlow,
+        StartupLoadingPhase, StartupScreen, VanillaLoadingBackground, VanillaLoadingOverlay,
+        VanillaLoadingOverlayView, VanillaLoadingTextView, WeightedReloadProgress,
+        WeightedReloadStageProgress,
     },
 };
 use crate::resources::{
@@ -29,6 +30,7 @@ pub const FALLBACK_RELOAD_LABEL: &str = VanillaLoadingTextView::FALLBACK_LOADING
 #[derive(Clone, Debug)]
 pub struct ResourceLoadingTracker {
     flow: StartupFlow,
+    startup_destination: StartupDestination,
     resource_reload_snapshot: Option<ResourceReloadProgressSnapshot>,
     resource_reload_error: Option<String>,
     pack_load_failure_toast: Option<ResourceLoadingPackLoadFailureToast>,
@@ -38,6 +40,7 @@ impl ResourceLoadingTracker {
     pub fn new(accounts: Vec<StoredLauncherAccount>) -> Self {
         Self {
             flow: StartupFlow::new(accounts),
+            startup_destination: StartupDestination::TitleMenu,
             resource_reload_snapshot: None,
             resource_reload_error: None,
             pack_load_failure_toast: None,
@@ -47,10 +50,24 @@ impl ResourceLoadingTracker {
     pub fn from_flow(flow: StartupFlow) -> Self {
         Self {
             flow,
+            startup_destination: StartupDestination::TitleMenu,
             resource_reload_snapshot: None,
             resource_reload_error: None,
             pack_load_failure_toast: None,
         }
+    }
+
+    pub fn with_startup_destination(mut self, destination: StartupDestination) -> Self {
+        self.startup_destination = destination;
+        self
+    }
+
+    pub fn startup_destination(&self) -> StartupDestination {
+        self.startup_destination
+    }
+
+    pub fn set_startup_destination(&mut self, destination: StartupDestination) {
+        self.startup_destination = destination;
     }
 
     pub fn flow(&self) -> &StartupFlow {
@@ -132,7 +149,10 @@ impl ResourceLoadingTracker {
     }
 
     pub fn apply_event(&mut self, event: ResourceLoadingEvent) {
-        self.flow.apply_resource_loading_event(event);
+        match event {
+            ResourceLoadingEvent::Complete => self.mark_complete(),
+            event => self.flow.apply_resource_loading_event(event),
+        }
     }
 
     pub fn apply_resource_reload_event(&mut self, event: &ClientResourceReloadEvent) {
@@ -198,9 +218,14 @@ impl ResourceLoadingTracker {
     }
 
     pub fn mark_complete(&mut self) {
+        self.mark_complete_to(self.startup_destination);
+    }
+
+    pub fn mark_complete_to(&mut self, destination: StartupDestination) {
         self.resource_reload_error = None;
         self.pack_load_failure_toast = None;
-        self.flow.finish_loading();
+        self.startup_destination = destination;
+        self.flow.finish_loading_to(destination);
     }
 
     fn reload_view(&self) -> ResourceLoadingReloadView {
@@ -901,6 +926,54 @@ mod tests {
             Some(StartupTitleMenuView::vanilla_initial())
         );
         assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
+    }
+
+    #[test]
+    fn resource_loading_startup_destination_defaults_to_title_menu_after_resource_reload() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker
+            .run_resource_reload(&manager)
+            .expect("reload should complete");
+
+        assert_eq!(tracker.startup_destination(), StartupDestination::TitleMenu);
+        assert_eq!(
+            tracker.flow().startup_destination(),
+            Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(
+            tracker.screen().loading_screen,
+            StartupLoadingScreen::CompleteDestination(Some(StartupDestination::TitleMenu))
+        );
+        assert_eq!(
+            tracker.screen().title_menu,
+            Some(StartupTitleMenuView::vanilla_initial())
+        );
+    }
+
+    #[test]
+    fn resource_loading_startup_destination_can_target_quick_play_after_resource_reload() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new())
+            .with_startup_destination(StartupDestination::QuickPlay);
+
+        tracker
+            .run_resource_reload(&manager)
+            .expect("reload should complete");
+
+        assert_eq!(tracker.startup_destination(), StartupDestination::QuickPlay);
+        assert_eq!(
+            tracker.flow().startup_destination(),
+            Some(StartupDestination::QuickPlay)
+        );
+        assert_eq!(
+            tracker.screen().loading_screen,
+            StartupLoadingScreen::CompleteDestination(Some(StartupDestination::QuickPlay))
+        );
+        assert_eq!(tracker.screen().title_menu, None);
     }
 
     #[test]
