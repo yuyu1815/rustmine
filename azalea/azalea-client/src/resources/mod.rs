@@ -159,6 +159,7 @@ const LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY: &str =
     "level_renderer_reload_invalidation_loaded_rebuild_pending";
 const DYNAMIC_TEXTURE_MANAGER_BOUNDARY: &str =
     "dynamic_texture_manager_candidates_loaded_upload_pending";
+const MAP_TEXTURE_MANAGER_BOUNDARY: &str = "map_texture_manager_state_runtime_binding_pending";
 const PLAYER_SKIN_CACHE_BOUNDARY: &str =
     "player_skin_cache_candidates_loaded_runtime_lookup_pending";
 const FONT_MANAGER_RUNTIME_BOUNDARY: &str = "font_glyphs_loaded_runtime_fontset_pending";
@@ -2642,6 +2643,7 @@ impl ResourceReloadManager {
             .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
             .with_listener(EquipmentRendererRuntimeCandidateReloadListener::default())
             .with_listener(DynamicTextureManagerCandidateReloadListener)
+            .with_listener(MapTextureManagerCandidateReloadListener)
             .with_listener(PlayerSkinCacheCandidateReloadListener)
             .with_listener(EntityRendererDispatcherCandidateReloadListener::default())
             .with_listener(BlockEntityRendererDispatcherCandidateReloadListener::default())
@@ -7978,6 +7980,541 @@ impl ClientDynamicTextureManagerCandidateState {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MapTextureManagerCandidateSet {
+    candidates: Vec<MapTextureManagerCandidate>,
+}
+
+impl MapTextureManagerCandidateSet {
+    pub fn candidates(&self) -> &[MapTextureManagerCandidate] {
+        &self.candidates
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = MapTextureManagerCandidateReport> + '_ {
+        self.candidates()
+            .iter()
+            .map(MapTextureManagerCandidate::report)
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(MapTextureManagerCandidate::representative_texture_id_count)
+            .sum()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(MapTextureManagerCandidate::runtime_source_count)
+            .sum()
+    }
+
+    pub fn texture_registry_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.texture_registry)
+            .count()
+    }
+
+    pub fn dynamic_texture_allocation_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.dynamic_texture_allocation)
+            .count()
+    }
+
+    pub fn map_data_packet_cache_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.map_data_packet_cache)
+            .count()
+    }
+
+    pub fn map_renderer_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.map_renderer)
+            .count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.texture_manager)
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(MapTextureManagerCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "map_texture_manager_candidates:candidates:{} representative_texture_ids:{} runtime_sources:{} deps:texture_registry:{} dynamic_texture_allocation:{} map_data_packet_cache:{} map_renderer:{} texture_manager:{} blockers:{} boundary:{}",
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.runtime_source_count(),
+            self.texture_registry_dependency_count(),
+            self.dynamic_texture_allocation_dependency_count(),
+            self.map_data_packet_cache_dependency_count(),
+            self.map_renderer_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.blocker_count(),
+            MAP_TEXTURE_MANAGER_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| map_texture_manager_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MapTextureManagerCandidate {
+    id: String,
+    category: String,
+    representative_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: MapTextureManagerDependencyFlags,
+    blockers: Vec<String>,
+}
+
+impl MapTextureManagerCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> MapTextureManagerDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_ids.len()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        MAP_TEXTURE_MANAGER_BOUNDARY
+    }
+
+    pub fn report(&self) -> MapTextureManagerCandidateReport {
+        MapTextureManagerCandidateReport {
+            id: self.id.clone(),
+            category: self.category.clone(),
+            representative_texture_ids: self.representative_texture_ids.clone(),
+            runtime_sources: self.runtime_sources.clone(),
+            dependencies: self.dependencies,
+            blockers: self.blockers.clone(),
+            runtime_boundary: self.runtime_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MapTextureManagerDependencyFlags {
+    pub texture_registry: bool,
+    pub dynamic_texture_allocation: bool,
+    pub map_data_packet_cache: bool,
+    pub map_renderer: bool,
+    pub texture_manager: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MapTextureManagerCandidateReport {
+    id: String,
+    category: String,
+    representative_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: MapTextureManagerDependencyFlags,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl MapTextureManagerCandidateReport {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> MapTextureManagerDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientMapTextureManagerState {
+    status: ClientMapTextureManagerLoadStatus,
+    candidate_set: MapTextureManagerCandidateSet,
+    candidates: Vec<ClientMapTextureManagerCandidateState>,
+    candidates_by_id: BTreeMap<String, usize>,
+    candidates_by_category: BTreeMap<String, Vec<usize>>,
+    candidates_by_category_id: BTreeMap<(String, String), usize>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientMapTextureManagerState {
+    pub fn from_candidates(candidate_set: MapTextureManagerCandidateSet) -> Self {
+        let runtime_boundary = MAP_TEXTURE_MANAGER_BOUNDARY;
+        let candidates = candidate_set
+            .candidates()
+            .iter()
+            .map(|candidate| {
+                ClientMapTextureManagerCandidateState::from_candidate(candidate, runtime_boundary)
+            })
+            .collect::<Vec<_>>();
+        let mut candidates_by_id = BTreeMap::new();
+        let mut candidates_by_category: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut candidates_by_category_id = BTreeMap::new();
+
+        for (index, candidate) in candidates.iter().enumerate() {
+            candidates_by_id.insert(candidate.id().to_owned(), index);
+            candidates_by_category
+                .entry(candidate.category().to_owned())
+                .or_default()
+                .push(index);
+            candidates_by_category_id.insert(
+                (candidate.category().to_owned(), candidate.id().to_owned()),
+                index,
+            );
+        }
+
+        let status = if candidates.is_empty() {
+            ClientMapTextureManagerLoadStatus::Missing
+        } else if candidates
+            .iter()
+            .any(|candidate| candidate.status() == ClientMapTextureManagerLoadStatus::Missing)
+        {
+            ClientMapTextureManagerLoadStatus::Missing
+        } else if candidates
+            .iter()
+            .any(|candidate| candidate.status() == ClientMapTextureManagerLoadStatus::Blocked)
+        {
+            ClientMapTextureManagerLoadStatus::Blocked
+        } else {
+            ClientMapTextureManagerLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            candidate_set,
+            candidates,
+            candidates_by_id,
+            candidates_by_category,
+            candidates_by_category_id,
+            runtime_boundary,
+        }
+    }
+
+    pub fn status(&self) -> ClientMapTextureManagerLoadStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_set.candidate_count()
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.candidate_set.representative_texture_id_count()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidate_set.runtime_source_count()
+    }
+
+    pub fn texture_registry_dependency_count(&self) -> usize {
+        self.candidate_set.texture_registry_dependency_count()
+    }
+
+    pub fn dynamic_texture_allocation_dependency_count(&self) -> usize {
+        self.candidate_set
+            .dynamic_texture_allocation_dependency_count()
+    }
+
+    pub fn map_data_packet_cache_dependency_count(&self) -> usize {
+        self.candidate_set.map_data_packet_cache_dependency_count()
+    }
+
+    pub fn map_renderer_dependency_count(&self) -> usize {
+        self.candidate_set.map_renderer_dependency_count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidate_set.texture_manager_dependency_count()
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_set.blocker_count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.status() == ClientMapTextureManagerLoadStatus::Blocked
+                    && candidate.runtime_boundary() == self.runtime_boundary
+            })
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.blocker_count()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn candidate_set(&self) -> &MapTextureManagerCandidateSet {
+        &self.candidate_set
+    }
+
+    pub fn candidates(&self) -> &[ClientMapTextureManagerCandidateState] {
+        &self.candidates
+    }
+
+    pub fn candidate(&self, id: &str) -> Option<&ClientMapTextureManagerCandidateState> {
+        self.candidates_by_id
+            .get(id)
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn candidates_by_category(
+        &self,
+        category: &str,
+    ) -> Vec<&ClientMapTextureManagerCandidateState> {
+        self.candidates_by_category
+            .get(category)
+            .into_iter()
+            .flat_map(|indexes| indexes.iter())
+            .filter_map(|index| self.candidates.get(*index))
+            .collect()
+    }
+
+    pub fn candidate_by_category_id(
+        &self,
+        category: &str,
+        id: &str,
+    ) -> Option<&ClientMapTextureManagerCandidateState> {
+        self.candidates_by_category_id
+            .get(&(category.to_owned(), id.to_owned()))
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "map_texture_manager_state:status:{:?} candidates:{} representative_texture_ids:{} runtime_sources:{} deps:texture_registry:{} dynamic_texture_allocation:{} map_data_packet_cache:{} map_renderer:{} texture_manager:{} candidate_blockers:{} runtime_blockers:{} blockers:{} boundary:{}",
+            self.status(),
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.runtime_source_count(),
+            self.texture_registry_dependency_count(),
+            self.dynamic_texture_allocation_dependency_count(),
+            self.map_data_packet_cache_dependency_count(),
+            self.map_renderer_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.blocker_count(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(ClientMapTextureManagerCandidateState::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientMapTextureManagerLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientMapTextureManagerCandidateState {
+    id: String,
+    category: String,
+    representative_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: MapTextureManagerDependencyFlags,
+    candidate_blockers: Vec<String>,
+    runtime_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    status: ClientMapTextureManagerLoadStatus,
+}
+
+impl ClientMapTextureManagerCandidateState {
+    fn from_candidate(
+        candidate: &MapTextureManagerCandidate,
+        runtime_boundary: &'static str,
+    ) -> Self {
+        Self {
+            id: candidate.id().to_owned(),
+            category: candidate.category().to_owned(),
+            representative_texture_ids: candidate.representative_texture_ids().to_vec(),
+            runtime_sources: candidate.runtime_sources().to_vec(),
+            dependencies: candidate.dependencies(),
+            candidate_blockers: candidate.blockers().to_vec(),
+            runtime_blockers: vec![runtime_boundary.to_owned()],
+            runtime_boundary,
+            status: ClientMapTextureManagerLoadStatus::Blocked,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_ids.len()
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn dependencies(&self) -> MapTextureManagerDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn candidate_blockers(&self) -> &[String] {
+        &self.candidate_blockers
+    }
+
+    pub fn runtime_blockers(&self) -> &[String] {
+        &self.runtime_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blockers.len() + self.runtime_blockers.len()
+    }
+
+    pub fn status(&self) -> ClientMapTextureManagerLoadStatus {
+        self.status
+    }
+
+    fn item_string(&self) -> String {
+        let representative_texture_ids = if self.representative_texture_ids.is_empty() {
+            "none".to_owned()
+        } else {
+            self.representative_texture_ids.join(",")
+        };
+        let runtime_sources = if self.runtime_sources.is_empty() {
+            "none".to_owned()
+        } else {
+            self.runtime_sources.join(",")
+        };
+        let candidate_blockers = if self.candidate_blockers.is_empty() {
+            "none".to_owned()
+        } else {
+            self.candidate_blockers.join(",")
+        };
+        format!(
+            "map_texture_manager_state_candidate:{} status:{:?} category:{} representative_texture_ids:{} runtime_sources:{} deps:texture_registry:{} dynamic_texture_allocation:{} map_data_packet_cache:{} map_renderer:{} texture_manager:{} candidate_blockers:{} runtime_blockers:{} blocker_details:{} boundary:{}",
+            self.id,
+            self.status,
+            self.category,
+            representative_texture_ids,
+            runtime_sources,
+            self.dependencies.texture_registry,
+            self.dependencies.dynamic_texture_allocation,
+            self.dependencies.map_data_packet_cache,
+            self.dependencies.map_renderer,
+            self.dependencies.texture_manager,
+            self.candidate_blockers.len(),
+            self.runtime_blockers.len(),
+            candidate_blockers,
+            self.runtime_boundary
+        )
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PlayerSkinCacheCandidateSet {
     candidates: Vec<PlayerSkinCacheCandidate>,
 }
@@ -13176,6 +13713,51 @@ impl DynamicTextureManagerCandidateReloadListener {
 impl ResourceReloadListener for DynamicTextureManagerCandidateReloadListener {
     fn name(&self) -> &str {
         "dynamic_texture_manager_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new([self
+            .load_state(stack)?
+            .summary_fragment()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            self.load_state(stack)?.items(),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MapTextureManagerCandidateReloadListener;
+
+impl MapTextureManagerCandidateReloadListener {
+    pub fn load(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<MapTextureManagerCandidateSet> {
+        Ok(build_map_texture_manager_candidate_set())
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientMapTextureManagerState> {
+        Ok(ClientMapTextureManagerState::from_candidates(
+            self.load(stack)?,
+        ))
+    }
+}
+
+impl ResourceReloadListener for MapTextureManagerCandidateReloadListener {
+    fn name(&self) -> &str {
+        "map_texture_manager_candidates"
     }
 
     fn prepare(
@@ -19890,6 +20472,134 @@ fn build_dynamic_texture_manager_candidate(
 }
 
 #[derive(Clone, Copy)]
+struct MapTextureManagerCandidateSpec {
+    id: &'static str,
+    category: &'static str,
+    representative_texture_ids: &'static [&'static str],
+    runtime_sources: &'static [&'static str],
+    dependencies: MapTextureManagerDependencyFlags,
+}
+
+const fn map_texture_manager_deps(
+    texture_registry: bool,
+    dynamic_texture_allocation: bool,
+    map_data_packet_cache: bool,
+    map_renderer: bool,
+    texture_manager: bool,
+) -> MapTextureManagerDependencyFlags {
+    MapTextureManagerDependencyFlags {
+        texture_registry,
+        dynamic_texture_allocation,
+        map_data_packet_cache,
+        map_renderer,
+        texture_manager,
+    }
+}
+
+const MAP_TEXTURE_MANAGER_CANDIDATE_SPECS: &[MapTextureManagerCandidateSpec] = &[
+    MapTextureManagerCandidateSpec {
+        id: "map_id_texture_registry",
+        category: "map_id_to_dynamic_texture",
+        representative_texture_ids: &["minecraft:map/{id}"],
+        runtime_sources: &[
+            "MapTextureManager.update(MapId,MapItemSavedData)",
+            "MapTextureManager.prepareMapTexture(MapId,MapItemSavedData)",
+            "MapTextureManager.MapInstance.texture",
+        ],
+        dependencies: map_texture_manager_deps(true, true, true, false, true),
+    },
+    MapTextureManagerCandidateSpec {
+        id: "map_data_packet_cache",
+        category: "client_map_saved_data_cache",
+        representative_texture_ids: &["runtime:MapItemSavedData.colors[128x128]"],
+        runtime_sources: &[
+            "ClientboundMapItemDataPacket.applyToMap(MapItemSavedData)",
+            "MapItemSavedData.createForClient(byte,boolean,ResourceKey)",
+            "MapItemSavedData.MapPatch.applyToMap(MapItemSavedData)",
+        ],
+        dependencies: map_texture_manager_deps(false, false, true, true, false),
+    },
+    MapTextureManagerCandidateSpec {
+        id: "map_dynamic_texture_upload",
+        category: "map_color_buffer_dynamic_texture",
+        representative_texture_ids: &["runtime:MapTextureManager.MapInstance"],
+        runtime_sources: &[
+            "MapTextureManager.MapInstance.updateTextureIfNeeded",
+            "DynamicTexture.upload",
+            "TextureManager.register",
+        ],
+        dependencies: map_texture_manager_deps(true, true, false, false, true),
+    },
+    MapTextureManagerCandidateSpec {
+        id: "map_renderer_binding",
+        category: "map_renderer_texture_binding",
+        representative_texture_ids: &[
+            "minecraft:textures/map/map_background.png",
+            "minecraft:textures/map/map_background_checkerboard.png",
+            "minecraft:map/{id}",
+        ],
+        runtime_sources: &[
+            "Minecraft.<init>:MapRenderer(AtlasManager,MapTextureManager)",
+            "MapRenderer.render(GuiGraphics,MapRenderState,boolean,int)",
+            "MapRenderer.extractRenderState(MapId,MapItemSavedData,MapRenderState)",
+        ],
+        dependencies: map_texture_manager_deps(true, false, true, true, true),
+    },
+];
+
+fn build_map_texture_manager_candidate_set() -> MapTextureManagerCandidateSet {
+    MapTextureManagerCandidateSet {
+        candidates: MAP_TEXTURE_MANAGER_CANDIDATE_SPECS
+            .iter()
+            .map(build_map_texture_manager_candidate)
+            .collect(),
+    }
+}
+
+fn build_map_texture_manager_candidate(
+    spec: &MapTextureManagerCandidateSpec,
+) -> MapTextureManagerCandidate {
+    let dependencies = spec.dependencies;
+    let mut blockers = vec!["headless_map_texture_manager_unavailable".to_owned()];
+
+    if dependencies.texture_registry {
+        blockers.push("map_id_texture_registry_unavailable".to_owned());
+    }
+    if dependencies.dynamic_texture_allocation {
+        blockers.push("map_dynamic_texture_allocation_unavailable".to_owned());
+        blockers.push("map_dynamic_texture_gpu_upload_unavailable".to_owned());
+    }
+    if dependencies.map_data_packet_cache {
+        blockers.push("client_map_data_packet_cache_unavailable".to_owned());
+        blockers.push("map_item_saved_data_cache_unavailable".to_owned());
+    }
+    if dependencies.map_renderer {
+        blockers.push("map_renderer_binding_unavailable".to_owned());
+        blockers.push("map_render_state_extraction_unavailable".to_owned());
+    }
+    if dependencies.texture_manager {
+        blockers.push("texture_manager_runtime_registration_unavailable".to_owned());
+    }
+
+    MapTextureManagerCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category.to_owned(),
+        representative_texture_ids: spec
+            .representative_texture_ids
+            .iter()
+            .map(|texture_id| (*texture_id).to_owned())
+            .collect(),
+        runtime_sources: spec
+            .runtime_sources
+            .iter()
+            .map(|source| (*source).to_owned())
+            .collect(),
+        dependencies,
+        blockers,
+    }
+}
+
+#[derive(Clone, Copy)]
 struct PlayerSkinCacheCandidateSpec {
     id: &'static str,
     category: &'static str,
@@ -21236,6 +21946,25 @@ fn dynamic_texture_manager_candidate_report_item(
         report.blocker_count(),
         report.blockers().join(","),
         report.render_boundary()
+    )
+}
+
+fn map_texture_manager_candidate_report_item(report: &MapTextureManagerCandidateReport) -> String {
+    let dependencies = report.dependencies();
+    format!(
+        "map_texture_manager_candidate:{} category:{} representative_texture_ids:{} runtime_sources:{} deps:texture_registry:{} dynamic_texture_allocation:{} map_data_packet_cache:{} map_renderer:{} texture_manager:{} blockers:{} blocker_details:{} boundary:{}",
+        report.id(),
+        report.category(),
+        report.representative_texture_ids().join(","),
+        report.runtime_sources().join(","),
+        dependencies.texture_registry,
+        dependencies.dynamic_texture_allocation,
+        dependencies.map_data_packet_cache,
+        dependencies.map_renderer,
+        dependencies.texture_manager,
+        report.blocker_count(),
+        report.blockers().join(","),
+        report.runtime_boundary()
     )
 }
 
@@ -40942,6 +41671,163 @@ mod tests {
             item.contains("dynamic_texture_manager_state_candidate:dynamic_texture_allocation")
                 && item.contains("runtime_sources:DynamicTexture.<init>(Supplier,NativeImage)")
                 && item.contains("dynamic_texture_gpu_upload_unavailable")
+                && item.contains("runtime_blockers:1")
+        }));
+    }
+
+    #[test]
+    fn map_texture_manager_state_reports_runtime_surfaces_and_boundaries() {
+        let candidates = MapTextureManagerCandidateReloadListener
+            .load(&ClientResourceStack::vanilla())
+            .expect("map texture manager candidates should load");
+
+        assert_eq!(candidates.candidate_count(), 4);
+        assert_eq!(candidates.representative_texture_id_count(), 6);
+        assert_eq!(candidates.runtime_source_count(), 12);
+        assert_eq!(candidates.texture_registry_dependency_count(), 3);
+        assert_eq!(candidates.dynamic_texture_allocation_dependency_count(), 2);
+        assert_eq!(candidates.map_data_packet_cache_dependency_count(), 3);
+        assert_eq!(candidates.map_renderer_dependency_count(), 2);
+        assert_eq!(candidates.texture_manager_dependency_count(), 3);
+        assert_eq!(candidates.blocker_count(), 24);
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:map_texture_manager_state_runtime_binding_pending")
+        );
+
+        let by_id = candidates
+            .candidates()
+            .iter()
+            .map(|candidate| (candidate.id(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        let registry = by_id
+            .get("map_id_texture_registry")
+            .expect("map id texture registry candidate should be reported");
+        assert_eq!(registry.category(), "map_id_to_dynamic_texture");
+        assert!(registry.dependencies().texture_registry);
+        assert!(registry.dependencies().dynamic_texture_allocation);
+        assert!(registry.dependencies().map_data_packet_cache);
+        assert!(registry.dependencies().texture_manager);
+        assert!(
+            registry.runtime_sources().contains(
+                &"MapTextureManager.prepareMapTexture(MapId,MapItemSavedData)".to_owned()
+            )
+        );
+
+        let packet_cache = by_id
+            .get("map_data_packet_cache")
+            .expect("map packet cache candidate should be reported");
+        assert!(packet_cache.dependencies().map_data_packet_cache);
+        assert!(packet_cache.dependencies().map_renderer);
+        assert!(
+            packet_cache
+                .runtime_sources()
+                .contains(&"ClientboundMapItemDataPacket.applyToMap(MapItemSavedData)".to_owned())
+        );
+        assert!(
+            packet_cache
+                .blockers()
+                .contains(&"client_map_data_packet_cache_unavailable".to_owned())
+        );
+    }
+
+    #[test]
+    fn map_texture_manager_state_tracks_runtime_pending_counts_and_lookup() {
+        let state = MapTextureManagerCandidateReloadListener
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("map texture manager state should load");
+
+        assert_eq!(state.status(), ClientMapTextureManagerLoadStatus::Blocked);
+        assert_eq!(state.candidate_count(), 4);
+        assert_eq!(state.representative_texture_id_count(), 6);
+        assert_eq!(state.runtime_source_count(), 12);
+        assert_eq!(state.texture_registry_dependency_count(), 3);
+        assert_eq!(state.dynamic_texture_allocation_dependency_count(), 2);
+        assert_eq!(state.map_data_packet_cache_dependency_count(), 3);
+        assert_eq!(state.map_renderer_dependency_count(), 2);
+        assert_eq!(state.texture_manager_dependency_count(), 3);
+        assert_eq!(state.candidate_blocker_count(), 24);
+        assert_eq!(state.runtime_blocker_count(), 4);
+        assert_eq!(state.blocker_count(), 28);
+        assert_eq!(state.total_blocker_count(), 28);
+        assert_eq!(state.runtime_boundary(), MAP_TEXTURE_MANAGER_BOUNDARY);
+
+        let renderer = state
+            .candidate("map_renderer_binding")
+            .expect("map renderer binding state should be indexed by id");
+        assert_eq!(
+            renderer.status(),
+            ClientMapTextureManagerLoadStatus::Blocked
+        );
+        assert_eq!(renderer.category(), "map_renderer_texture_binding");
+        assert_eq!(renderer.representative_texture_id_count(), 3);
+        assert_eq!(renderer.runtime_source_count(), 3);
+        assert_eq!(renderer.runtime_boundary(), MAP_TEXTURE_MANAGER_BOUNDARY);
+        assert_eq!(
+            renderer.runtime_blockers(),
+            &[MAP_TEXTURE_MANAGER_BOUNDARY.to_owned()]
+        );
+        assert_eq!(renderer.blocker_count(), 8);
+        assert!(renderer.dependencies().texture_registry);
+        assert!(renderer.dependencies().map_data_packet_cache);
+        assert!(renderer.dependencies().map_renderer);
+        assert!(renderer.dependencies().texture_manager);
+
+        assert_eq!(
+            state
+                .candidates_by_category("client_map_saved_data_cache")
+                .iter()
+                .map(|candidate| candidate.id())
+                .collect::<Vec<_>>(),
+            vec!["map_data_packet_cache"]
+        );
+        let dynamic_texture = state
+            .candidate_by_category_id(
+                "map_color_buffer_dynamic_texture",
+                "map_dynamic_texture_upload",
+            )
+            .expect("map dynamic texture state should be indexed by category and id");
+        assert!(
+            dynamic_texture
+                .runtime_sources()
+                .contains(&"DynamicTexture.upload".to_owned())
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_default_map_texture_manager_state_reports_runtime_pending_boundary() {
+        let report = ResourceReloadManager::with_default_vanilla_client_resources()
+            .run()
+            .expect("committed vanilla default client resources should include map texture state");
+
+        let listener = report
+            .listener_reports()
+            .iter()
+            .find(|listener| listener.name == "map_texture_manager_candidates")
+            .expect("default client resource listeners should include map texture manager state");
+        assert_eq!(listener.preparation.items().len(), 1);
+        assert!(
+            listener.preparation.items()[0]
+                .starts_with("map_texture_manager_state:status:Blocked candidates:4")
+        );
+        assert!(
+            listener.preparation.items()[0]
+                .contains("candidate_blockers:24 runtime_blockers:4 blockers:28")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("map_texture_manager_state_candidate:map_id_texture_registry")
+                && item.contains("status:Blocked")
+                && item.contains("representative_texture_ids:minecraft:map/{id}")
+                && item.contains("deps:texture_registry:true dynamic_texture_allocation:true")
+                && item.contains("boundary:map_texture_manager_state_runtime_binding_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("map_texture_manager_state_candidate:map_renderer_binding")
+                && item.contains(
+                    "runtime_sources:Minecraft.<init>:MapRenderer(AtlasManager,MapTextureManager)",
+                )
+                && item.contains("map_renderer_binding_unavailable")
                 && item.contains("runtime_blockers:1")
         }));
     }
