@@ -225,11 +225,13 @@ impl ConfigPacketHandler<'_> {
             .iter()
             .map(known_pack_id_from_protocol)
             .collect::<Vec<_>>();
-        let known_packs = ClientResourceRepository::committed_vanilla()
-            .recognized_known_pack_ids(&offered)
-            .into_iter()
-            .map(known_pack_id_to_protocol)
-            .collect();
+        let known_packs = select_known_pack_ids(
+            self.ecs.get::<ClientResourceRepository>(self.player),
+            &offered,
+        )
+        .into_iter()
+        .map(known_pack_id_to_protocol)
+        .collect();
 
         as_system::<Commands>(self.ecs, |mut commands| {
             commands.trigger(SendConfigPacketEvent::new(
@@ -258,6 +260,16 @@ impl ConfigPacketHandler<'_> {
     }
 }
 
+fn select_known_pack_ids(
+    repository: Option<&ClientResourceRepository>,
+    offered: &[KnownPackId],
+) -> Vec<KnownPackId> {
+    repository.map_or_else(
+        || ClientResourceRepository::committed_vanilla().recognized_known_pack_ids(offered),
+        |repository| repository.recognized_known_pack_ids(offered),
+    )
+}
+
 fn known_pack_id_from_protocol(known_pack: &KnownPack) -> KnownPackId {
     KnownPackId::new(&known_pack.namespace, &known_pack.id, &known_pack.version)
 }
@@ -267,5 +279,46 @@ fn known_pack_id_to_protocol(known_pack_id: KnownPackId) -> KnownPack {
         namespace: known_pack_id.namespace,
         id: known_pack_id.id,
         version: known_pack_id.version,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::resources::{AvailableClientResourcePack, ClientResourcePack};
+
+    #[test]
+    fn select_known_packs_uses_selected_repository_known_pack_when_offered() {
+        let custom_pack = KnownPackId::new("example", "custom", "1");
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new(
+                    "custom",
+                    "<test-resource-pack:custom>",
+                ))
+                .with_known_pack_id(custom_pack.clone()),
+            )
+            .with_selected_pack_ids(["custom"]);
+        let offered = [
+            KnownPackId::new("unknown", "missing", "1"),
+            custom_pack.clone(),
+            KnownPackId::vanilla(),
+        ];
+
+        assert_eq!(
+            select_known_pack_ids(Some(&repository), &offered),
+            [custom_pack, KnownPackId::vanilla()]
+        );
+    }
+
+    #[test]
+    fn select_known_packs_falls_back_to_vanilla_when_repository_is_unavailable() {
+        let custom_pack = KnownPackId::new("example", "custom", "1");
+        let offered = [custom_pack, KnownPackId::vanilla()];
+
+        assert_eq!(
+            select_known_pack_ids(None, &offered),
+            [KnownPackId::vanilla()]
+        );
     }
 }

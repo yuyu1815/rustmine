@@ -1297,7 +1297,7 @@ impl Default for ServerResourcePackApplyModel {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Component, Debug, Eq, PartialEq)]
 pub struct ClientResourceRepository {
     vanilla_pack: ClientResourcePack,
     available_packs: BTreeMap<String, AvailableClientResourcePack>,
