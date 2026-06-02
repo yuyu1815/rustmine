@@ -22781,6 +22781,15 @@ impl AtlasTextureUploadCandidateReloadListener {
         }
     }
 
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientAtlasManagerState> {
+        Ok(ClientAtlasManagerState::from_upload_candidates(
+            self.load(stack)?,
+        ))
+    }
+
     fn resolved_manifests(&self, stack: &ClientResourceStack) -> ResourceReloadResult<Vec<String>> {
         if self.discover_manifests {
             discover_atlas_manifest_resources(stack)
@@ -22989,6 +22998,411 @@ fn atlas_texture_upload_blockers_fragment(blockers: &[AtlasTextureUploadBlocker]
 const ATLAS_MANAGER_RUNTIME_BOUNDARY: &str = "atlas_textures_loaded_runtime_sprite_lookup_pending";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasManagerState {
+    atlases: Vec<ClientAtlasManagerAtlasState>,
+    blockers: Vec<ClientAtlasManagerBlocker>,
+    atlas_index: BTreeMap<(String, String), usize>,
+    sprite_index: BTreeMap<String, Vec<ClientAtlasManagerSpriteState>>,
+    source_count: usize,
+    sprite_candidate_count: usize,
+    available_resource_count: usize,
+    decoded_resource_count: usize,
+    byte_count: usize,
+}
+
+impl ClientAtlasManagerState {
+    pub fn from_upload_candidates(
+        upload_candidates: AtlasTextureUploadCandidateCollection,
+    ) -> Self {
+        let source_count = upload_candidates.source_count();
+        let sprite_candidate_count = upload_candidates.sprite_candidate_count();
+        let available_resource_count = upload_candidates.available_sprite_resource_count();
+        let decoded_resource_count = upload_candidates.decoded_sprite_resource_count();
+        let byte_count = upload_candidates.byte_count();
+        let mut atlases = Vec::with_capacity(upload_candidates.atlas_count());
+        let mut blockers = Vec::new();
+        let mut atlas_index = BTreeMap::new();
+        let mut sprite_index: BTreeMap<String, Vec<ClientAtlasManagerSpriteState>> =
+            BTreeMap::new();
+
+        for atlas in upload_candidates.atlases {
+            let status = if atlas.blocker_count() > 0 {
+                ClientAtlasManagerStatus::Blocked
+            } else if atlas.decoded_sprite_resource_count() > 0 {
+                ClientAtlasManagerStatus::Blocked
+            } else {
+                ClientAtlasManagerStatus::Missing
+            };
+            let atlas_key = (atlas.resource.clone(), atlas.pack_id.clone());
+            let decoded_sprite_resources = atlas
+                .decoded_sprite_resources
+                .iter()
+                .map(|resource| {
+                    let sprite = ClientAtlasManagerSpriteState {
+                        atlas_resource: atlas.resource.clone(),
+                        atlas_pack_id: atlas.pack_id.clone(),
+                        texture_resource: resource.resource.clone(),
+                        texture_pack_id: resource.pack_id.clone(),
+                        byte_count: resource.byte_count,
+                        width: resource.width,
+                        height: resource.height,
+                        status: ClientAtlasManagerStatus::Blocked,
+                    };
+                    sprite_index
+                        .entry(sprite.texture_resource.clone())
+                        .or_default()
+                        .push(sprite.clone());
+                    sprite
+                })
+                .collect::<Vec<_>>();
+            let atlas_blockers = atlas
+                .blockers
+                .iter()
+                .map(|blocker| ClientAtlasManagerBlocker {
+                    atlas_resource: atlas.resource.clone(),
+                    atlas_pack_id: atlas.pack_id.clone(),
+                    texture_resource: blocker.resource.clone(),
+                    status: match blocker.reason {
+                        AtlasTextureUploadBlockerReason::MissingTextureResource => {
+                            ClientAtlasManagerStatus::Missing
+                        }
+                        AtlasTextureUploadBlockerReason::ReadTextureResource
+                        | AtlasTextureUploadBlockerReason::InvalidPngSignature { .. }
+                        | AtlasTextureUploadBlockerReason::InvalidPngMetadata { .. } => {
+                            ClientAtlasManagerStatus::Blocked
+                        }
+                    },
+                    reason: blocker.reason.clone(),
+                })
+                .collect::<Vec<_>>();
+            blockers.extend(atlas_blockers.clone());
+            atlas_index.insert(atlas_key, atlases.len());
+            atlases.push(ClientAtlasManagerAtlasState {
+                resource: atlas.resource,
+                pack_id: atlas.pack_id,
+                source_count: atlas.source_count,
+                sprite_candidate_count: atlas.sprite_candidate_count,
+                available_resource_count: atlas.available_sprite_resource_count,
+                decoded_sprite_resources,
+                upload_blockers: atlas_blockers,
+                status,
+            });
+        }
+
+        Self {
+            atlases,
+            blockers,
+            atlas_index,
+            sprite_index,
+            source_count,
+            sprite_candidate_count,
+            available_resource_count,
+            decoded_resource_count,
+            byte_count,
+        }
+    }
+
+    pub fn atlases(&self) -> &[ClientAtlasManagerAtlasState] {
+        &self.atlases
+    }
+
+    pub fn atlas(&self, resource: &str, pack_id: &str) -> Option<&ClientAtlasManagerAtlasState> {
+        self.atlas_index
+            .get(&(resource.to_owned(), pack_id.to_owned()))
+            .map(|index| &self.atlases[*index])
+    }
+
+    pub fn sprites_by_texture_resource(
+        &self,
+        resource: &str,
+    ) -> Option<&[ClientAtlasManagerSpriteState]> {
+        self.sprite_index.get(resource).map(Vec::as_slice)
+    }
+
+    pub fn blockers(&self) -> &[ClientAtlasManagerBlocker] {
+        &self.blockers
+    }
+
+    pub fn atlas_count(&self) -> usize {
+        self.atlases.len()
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn sprite_candidate_count(&self) -> usize {
+        self.sprite_candidate_count
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn upload_blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        ATLAS_MANAGER_RUNTIME_BLOCKERS.len()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.upload_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn upload_boundary(&self) -> &'static str {
+        ATLAS_TEXTURE_UPLOAD_BOUNDARY
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        ATLAS_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    pub fn status(&self) -> ClientAtlasManagerStatus {
+        if self.decoded_resource_count > 0 || self.upload_blocker_count() > 0 {
+            ClientAtlasManagerStatus::Blocked
+        } else {
+            ClientAtlasManagerStatus::Missing
+        }
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_atlas_manager_state:atlases:{} sources:{} sprite_candidates:{} available:{} decoded:{} bytes:{} upload_blocked:{} runtime_blocked:{} total_blocked:{} status:{} upload_boundary:{} boundary:{}",
+            self.atlas_count(),
+            self.source_count(),
+            self.sprite_candidate_count(),
+            self.available_resource_count(),
+            self.decoded_resource_count(),
+            self.byte_count(),
+            self.upload_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            self.status().report_fragment(),
+            self.upload_boundary(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.atlases.iter().map(ClientAtlasManagerAtlasState::item));
+        if !self.blockers.is_empty() {
+            items.extend(self.blockers.iter().map(ClientAtlasManagerBlocker::item));
+        }
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasManagerAtlasState {
+    resource: String,
+    pack_id: String,
+    source_count: usize,
+    sprite_candidate_count: usize,
+    available_resource_count: usize,
+    decoded_sprite_resources: Vec<ClientAtlasManagerSpriteState>,
+    upload_blockers: Vec<ClientAtlasManagerBlocker>,
+    status: ClientAtlasManagerStatus,
+}
+
+impl ClientAtlasManagerAtlasState {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn sprite_candidate_count(&self) -> usize {
+        self.sprite_candidate_count
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn decoded_sprite_resources(&self) -> &[ClientAtlasManagerSpriteState] {
+        &self.decoded_sprite_resources
+    }
+
+    pub fn upload_blockers(&self) -> &[ClientAtlasManagerBlocker] {
+        &self.upload_blockers
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_sprite_resources.len()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.decoded_sprite_resources
+            .iter()
+            .map(ClientAtlasManagerSpriteState::byte_count)
+            .sum()
+    }
+
+    pub fn upload_blocker_count(&self) -> usize {
+        self.upload_blockers.len()
+    }
+
+    pub fn status(&self) -> ClientAtlasManagerStatus {
+        self.status
+    }
+
+    pub fn upload_boundary(&self) -> &'static str {
+        ATLAS_TEXTURE_UPLOAD_BOUNDARY
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        ATLAS_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    fn item(&self) -> String {
+        format!(
+            "{}@{} sources:{} sprite_candidates:{} available:{} decoded:{} bytes:{} upload_blockers:{} status:{} upload_boundary:{} boundary:{}",
+            self.resource,
+            self.pack_id,
+            self.source_count,
+            self.sprite_candidate_count,
+            self.available_resource_count,
+            self.decoded_resource_count(),
+            self.byte_count(),
+            self.upload_blocker_count(),
+            self.status.report_fragment(),
+            self.upload_boundary(),
+            self.runtime_boundary()
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasManagerSpriteState {
+    atlas_resource: String,
+    atlas_pack_id: String,
+    texture_resource: String,
+    texture_pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+    status: ClientAtlasManagerStatus,
+}
+
+impl ClientAtlasManagerSpriteState {
+    pub fn atlas_resource(&self) -> &str {
+        &self.atlas_resource
+    }
+
+    pub fn atlas_pack_id(&self) -> &str {
+        &self.atlas_pack_id
+    }
+
+    pub fn texture_resource(&self) -> &str {
+        &self.texture_resource
+    }
+
+    pub fn texture_pack_id(&self) -> &str {
+        &self.texture_pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn status(&self) -> ClientAtlasManagerStatus {
+        self.status
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasManagerBlocker {
+    atlas_resource: String,
+    atlas_pack_id: String,
+    texture_resource: String,
+    status: ClientAtlasManagerStatus,
+    reason: AtlasTextureUploadBlockerReason,
+}
+
+impl ClientAtlasManagerBlocker {
+    pub fn atlas_resource(&self) -> &str {
+        &self.atlas_resource
+    }
+
+    pub fn atlas_pack_id(&self) -> &str {
+        &self.atlas_pack_id
+    }
+
+    pub fn texture_resource(&self) -> &str {
+        &self.texture_resource
+    }
+
+    pub fn status(&self) -> ClientAtlasManagerStatus {
+        self.status
+    }
+
+    pub fn reason(&self) -> &AtlasTextureUploadBlockerReason {
+        &self.reason
+    }
+
+    fn item(&self) -> String {
+        format!(
+            "atlas_manager_blocker:{}@{} texture:{} status:{} reason:{} upload_boundary:{} boundary:{}",
+            self.atlas_resource,
+            self.atlas_pack_id,
+            self.texture_resource,
+            self.status.report_fragment(),
+            self.reason.report_fragment(),
+            ATLAS_TEXTURE_UPLOAD_BOUNDARY,
+            ATLAS_MANAGER_RUNTIME_BOUNDARY
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientAtlasManagerStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientAtlasManagerStatus {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+const ATLAS_MANAGER_RUNTIME_BLOCKERS: &[&str] = &[
+    "atlas_manager_registry_not_implemented",
+    "sprite_lookup_runtime_not_implemented",
+    "gpu_atlas_lifecycle_not_implemented",
+];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AtlasManagerRuntimeCandidateReloadListener {
     name: String,
     manifests: Vec<String>,
@@ -23019,6 +23433,20 @@ impl AtlasManagerRuntimeCandidateReloadListener {
         };
         Ok(build_atlas_manager_runtime_candidate_set(
             &upload_candidates,
+        ))
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientAtlasManagerState> {
+        let upload_candidates = if self.discover_manifests {
+            load_discovered_client_atlas_texture_upload_candidates(stack)?
+        } else {
+            load_client_atlas_texture_upload_candidates(stack, &self.manifests)?
+        };
+        Ok(ClientAtlasManagerState::from_upload_candidates(
+            upload_candidates,
         ))
     }
 
@@ -23278,11 +23706,7 @@ fn build_atlas_manager_runtime_candidate_set(
 fn atlas_manager_runtime_blockers(
     upload_candidates: &AtlasTextureUploadCandidateCollection,
 ) -> Vec<&'static str> {
-    let mut blockers = vec![
-        "atlas_manager_registry_not_implemented",
-        "sprite_lookup_runtime_not_implemented",
-        "gpu_atlas_lifecycle_not_implemented",
-    ];
+    let mut blockers = ATLAS_MANAGER_RUNTIME_BLOCKERS.to_vec();
     if upload_candidates.blocker_count() > 0 {
         blockers.push("upload_candidate_blockers_present");
     }
@@ -29094,6 +29518,183 @@ mod tests {
                     .representative_resources()
                     .contains(&"minecraft:missingno".to_owned())
         }));
+    }
+
+    #[test]
+    fn atlas_manager_state_uses_stacked_pack_lookup_keys() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let base_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let override_png = encode_test_rgba_png(2, 2, &[255, 0, 0, 255].repeat(4));
+        base.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:block/stone"}]}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:block/stone"}]}"#,
+        );
+        base.write_bytes("assets/minecraft/textures/block/stone.png", &base_png);
+        override_pack.write_bytes("assets/minecraft/textures/block/stone.png", &override_png);
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let state =
+            AtlasManagerRuntimeCandidateReloadListener::new(["assets/minecraft/atlases/test.json"])
+                .load_state(&stack)
+                .expect("atlas manager state should load from stacked packs");
+
+        assert_eq!(state.atlas_count(), 2);
+        assert_eq!(state.source_count(), 2);
+        assert_eq!(state.sprite_candidate_count(), 2);
+        assert_eq!(state.available_resource_count(), 2);
+        assert_eq!(state.decoded_resource_count(), 2);
+        assert_eq!(state.upload_blocker_count(), 0);
+        assert_eq!(state.runtime_blocker_count(), 3);
+        assert_eq!(state.total_blocker_count(), 3);
+
+        let base_atlas = state
+            .atlas("assets/minecraft/atlases/test.json", "base")
+            .expect("base atlas should be retained by manifest resource and pack");
+        let override_atlas = state
+            .atlas("assets/minecraft/atlases/test.json", "override")
+            .expect("override atlas should be retained by manifest resource and pack");
+        assert_eq!(base_atlas.status(), ClientAtlasManagerStatus::Blocked);
+        assert_eq!(override_atlas.status(), ClientAtlasManagerStatus::Blocked);
+        assert_eq!(
+            base_atlas.decoded_sprite_resources()[0].texture_pack_id(),
+            "override"
+        );
+        assert_eq!(
+            override_atlas.decoded_sprite_resources()[0].texture_pack_id(),
+            "override"
+        );
+
+        let sprites = state
+            .sprites_by_texture_resource("assets/minecraft/textures/block/stone.png")
+            .expect("decoded texture resource lookup should be present");
+        assert_eq!(sprites.len(), 2);
+        assert_eq!(
+            sprites
+                .iter()
+                .map(|sprite| (
+                    sprite.atlas_pack_id(),
+                    sprite.texture_pack_id(),
+                    sprite.width(),
+                    sprite.height(),
+                    sprite.status()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("base", "override", 2, 2, ClientAtlasManagerStatus::Blocked),
+                (
+                    "override",
+                    "override",
+                    2,
+                    2,
+                    ClientAtlasManagerStatus::Blocked
+                ),
+            ]
+        );
+        assert!(state.summary_fragment().contains(
+            "upload_boundary:sprite_decode_complete_texture_upload_pending boundary:atlas_textures_loaded_runtime_sprite_lookup_pending"
+        ));
+    }
+
+    #[test]
+    fn atlas_manager_state_retains_invalid_and_missing_sprite_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[
+                {"type":"minecraft:single","resource":"minecraft:item/missing"},
+                {"type":"minecraft:single","resource":"minecraft:item/bad"}
+            ]}"#,
+        );
+        temp.write_bytes("assets/minecraft/textures/item/bad.png", b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let state =
+            AtlasTextureUploadCandidateReloadListener::new(["assets/minecraft/atlases/test.json"])
+                .load_state(&stack)
+                .expect("atlas manager state should retain upload blockers");
+
+        assert_eq!(state.atlas_count(), 1);
+        assert_eq!(state.sprite_candidate_count(), 2);
+        assert_eq!(state.available_resource_count(), 1);
+        assert_eq!(state.decoded_resource_count(), 0);
+        assert_eq!(state.upload_blocker_count(), 2);
+        assert_eq!(state.total_blocker_count(), 5);
+        assert_eq!(state.status(), ClientAtlasManagerStatus::Blocked);
+        assert!(
+            state
+                .sprites_by_texture_resource("assets/minecraft/textures/item/bad.png")
+                .is_none()
+        );
+
+        assert_eq!(
+            state
+                .blockers()
+                .iter()
+                .map(|blocker| (
+                    blocker.texture_resource(),
+                    blocker.status(),
+                    blocker.reason()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "assets/minecraft/textures/item/missing.png",
+                    ClientAtlasManagerStatus::Missing,
+                    &AtlasTextureUploadBlockerReason::MissingTextureResource
+                ),
+                (
+                    "assets/minecraft/textures/item/bad.png",
+                    ClientAtlasManagerStatus::Blocked,
+                    &AtlasTextureUploadBlockerReason::InvalidPngSignature { byte_count: 9 }
+                ),
+            ]
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("atlas_manager_blocker:assets/minecraft/atlases/test.json@test")
+                && item.contains("status:missing reason:missing")
+        }));
+        assert!(state.items().iter().any(|item| {
+            item.contains("status:blocked reason:invalid_png_signature:bytes:9")
+                && item.contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_manager_state_loads_and_reports_boundary() {
+        let state = AtlasManagerRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla atlas manager state should load");
+
+        assert_eq!(state.atlas_count(), 15);
+        assert!(state.source_count() > 0);
+        assert!(state.sprite_candidate_count() > 0);
+        assert!(state.available_resource_count() > 0);
+        assert!(state.decoded_resource_count() > 0);
+        assert!(state.byte_count() > PNG_SIGNATURE.len());
+        assert_eq!(state.runtime_blocker_count(), 3);
+        assert_eq!(state.status(), ClientAtlasManagerStatus::Blocked);
+        assert_eq!(state.upload_boundary(), ATLAS_TEXTURE_UPLOAD_BOUNDARY);
+        assert_eq!(state.runtime_boundary(), ATLAS_MANAGER_RUNTIME_BOUNDARY);
+        assert!(
+            state
+                .atlas("assets/minecraft/atlases/blocks.json", VANILLA_PACK_ID)
+                .is_some()
+        );
+        assert!(
+            state
+                .items()
+                .first()
+                .expect("summary should be first item")
+                .contains("boundary:atlas_textures_loaded_runtime_sprite_lookup_pending")
+        );
     }
 
     #[test]
