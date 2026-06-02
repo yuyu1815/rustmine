@@ -19156,6 +19156,13 @@ impl FontGlyphAtlasCandidateReloadListener {
     ) -> ResourceReloadResult<ClientFontGlyphAtlasCandidateCollection> {
         load_client_font_glyph_atlas_candidates(stack, &self.definitions)
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientFontManagerState> {
+        load_client_font_manager_state(stack, &self.definitions)
+    }
 }
 
 impl Default for FontGlyphAtlasCandidateReloadListener {
@@ -19420,6 +19427,310 @@ fn font_glyph_atlas_blockers_fragment(blockers: &[ClientFontGlyphAtlasBlocker]) 
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontManagerState {
+    items: Vec<ClientFontManagerStateItem>,
+    lookup: BTreeMap<String, usize>,
+    runtime_candidates: ClientFontManagerRuntimeCandidateCollection,
+    asset_candidate_count: usize,
+}
+
+impl ClientFontManagerState {
+    pub fn items(&self) -> &[ClientFontManagerStateItem] {
+        &self.items
+    }
+
+    pub fn runtime_candidates(&self) -> &ClientFontManagerRuntimeCandidateCollection {
+        &self.runtime_candidates
+    }
+
+    pub fn get(
+        &self,
+        resource: &str,
+        loaded_resource_pack: &str,
+    ) -> Option<&ClientFontManagerStateItem> {
+        self.lookup
+            .get(&font_manager_state_lookup_key(
+                resource,
+                loaded_resource_pack,
+            ))
+            .map(|index| &self.items[*index])
+    }
+
+    pub fn definition_count(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.items
+            .iter()
+            .map(ClientFontManagerStateItem::provider_count)
+            .sum()
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.asset_candidate_count
+    }
+
+    pub fn ready_asset_count(&self) -> usize {
+        self.items
+            .iter()
+            .map(ClientFontManagerStateItem::ready_asset_count)
+            .sum()
+    }
+
+    pub fn reference_edge_count(&self) -> usize {
+        self.items
+            .iter()
+            .map(ClientFontManagerStateItem::reference_edge_count)
+            .sum()
+    }
+
+    pub fn estimated_glyph_source_count(&self) -> usize {
+        self.items
+            .iter()
+            .map(ClientFontManagerStateItem::estimated_glyph_source_count)
+            .sum()
+    }
+
+    pub fn glyph_atlas_blocker_count(&self) -> usize {
+        self.items
+            .iter()
+            .map(ClientFontManagerStateItem::glyph_atlas_blocker_count)
+            .sum()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_candidates
+            .candidates()
+            .iter()
+            .map(ClientFontManagerRuntimeCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.glyph_atlas_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        FONT_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    pub fn status(&self) -> ClientFontManagerStateStatus {
+        if self.items.is_empty() {
+            ClientFontManagerStateStatus::Missing
+        } else if self.total_blocker_count() > 0 {
+            ClientFontManagerStateStatus::Blocked
+        } else {
+            ClientFontManagerStateStatus::Loaded
+        }
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "font_manager_state:status:{} fonts:{} providers:{} assets:{} ready_assets:{} refs:{} glyph_sources:{} glyph_atlas_blockers:{} runtime_blockers:{} blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.definition_count(),
+            self.provider_count(),
+            self.asset_candidate_count(),
+            self.ready_asset_count(),
+            self.reference_edge_count(),
+            self.estimated_glyph_source_count(),
+            self.glyph_atlas_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            self.boundary()
+        )
+    }
+
+    pub fn report_items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.items
+                .iter()
+                .map(ClientFontManagerStateItem::report_item),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontManagerStateItem {
+    resource: String,
+    pack_id: String,
+    status: ClientFontManagerStateStatus,
+    provider_count: usize,
+    asset_candidate_count: usize,
+    ready_asset_count: usize,
+    reference_edge_count: usize,
+    estimated_glyph_source_count: usize,
+    glyph_atlas_blocker_count: usize,
+    runtime_blocker_count: usize,
+}
+
+impl ClientFontManagerStateItem {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+
+    pub fn status(&self) -> ClientFontManagerStateStatus {
+        self.status
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_count
+    }
+
+    pub fn asset_candidate_count(&self) -> usize {
+        self.asset_candidate_count
+    }
+
+    pub fn ready_asset_count(&self) -> usize {
+        self.ready_asset_count
+    }
+
+    pub fn reference_edge_count(&self) -> usize {
+        self.reference_edge_count
+    }
+
+    pub fn estimated_glyph_source_count(&self) -> usize {
+        self.estimated_glyph_source_count
+    }
+
+    pub fn glyph_atlas_blocker_count(&self) -> usize {
+        self.glyph_atlas_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.glyph_atlas_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        FONT_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    fn report_item(&self) -> String {
+        format!(
+            "font_manager_state_item:{} status:{} providers:{} assets:{} ready_assets:{} refs:{} glyph_sources:{} glyph_atlas_blockers:{} runtime_blockers:{} blockers:{} boundary:{}",
+            self.loaded_resource_pack(),
+            self.status().as_str(),
+            self.provider_count(),
+            self.asset_candidate_count(),
+            self.ready_asset_count(),
+            self.reference_edge_count(),
+            self.estimated_glyph_source_count(),
+            self.glyph_atlas_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            self.boundary()
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientFontManagerStateStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientFontManagerStateStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+pub fn load_client_font_manager_state(
+    stack: &ClientResourceStack,
+    definitions: &[String],
+) -> ResourceReloadResult<ClientFontManagerState> {
+    let glyph_atlas = load_client_font_glyph_atlas_candidates(stack, definitions)?;
+    Ok(build_client_font_manager_state(&glyph_atlas))
+}
+
+fn build_client_font_manager_state(
+    glyph_atlas: &ClientFontGlyphAtlasCandidateCollection,
+) -> ClientFontManagerState {
+    let runtime_candidates = build_client_font_manager_runtime_candidates(glyph_atlas);
+    let runtime_blocker_count = runtime_candidates
+        .candidates()
+        .iter()
+        .map(ClientFontManagerRuntimeCandidate::blocker_count)
+        .sum();
+    let mut lookup = BTreeMap::new();
+    let items = glyph_atlas
+        .definitions()
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| {
+            lookup.insert(
+                font_manager_state_lookup_key(definition.resource(), definition.pack_id()),
+                index,
+            );
+            build_client_font_manager_state_item(definition, runtime_blocker_count)
+        })
+        .collect();
+    let asset_candidate_count = glyph_atlas
+        .definitions()
+        .iter()
+        .map(ClientFontGlyphAtlasDefinitionCandidate::asset_candidate_count)
+        .sum();
+
+    ClientFontManagerState {
+        items,
+        lookup,
+        runtime_candidates,
+        asset_candidate_count,
+    }
+}
+
+fn build_client_font_manager_state_item(
+    definition: &ClientFontGlyphAtlasDefinitionCandidate,
+    runtime_blocker_count: usize,
+) -> ClientFontManagerStateItem {
+    let glyph_atlas_blocker_count = definition.blocker_count();
+    let status = if glyph_atlas_blocker_count > 0 {
+        ClientFontManagerStateStatus::Missing
+    } else if runtime_blocker_count > 0 {
+        ClientFontManagerStateStatus::Blocked
+    } else {
+        ClientFontManagerStateStatus::Loaded
+    };
+
+    ClientFontManagerStateItem {
+        resource: definition.resource().to_owned(),
+        pack_id: definition.pack_id().to_owned(),
+        status,
+        provider_count: definition.provider_count(),
+        asset_candidate_count: definition.asset_candidate_count(),
+        ready_asset_count: definition.ready_asset_count(),
+        reference_edge_count: definition.reference_edge_count(),
+        estimated_glyph_source_count: definition.estimated_glyph_source_count(),
+        glyph_atlas_blocker_count,
+        runtime_blocker_count,
+    }
+}
+
+fn font_manager_state_lookup_key(resource: &str, pack_id: &str) -> String {
+    format!("{resource}@{pack_id}")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientFontManagerRuntimeCandidateCollection {
     font_ids: Vec<String>,
     representative_assets: Vec<String>,
@@ -19594,6 +19905,13 @@ impl FontManagerRuntimeCandidateReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ClientFontManagerRuntimeCandidateCollection> {
         load_client_font_manager_runtime_candidates(stack, &self.definitions)
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientFontManagerState> {
+        load_client_font_manager_state(stack, &self.definitions)
     }
 }
 
@@ -29449,6 +29767,124 @@ mod tests {
         assert!(listener.reload.items()[4].contains("category:player_glyph_provider_binding"));
         assert!(listener.reload.items()[5]
             .contains("blockers:runtime_text_layout_missing|glyph_texture_stitch_upload_missing|glyph_draw_pipeline_missing"));
+    }
+
+    #[test]
+    fn font_manager_state_lookup_is_deterministic_for_stacked_packs() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[{"type":"bitmap","file":"example:font/base.png","ascent":7,"chars":["a"]}]}"#,
+        );
+        base.write_bytes("assets/example/textures/font/base.png", b"base");
+        override_pack.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/override.png","ascent":7,"chars":["ab"]},
+                {"type":"space","advances":{" ":4}}
+            ]}"#,
+        );
+        override_pack.write_bytes("assets/example/textures/font/override.png", b"override");
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let state =
+            FontGlyphAtlasCandidateReloadListener::new(["assets/example/font/default.json"])
+                .load_state(&stack)
+                .expect("font manager state should load");
+
+        assert_eq!(state.definition_count(), 2);
+        assert_eq!(state.provider_count(), 3);
+        assert_eq!(state.asset_candidate_count(), 2);
+        assert_eq!(state.ready_asset_count(), 2);
+        assert_eq!(state.runtime_blocker_count(), 12);
+        assert_eq!(state.total_blocker_count(), 12);
+        assert_eq!(state.status(), ClientFontManagerStateStatus::Blocked);
+
+        let base_item = state
+            .get("assets/example/font/default.json", "base")
+            .expect("base font definition state should be indexed");
+        let override_item = state
+            .get("assets/example/font/default.json", "override")
+            .expect("override font definition state should be indexed");
+        assert_eq!(base_item.provider_count(), 1);
+        assert_eq!(base_item.estimated_glyph_source_count(), 1);
+        assert_eq!(override_item.provider_count(), 2);
+        assert_eq!(override_item.estimated_glyph_source_count(), 3);
+        assert_eq!(
+            override_item.status(),
+            ClientFontManagerStateStatus::Blocked
+        );
+        assert!(
+            state
+                .summary_fragment()
+                .contains("boundary:font_glyphs_loaded_runtime_fontset_pending")
+        );
+    }
+
+    #[test]
+    fn font_manager_state_retains_missing_provider_asset_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/missing.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/missing.png","ascent":7,"chars":["a"]},
+                {"type":"ttf","file":"example:missing.ttf"}
+            ]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state =
+            FontManagerRuntimeCandidateReloadListener::new(["assets/example/font/missing.json"])
+                .load_state(&stack)
+                .expect("font manager state should retain missing asset blockers");
+        let item = state
+            .get("assets/example/font/missing.json", "test")
+            .expect("missing font definition state should be indexed");
+
+        assert_eq!(state.definition_count(), 1);
+        assert_eq!(state.provider_count(), 2);
+        assert_eq!(state.asset_candidate_count(), 2);
+        assert_eq!(state.ready_asset_count(), 0);
+        assert_eq!(state.glyph_atlas_blocker_count(), 2);
+        assert_eq!(state.runtime_blocker_count(), 12);
+        assert_eq!(state.total_blocker_count(), 14);
+        assert_eq!(item.status(), ClientFontManagerStateStatus::Missing);
+        assert_eq!(item.glyph_atlas_blocker_count(), 2);
+        assert_eq!(item.total_blocker_count(), 14);
+        assert_eq!(
+            item.report_item(),
+            "font_manager_state_item:assets/example/font/missing.json@test status:missing providers:2 assets:2 ready_assets:0 refs:0 glyph_sources:2 glyph_atlas_blockers:2 runtime_blockers:12 blockers:14 boundary:font_glyphs_loaded_runtime_fontset_pending"
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_font_manager_state_loads_with_runtime_boundary() {
+        let state = FontManagerRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla font manager state should load");
+
+        assert_eq!(state.definition_count(), 7);
+        assert!(state.asset_candidate_count() > 0);
+        assert!(state.ready_asset_count() > 0);
+        assert_eq!(state.glyph_atlas_blocker_count(), 0);
+        assert_eq!(state.runtime_blocker_count(), 12);
+        assert_eq!(state.total_blocker_count(), 12);
+        assert_eq!(state.status(), ClientFontManagerStateStatus::Blocked);
+        assert_eq!(state.boundary(), FONT_MANAGER_RUNTIME_BOUNDARY);
+        assert!(
+            state
+                .items()
+                .iter()
+                .all(|item| item.status() == ClientFontManagerStateStatus::Blocked)
+        );
+        assert!(state.report_items()[0].contains("font_manager_state:status:blocked fonts:7"));
+        assert!(
+            state.report_items()[0].contains("boundary:font_glyphs_loaded_runtime_fontset_pending")
+        );
     }
 
     #[test]
