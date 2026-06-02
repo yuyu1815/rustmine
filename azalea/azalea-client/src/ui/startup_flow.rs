@@ -14,6 +14,7 @@ use super::account_flow::{AccountFlow, AccountFlowScreen, StoredLauncherAccount}
 pub struct StartupFlow {
     account_flow: AccountFlow,
     loading_phase: StartupLoadingPhase,
+    loading_surface: StartupLoadingSurface,
     startup_destination: Option<StartupDestination>,
     loading_tasks: Vec<LoadingTask>,
 }
@@ -23,6 +24,7 @@ impl StartupFlow {
         Self {
             account_flow: AccountFlow::new(accounts),
             loading_phase: StartupLoadingPhase::WaitingForTasks,
+            loading_surface: StartupLoadingSurface::GenericMessage,
             startup_destination: None,
             loading_tasks: Vec::new(),
         }
@@ -33,6 +35,7 @@ impl StartupFlow {
             background_visible: true,
             account_screen: self.account_flow.screen(),
             loading_phase: self.loading_phase,
+            loading_screen: self.loading_screen(),
             startup_destination: self.startup_destination,
             loading_overlay: self.loading_overlay(),
         }
@@ -54,6 +57,22 @@ impl StartupFlow {
         self.loading_phase
     }
 
+    pub fn loading_screen(&self) -> StartupLoadingScreen<'_> {
+        match self.loading_surface {
+            StartupLoadingSurface::GenericMessage => {
+                StartupLoadingScreen::GenericMessage(StartupGenericMessageView::loading_minecraft())
+            }
+            StartupLoadingSurface::MojangLoadingOverlay => {
+                StartupLoadingScreen::MojangLoadingOverlay(StartupMojangLoadingOverlaySurface {
+                    tasks: self.loading_overlay(),
+                })
+            }
+            StartupLoadingSurface::CompleteDestination => {
+                StartupLoadingScreen::CompleteDestination(self.startup_destination)
+            }
+        }
+    }
+
     pub fn startup_destination(&self) -> Option<StartupDestination> {
         self.startup_destination
     }
@@ -69,6 +88,15 @@ impl StartupFlow {
     pub fn begin_loading(&mut self) {
         if !self.loading_is_complete() {
             self.loading_phase = StartupLoadingPhase::Loading;
+            self.loading_surface = StartupLoadingSurface::GenericMessage;
+            self.startup_destination = None;
+        }
+    }
+
+    pub fn show_mojang_loading_overlay(&mut self) {
+        if !self.loading_is_complete() {
+            self.loading_phase = StartupLoadingPhase::Loading;
+            self.loading_surface = StartupLoadingSurface::MojangLoadingOverlay;
             self.startup_destination = None;
         }
     }
@@ -77,6 +105,7 @@ impl StartupFlow {
         self.loading_tasks = tasks.into_iter().collect();
         if !self.loading_tasks.is_empty() {
             self.loading_phase = StartupLoadingPhase::Loading;
+            self.loading_surface = StartupLoadingSurface::MojangLoadingOverlay;
             self.startup_destination = None;
         }
     }
@@ -92,6 +121,7 @@ impl StartupFlow {
             self.loading_tasks.push(task);
         }
         self.loading_phase = StartupLoadingPhase::Loading;
+        self.loading_surface = StartupLoadingSurface::MojangLoadingOverlay;
         self.startup_destination = None;
     }
 
@@ -128,6 +158,7 @@ impl StartupFlow {
         let task = LoadingTask::finishing(name, file);
         self.loading_tasks.push(task.clone());
         self.loading_phase = StartupLoadingPhase::Loading;
+        self.loading_surface = StartupLoadingSurface::MojangLoadingOverlay;
         self.startup_destination = None;
         task
     }
@@ -143,6 +174,7 @@ impl StartupFlow {
     pub fn finish_loading_to(&mut self, destination: StartupDestination) {
         self.loading_tasks.clear();
         self.loading_phase = StartupLoadingPhase::Complete;
+        self.loading_surface = StartupLoadingSurface::CompleteDestination;
         self.startup_destination = Some(destination);
     }
 
@@ -197,6 +229,7 @@ pub struct StartupScreen<'a> {
     pub background_visible: bool,
     pub account_screen: &'a AccountFlowScreen,
     pub loading_phase: StartupLoadingPhase,
+    pub loading_screen: StartupLoadingScreen<'a>,
     pub startup_destination: Option<StartupDestination>,
     pub loading_overlay: Option<&'a [LoadingTask]>,
 }
@@ -217,6 +250,38 @@ pub enum StartupLoadingPhase {
     WaitingForTasks,
     Loading,
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StartupLoadingSurface {
+    GenericMessage,
+    MojangLoadingOverlay,
+    CompleteDestination,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StartupLoadingScreen<'a> {
+    GenericMessage(StartupGenericMessageView),
+    MojangLoadingOverlay(StartupMojangLoadingOverlaySurface<'a>),
+    CompleteDestination(Option<StartupDestination>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupGenericMessageView {
+    pub message: VanillaLoadingTextView,
+}
+
+impl StartupGenericMessageView {
+    pub fn loading_minecraft() -> Self {
+        Self {
+            message: VanillaLoadingTextView::fallback_loading_minecraft(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StartupMojangLoadingOverlaySurface<'a> {
+    pub tasks: Option<&'a [LoadingTask]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -775,9 +840,24 @@ mod tests {
                 background_visible: true,
                 account_screen: &AccountFlowScreen::AccountSelection,
                 loading_phase: StartupLoadingPhase::WaitingForTasks,
+                loading_screen: StartupLoadingScreen::GenericMessage(
+                    StartupGenericMessageView::loading_minecraft()
+                ),
                 startup_destination: None,
                 loading_overlay: None,
             }
+        );
+    }
+
+    #[test]
+    fn startup_initially_exposes_vanilla_loading_minecraft_fallback_message() {
+        let flow = StartupFlow::new(Vec::new());
+
+        assert_eq!(
+            flow.screen().loading_screen,
+            StartupLoadingScreen::GenericMessage(StartupGenericMessageView {
+                message: VanillaLoadingTextView::fallback_loading_minecraft(),
+            })
         );
     }
 
@@ -795,6 +875,12 @@ mod tests {
         assert!(screen.background_visible);
         assert_eq!(screen.account_screen, &AccountFlowScreen::AccountSelection);
         assert_eq!(screen.loading_phase, StartupLoadingPhase::Loading);
+        assert_eq!(
+            screen.loading_screen,
+            StartupLoadingScreen::MojangLoadingOverlay(StartupMojangLoadingOverlaySurface {
+                tasks: screen.loading_overlay,
+            })
+        );
         assert_eq!(
             screen.loading_overlay,
             Some(
@@ -821,6 +907,10 @@ mod tests {
 
         assert_eq!(flow.screen().loading_overlay, None);
         assert_eq!(flow.screen().loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            flow.screen().loading_screen,
+            StartupLoadingScreen::CompleteDestination(Some(StartupDestination::TitleMenu))
+        );
         assert_eq!(
             flow.screen().startup_destination,
             Some(StartupDestination::TitleMenu)
@@ -863,6 +953,10 @@ mod tests {
         assert_eq!(screen.loading_overlay, None);
         assert_eq!(screen.loading_phase, StartupLoadingPhase::Complete);
         assert_eq!(
+            screen.loading_screen,
+            StartupLoadingScreen::CompleteDestination(Some(StartupDestination::TitleMenu))
+        );
+        assert_eq!(
             screen.startup_destination,
             Some(StartupDestination::TitleMenu)
         );
@@ -879,6 +973,10 @@ mod tests {
         let screen = flow.screen();
         assert_eq!(screen.loading_overlay, None);
         assert_eq!(screen.loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            screen.loading_screen,
+            StartupLoadingScreen::CompleteDestination(Some(StartupDestination::QuickPlay))
+        );
         assert_eq!(
             screen.startup_destination,
             Some(StartupDestination::QuickPlay)

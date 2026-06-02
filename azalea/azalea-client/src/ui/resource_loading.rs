@@ -133,7 +133,7 @@ impl ResourceLoadingTracker {
     }
 
     pub fn apply_resource_reload_snapshot(&mut self, snapshot: &ResourceReloadProgressSnapshot) {
-        self.flow.begin_loading();
+        self.flow.show_mojang_loading_overlay();
         self.resource_reload_snapshot = Some(snapshot.clone());
         self.resource_reload_error = None;
     }
@@ -350,8 +350,9 @@ mod tests {
             ResourceReloadTaskReport,
         },
         ui::startup_flow::{
-            LoadingTask, LoadingTaskPresentationState, StartupDestination, StartupLoadingPhase,
-            loading_task_names,
+            LoadingTask, LoadingTaskPresentationState, StartupDestination,
+            StartupGenericMessageView, StartupLoadingPhase, StartupLoadingScreen,
+            StartupMojangLoadingOverlaySurface, loading_task_names,
         },
     };
 
@@ -581,6 +582,54 @@ mod tests {
         );
         assert_eq!(view.vanilla.text.text, "Loading Minecraft");
         assert_eq!(view.vanilla.actual_progress, 0.0);
+    }
+
+    #[test]
+    fn fallback_loading_screen_progress_snapshot_and_completion_are_distinct_startup_states() {
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .run()
+            .unwrap();
+        let preparation_event = &report.events()[1];
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        assert_eq!(
+            tracker.screen().loading_screen,
+            StartupLoadingScreen::GenericMessage(StartupGenericMessageView::loading_minecraft())
+        );
+        assert_eq!(tracker.screen().loading_overlay, None);
+
+        tracker.apply_resource_reload_event(preparation_event);
+
+        let reloading_screen = tracker.screen();
+        assert_eq!(
+            reloading_screen.loading_screen,
+            StartupLoadingScreen::MojangLoadingOverlay(StartupMojangLoadingOverlaySurface {
+                tasks: None,
+            })
+        );
+        assert_eq!(reloading_screen.loading_overlay, None);
+        assert_eq!(
+            tracker
+                .loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO)
+                .reload,
+            ResourceLoadingReloadView {
+                label: "textures".to_owned(),
+                phase: ResourceLoadingReloadPhase::Preparation,
+            }
+        );
+
+        tracker.mark_complete();
+
+        let complete_screen = tracker.screen();
+        assert_eq!(
+            complete_screen.loading_screen,
+            StartupLoadingScreen::CompleteDestination(Some(StartupDestination::TitleMenu))
+        );
+        assert_eq!(
+            complete_screen.startup_destination,
+            Some(StartupDestination::TitleMenu)
+        );
     }
 
     #[test]
