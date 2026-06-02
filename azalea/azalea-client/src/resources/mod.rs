@@ -4734,6 +4734,435 @@ impl ClientEquipmentRendererRuntimeCandidateReport {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientEquipmentRendererLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRendererState {
+    status: ClientEquipmentRendererLoadStatus,
+    render_candidates: ClientEquipmentRenderAssetCandidateSet,
+    runtime_candidates: ClientEquipmentRendererRuntimeCandidateSet,
+    textures: Vec<ClientEquipmentRendererTextureState>,
+    equipment_by_id: BTreeMap<String, usize>,
+    equipment_by_resource: BTreeMap<String, usize>,
+    textures_by_equipment_id_layer_resource: BTreeMap<(String, String, String), usize>,
+    textures_by_equipment_resource_layer_resource: BTreeMap<(String, String, String), usize>,
+    textures_by_equipment_layer: BTreeMap<(String, String), Vec<usize>>,
+}
+
+impl ClientEquipmentRendererState {
+    pub fn from_candidates(
+        render_candidates: ClientEquipmentRenderAssetCandidateSet,
+        runtime_candidates: ClientEquipmentRendererRuntimeCandidateSet,
+    ) -> Self {
+        let mut equipment_by_id = BTreeMap::new();
+        let mut equipment_by_resource = BTreeMap::new();
+        let mut textures = Vec::new();
+        let mut textures_by_equipment_id_layer_resource = BTreeMap::new();
+        let mut textures_by_equipment_resource_layer_resource = BTreeMap::new();
+        let mut textures_by_equipment_layer = BTreeMap::new();
+
+        for (equipment_index, equipment) in render_candidates.equipment().iter().enumerate() {
+            equipment_by_id.insert(equipment.equipment_id().to_owned(), equipment_index);
+            equipment_by_resource.insert(equipment.resource().to_owned(), equipment_index);
+
+            for layer in equipment.layers() {
+                for decoded in layer.decoded_texture_resources() {
+                    let index = textures.len();
+                    textures.push(ClientEquipmentRendererTextureState::from_decoded(
+                        equipment, decoded,
+                    ));
+                    insert_equipment_renderer_texture_state_indexes(
+                        &mut textures_by_equipment_id_layer_resource,
+                        &mut textures_by_equipment_resource_layer_resource,
+                        &mut textures_by_equipment_layer,
+                        &textures[index],
+                        index,
+                    );
+                }
+
+                for blocker in layer.blockers() {
+                    let index = textures.len();
+                    textures.push(ClientEquipmentRendererTextureState::from_blocker(
+                        equipment, blocker,
+                    ));
+                    insert_equipment_renderer_texture_state_indexes(
+                        &mut textures_by_equipment_id_layer_resource,
+                        &mut textures_by_equipment_resource_layer_resource,
+                        &mut textures_by_equipment_layer,
+                        &textures[index],
+                        index,
+                    );
+                }
+            }
+        }
+
+        let missing_blockers = textures
+            .iter()
+            .any(|texture| texture.status() == ClientEquipmentRendererLoadStatus::Missing);
+        let blocked = render_candidates.blocker_count() > 0
+            || textures
+                .iter()
+                .any(|texture| texture.status() == ClientEquipmentRendererLoadStatus::Blocked);
+        let status = if missing_blockers {
+            ClientEquipmentRendererLoadStatus::Missing
+        } else if blocked {
+            ClientEquipmentRendererLoadStatus::Blocked
+        } else {
+            ClientEquipmentRendererLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            render_candidates,
+            runtime_candidates,
+            textures,
+            equipment_by_id,
+            equipment_by_resource,
+            textures_by_equipment_id_layer_resource,
+            textures_by_equipment_resource_layer_resource,
+            textures_by_equipment_layer,
+        }
+    }
+
+    pub fn status(&self) -> ClientEquipmentRendererLoadStatus {
+        self.status
+    }
+
+    pub fn equipment_count(&self) -> usize {
+        self.render_candidates.equipment_count()
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.render_candidates.layer_count()
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.render_candidates.texture_count()
+    }
+
+    pub fn available_count(&self) -> usize {
+        self.render_candidates.available_resource_count()
+    }
+
+    pub fn decoded_count(&self) -> usize {
+        self.render_candidates.decoded_resource_count()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.render_candidates.byte_count()
+    }
+
+    pub fn upload_render_blocker_count(&self) -> usize {
+        self.render_candidates.blocker_count()
+    }
+
+    pub fn renderer_ready_count(&self) -> usize {
+        self.textures
+            .iter()
+            .filter(|texture| texture.status() == ClientEquipmentRendererLoadStatus::Loaded)
+            .count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.textures
+            .iter()
+            .filter(|texture| {
+                texture.decoded()
+                    && texture.status() == ClientEquipmentRendererLoadStatus::Blocked
+                    && texture.boundary() == EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+            })
+            .count()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.upload_render_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn render_candidates(&self) -> &ClientEquipmentRenderAssetCandidateSet {
+        &self.render_candidates
+    }
+
+    pub fn runtime_candidates(&self) -> &ClientEquipmentRendererRuntimeCandidateSet {
+        &self.runtime_candidates
+    }
+
+    pub fn equipment_by_id(
+        &self,
+        equipment_id: &str,
+    ) -> Option<&ClientEquipmentRenderAssetCandidate> {
+        self.equipment_by_id
+            .get(equipment_id)
+            .and_then(|index| self.render_candidates.equipment().get(*index))
+    }
+
+    pub fn equipment_by_resource(
+        &self,
+        resource: &str,
+    ) -> Option<&ClientEquipmentRenderAssetCandidate> {
+        self.equipment_by_resource
+            .get(resource)
+            .and_then(|index| self.render_candidates.equipment().get(*index))
+    }
+
+    pub fn texture_by_equipment_id(
+        &self,
+        equipment_id: &str,
+        layer_type: &str,
+        texture_resource_id: &str,
+    ) -> Option<&ClientEquipmentRendererTextureState> {
+        self.textures_by_equipment_id_layer_resource
+            .get(&(
+                equipment_id.to_owned(),
+                layer_type.to_owned(),
+                texture_resource_id.to_owned(),
+            ))
+            .and_then(|index| self.textures.get(*index))
+    }
+
+    pub fn texture_by_equipment_resource(
+        &self,
+        equipment_resource: &str,
+        layer_type: &str,
+        texture_resource_id: &str,
+    ) -> Option<&ClientEquipmentRendererTextureState> {
+        self.textures_by_equipment_resource_layer_resource
+            .get(&(
+                equipment_resource.to_owned(),
+                layer_type.to_owned(),
+                texture_resource_id.to_owned(),
+            ))
+            .and_then(|index| self.textures.get(*index))
+    }
+
+    pub fn textures_for_equipment_layer(
+        &self,
+        equipment_id: &str,
+        layer_type: &str,
+    ) -> Vec<&ClientEquipmentRendererTextureState> {
+        self.textures_by_equipment_layer
+            .get(&(equipment_id.to_owned(), layer_type.to_owned()))
+            .into_iter()
+            .flat_map(|indexes| indexes.iter())
+            .filter_map(|index| self.textures.get(*index))
+            .collect()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "equipment_renderer_state:status:{:?} equipment:{} layers:{} textures:{} available:{} decoded:{} bytes:{} upload_render_blockers:{} renderer_ready:{} runtime_blockers:{} total_blockers:{} asset_boundary:{} runtime_boundary:{}",
+            self.status(),
+            self.equipment_count(),
+            self.layer_count(),
+            self.texture_count(),
+            self.available_count(),
+            self.decoded_count(),
+            self.byte_count(),
+            self.upload_render_blocker_count(),
+            self.renderer_ready_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            EQUIPMENT_RENDER_ASSET_BOUNDARY,
+            EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.textures
+                .iter()
+                .map(ClientEquipmentRendererTextureState::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEquipmentRendererTextureState {
+    equipment_id: String,
+    equipment_resource: String,
+    pack_id: Option<String>,
+    layer_type: String,
+    texture_id: String,
+    texture_resource_id: String,
+    resource: String,
+    status: ClientEquipmentRendererLoadStatus,
+    decoded: bool,
+    available: bool,
+    byte_count: Option<usize>,
+    blocker_reason: Option<String>,
+    boundary: &'static str,
+}
+
+impl ClientEquipmentRendererTextureState {
+    fn from_decoded(
+        equipment: &ClientEquipmentRenderAssetCandidate,
+        decoded: &ClientEquipmentRenderDecodedTextureResource,
+    ) -> Self {
+        Self {
+            equipment_id: equipment.equipment_id().to_owned(),
+            equipment_resource: equipment.resource().to_owned(),
+            pack_id: Some(decoded.pack_id().to_owned()),
+            layer_type: decoded.layer_type().to_owned(),
+            texture_id: decoded.texture_id().to_owned(),
+            texture_resource_id: decoded.texture_resource_id().to_owned(),
+            resource: decoded.resource().to_owned(),
+            status: ClientEquipmentRendererLoadStatus::Blocked,
+            decoded: true,
+            available: true,
+            byte_count: Some(decoded.byte_count()),
+            blocker_reason: Some(EQUIPMENT_RENDERER_RUNTIME_BOUNDARY.to_owned()),
+            boundary: EQUIPMENT_RENDERER_RUNTIME_BOUNDARY,
+        }
+    }
+
+    fn from_blocker(
+        equipment: &ClientEquipmentRenderAssetCandidate,
+        blocker: &ClientEquipmentRenderAssetBlocker,
+    ) -> Self {
+        let status = match blocker.reason() {
+            ClientEquipmentRenderAssetBlockerReason::MissingTextureResource => {
+                ClientEquipmentRendererLoadStatus::Missing
+            }
+            ClientEquipmentRenderAssetBlockerReason::ReadTextureResource
+            | ClientEquipmentRenderAssetBlockerReason::InvalidPngSignature
+            | ClientEquipmentRenderAssetBlockerReason::InvalidPngMetadata { .. } => {
+                ClientEquipmentRendererLoadStatus::Blocked
+            }
+        };
+
+        Self {
+            equipment_id: equipment.equipment_id().to_owned(),
+            equipment_resource: equipment.resource().to_owned(),
+            pack_id: blocker.selected_pack_id().map(str::to_owned),
+            layer_type: blocker.layer_type().to_owned(),
+            texture_id: blocker.texture_id().to_owned(),
+            texture_resource_id: blocker.texture_resource_id().to_owned(),
+            resource: blocker.resource().to_owned(),
+            status,
+            decoded: false,
+            available: blocker.selected_pack_id().is_some(),
+            byte_count: blocker.byte_count(),
+            blocker_reason: Some(blocker.reason().report_fragment()),
+            boundary: EQUIPMENT_RENDER_ASSET_BOUNDARY,
+        }
+    }
+
+    pub fn equipment_id(&self) -> &str {
+        &self.equipment_id
+    }
+
+    pub fn equipment_resource(&self) -> &str {
+        &self.equipment_resource
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn layer_type(&self) -> &str {
+        &self.layer_type
+    }
+
+    pub fn texture_id(&self) -> &str {
+        &self.texture_id
+    }
+
+    pub fn texture_resource_id(&self) -> &str {
+        &self.texture_resource_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn status(&self) -> ClientEquipmentRendererLoadStatus {
+        self.status
+    }
+
+    pub fn decoded(&self) -> bool {
+        self.decoded
+    }
+
+    pub fn available(&self) -> bool {
+        self.available
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn blocker_reason(&self) -> Option<&str> {
+        self.blocker_reason.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    fn item_string(&self) -> String {
+        let pack_id = self.pack_id.as_deref().unwrap_or("none");
+        let byte_count = self
+            .byte_count
+            .map(|byte_count| byte_count.to_string())
+            .unwrap_or_else(|| "unknown".to_owned());
+        let reason = self.blocker_reason.as_deref().unwrap_or("none");
+        format!(
+            "equipment_renderer_state_texture:equip:{} equipment_resource:{} layer:{} texture:{} texture_resource:{} resource:{}@{} status:{:?} decoded:{} available:{} bytes:{} reason:{} boundary:{}",
+            self.equipment_id,
+            self.equipment_resource,
+            self.layer_type,
+            self.texture_id,
+            self.texture_resource_id,
+            self.resource,
+            pack_id,
+            self.status,
+            self.decoded,
+            self.available,
+            byte_count,
+            reason,
+            self.boundary
+        )
+    }
+}
+
+fn insert_equipment_renderer_texture_state_indexes(
+    by_equipment_id_layer_resource: &mut BTreeMap<(String, String, String), usize>,
+    by_equipment_resource_layer_resource: &mut BTreeMap<(String, String, String), usize>,
+    by_equipment_layer: &mut BTreeMap<(String, String), Vec<usize>>,
+    texture: &ClientEquipmentRendererTextureState,
+    index: usize,
+) {
+    by_equipment_id_layer_resource.insert(
+        (
+            texture.equipment_id().to_owned(),
+            texture.layer_type().to_owned(),
+            texture.texture_resource_id().to_owned(),
+        ),
+        index,
+    );
+    by_equipment_resource_layer_resource.insert(
+        (
+            texture.equipment_resource().to_owned(),
+            texture.layer_type().to_owned(),
+            texture.texture_resource_id().to_owned(),
+        ),
+        index,
+    );
+    by_equipment_layer
+        .entry((
+            texture.equipment_id().to_owned(),
+            texture.layer_type().to_owned(),
+        ))
+        .or_default()
+        .push(index);
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EntityRendererDispatcherCandidateSet {
     candidates: Vec<EntityRendererDispatcherCandidate>,
@@ -9632,6 +10061,19 @@ impl EquipmentRenderAssetCandidateReloadListener {
     ) -> ResourceReloadResult<ClientEquipmentRenderAssetCandidateSet> {
         load_client_equipment_render_asset_candidates(stack, &self.directory)
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientEquipmentRendererState> {
+        let render_candidates = self.load(stack)?;
+        let runtime_candidates =
+            build_client_equipment_renderer_runtime_candidate_set(&render_candidates);
+        Ok(ClientEquipmentRendererState::from_candidates(
+            render_candidates,
+            runtime_candidates,
+        ))
+    }
 }
 
 impl Default for EquipmentRenderAssetCandidateReloadListener {
@@ -9689,6 +10131,20 @@ impl EquipmentRendererRuntimeCandidateReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ClientEquipmentRendererRuntimeCandidateSet> {
         load_client_equipment_renderer_runtime_candidates(stack, &self.directory)
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientEquipmentRendererState> {
+        let render_candidates =
+            load_client_equipment_render_asset_candidates(stack, &self.directory)?;
+        let runtime_candidates =
+            build_client_equipment_renderer_runtime_candidate_set(&render_candidates);
+        Ok(ClientEquipmentRendererState::from_candidates(
+            render_candidates,
+            runtime_candidates,
+        ))
     }
 }
 
@@ -33809,6 +34265,182 @@ mod tests {
         assert_eq!(
             equipment.runtime_boundary(),
             EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        );
+    }
+
+    #[test]
+    fn equipment_renderer_state_stacked_simple_lookup_reports_renderer_pending() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let base_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let override_png = encode_test_rgba_png(2, 2, &[255, 0, 0, 255].repeat(4));
+        base.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:custom"}]}}"#,
+        );
+        base.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/custom.png",
+            &base_png,
+        );
+        override_pack.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/custom.png",
+            &override_png,
+        );
+
+        let state = EquipmentRendererRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("base", base.path()),
+                ClientResourcePack::new("override", override_pack.path()),
+            ]))
+            .expect("equipment renderer state should load from stacked packs");
+        let texture_resource = "minecraft:textures/entity/equipment/humanoid/custom.png";
+        let equipment_resource = "assets/minecraft/equipment/custom.json";
+
+        assert_eq!(state.status(), ClientEquipmentRendererLoadStatus::Blocked);
+        assert_eq!(state.equipment_count(), 1);
+        assert_eq!(state.layer_count(), 1);
+        assert_eq!(state.texture_count(), 1);
+        assert_eq!(state.available_count(), 1);
+        assert_eq!(state.decoded_count(), 1);
+        assert_eq!(state.byte_count(), override_png.len());
+        assert_eq!(state.upload_render_blocker_count(), 0);
+        assert_eq!(state.renderer_ready_count(), 0);
+        assert_eq!(state.runtime_blocker_count(), 1);
+        assert_eq!(state.total_blocker_count(), 1);
+        assert!(state.equipment_by_id("custom").is_some());
+        assert!(state.equipment_by_resource(equipment_resource).is_some());
+
+        let texture = state
+            .texture_by_equipment_id("custom", "humanoid", texture_resource)
+            .expect("decoded texture should be indexed by equipment id/layer/resource");
+        assert_eq!(texture.pack_id(), Some("override"));
+        assert_eq!(texture.byte_count(), Some(override_png.len()));
+        assert_eq!(texture.status(), ClientEquipmentRendererLoadStatus::Blocked);
+        assert_eq!(texture.boundary(), EQUIPMENT_RENDERER_RUNTIME_BOUNDARY);
+        assert_eq!(
+            state
+                .texture_by_equipment_resource(equipment_resource, "humanoid", texture_resource)
+                .expect("decoded texture should be indexed by equipment resource")
+                .resource(),
+            "assets/minecraft/textures/entity/equipment/humanoid/custom.png"
+        );
+        assert_eq!(
+            state
+                .textures_for_equipment_layer("custom", "humanoid")
+                .len(),
+            1
+        );
+        assert!(
+            state
+                .summary_fragment()
+                .contains("runtime_boundary:equipment_textures_loaded_renderer_binding_pending")
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("reason:equipment_textures_loaded_renderer_binding_pending")
+                && item.contains("status:Blocked")
+        }));
+    }
+
+    #[test]
+    fn equipment_renderer_state_missing_and_invalid_texture_blockers_are_retained() {
+        let temp = TempPack::new();
+        let valid_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:valid"},{"texture":"minecraft:missing"},{"texture":"minecraft:corrupt"}]}}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/valid.png",
+            &valid_png,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/corrupt.png",
+            b"not a png",
+        );
+
+        let state = EquipmentRenderAssetCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::new(vec![ClientResourcePack::new(
+                "test",
+                temp.path(),
+            )]))
+            .expect("equipment renderer state should retain texture blockers");
+
+        assert_eq!(state.status(), ClientEquipmentRendererLoadStatus::Missing);
+        assert_eq!(state.texture_count(), 3);
+        assert_eq!(state.available_count(), 2);
+        assert_eq!(state.decoded_count(), 1);
+        assert_eq!(state.upload_render_blocker_count(), 2);
+        assert_eq!(state.runtime_blocker_count(), 1);
+        assert_eq!(state.total_blocker_count(), 3);
+        assert_eq!(
+            state
+                .texture_by_equipment_id(
+                    "custom",
+                    "humanoid",
+                    "minecraft:textures/entity/equipment/humanoid/missing.png"
+                )
+                .expect("missing texture should be retained in state")
+                .status(),
+            ClientEquipmentRendererLoadStatus::Missing
+        );
+
+        let corrupt = state
+            .texture_by_equipment_id(
+                "custom",
+                "humanoid",
+                "minecraft:textures/entity/equipment/humanoid/corrupt.png",
+            )
+            .expect("invalid texture should be retained in state");
+        assert_eq!(corrupt.status(), ClientEquipmentRendererLoadStatus::Blocked);
+        assert_eq!(corrupt.boundary(), EQUIPMENT_RENDER_ASSET_BOUNDARY);
+        assert_eq!(corrupt.blocker_reason(), Some("invalid_png_signature"));
+        assert!(state.items().iter().any(|item| {
+            item.contains(
+                "texture_resource:minecraft:textures/entity/equipment/humanoid/missing.png",
+            ) && item.contains("status:Missing")
+        }));
+    }
+
+    #[test]
+    fn equipment_renderer_state_committed_vanilla_loads_and_reports_boundaries() {
+        let state = EquipmentRendererRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla equipment renderer state should load");
+
+        assert_eq!(state.status(), ClientEquipmentRendererLoadStatus::Blocked);
+        assert!(state.equipment_count() >= 40);
+        assert!(state.layer_count() > state.equipment_count());
+        assert_eq!(state.texture_count(), state.available_count());
+        assert_eq!(state.available_count(), state.decoded_count());
+        assert_eq!(state.upload_render_blocker_count(), 0);
+        assert_eq!(state.renderer_ready_count(), 0);
+        assert_eq!(state.runtime_blocker_count(), state.decoded_count());
+        assert_eq!(state.total_blocker_count(), state.decoded_count());
+        assert!(state.byte_count() > PNG_SIGNATURE.len());
+        assert!(state.equipment_by_id("diamond").is_some());
+        assert!(
+            state
+                .equipment_by_resource("assets/minecraft/equipment/diamond.json")
+                .is_some()
+        );
+
+        let diamond = state
+            .texture_by_equipment_id(
+                "diamond",
+                "humanoid",
+                "minecraft:textures/entity/equipment/humanoid/diamond.png",
+            )
+            .expect("vanilla diamond humanoid texture should be indexed");
+        assert_eq!(diamond.pack_id(), Some(VANILLA_PACK_ID));
+        assert_eq!(diamond.status(), ClientEquipmentRendererLoadStatus::Blocked);
+        assert_eq!(diamond.boundary(), EQUIPMENT_RENDERER_RUNTIME_BOUNDARY);
+        assert!(
+            state.items()[0]
+                .contains("asset_boundary:texture_decode_complete_equipment_renderer_pending")
+        );
+        assert!(
+            state.items()[0]
+                .contains("runtime_boundary:equipment_textures_loaded_renderer_binding_pending")
         );
     }
 
