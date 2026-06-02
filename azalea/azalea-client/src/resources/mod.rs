@@ -1516,7 +1516,7 @@ impl ClientPackRepositoryState {
         Self {
             default_pack_id: repository.vanilla_pack().id().to_owned(),
             available_pack_ids,
-            selected_pack_ids: stack_pack_ids.clone(),
+            selected_pack_ids: report.selected_pack_ids().to_vec(),
             stack_pack_ids,
             missing_selected_pack_ids: report.missing_selected_pack_ids().to_vec(),
             known_pack_ids: report.known_pack_ids().to_vec(),
@@ -31193,13 +31193,13 @@ mod tests {
     }
 
     #[test]
-    fn pack_repository_state_records_vanilla_as_known_and_selected_default_pack() {
+    fn client_pack_repository_state_keeps_default_selection_separate_from_stack() {
         let repository = ClientResourceRepository::committed_vanilla();
         let state = repository.state();
 
         assert_eq!(state.default_pack_id(), VANILLA_PACK_ID);
         assert_eq!(state.available_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
-        assert_eq!(state.selected_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert!(state.selected_pack_ids().is_empty());
         assert_eq!(state.stack_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
         assert_eq!(state.known_pack_ids(), [KnownPackId::vanilla()]);
         assert!(state.missing_selected_pack_ids().is_empty());
@@ -31240,7 +31240,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_repository_state_uses_deterministic_selected_stack_order() {
+    fn client_pack_repository_state_reports_selected_custom_stack_order_and_known_packs() {
         let low = TempPack::new();
         let high = TempPack::new();
 
@@ -31267,13 +31267,16 @@ mod tests {
         );
         assert_eq!(
             state.selected_pack_ids(),
+            ["high".to_owned(), "low".to_owned()]
+        );
+        assert_eq!(
+            state.stack_pack_ids(),
             [
                 VANILLA_PACK_ID.to_owned(),
                 "high".to_owned(),
                 "low".to_owned()
             ]
         );
-        assert_eq!(state.selected_pack_ids(), state.stack_pack_ids());
         assert_eq!(state.missing_selected_pack_ids(), ["missing".to_owned()]);
         assert_eq!(
             state.known_pack_ids(),
@@ -31281,6 +31284,58 @@ mod tests {
                 KnownPackId::vanilla(),
                 KnownPackId::new("example", "high", "1")
             ]
+        );
+    }
+
+    #[test]
+    fn client_pack_repository_state_retains_missing_selected_ids_without_stacking_them() {
+        let present = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "present",
+                present.path(),
+            )))
+            .with_selected_pack_ids(["missing", "present"]);
+
+        let state = repository.state();
+
+        assert_eq!(state.selected_pack_ids(), ["present".to_owned()]);
+        assert_eq!(state.missing_selected_pack_ids(), ["missing".to_owned()]);
+        assert_eq!(
+            state.stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned(), "present".to_owned()]
+        );
+    }
+
+    #[test]
+    fn client_pack_repository_state_matches_rebuild_stack_report() {
+        let custom = TempPack::new();
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new("custom", custom.path()))
+                    .with_known_pack_id(KnownPackId::new("example", "custom", "1")),
+            )
+            .with_selected_pack_ids(["custom", "missing"]);
+
+        let report = repository.rebuild_stack();
+        let state = repository.state();
+
+        assert_eq!(state.selected_pack_ids(), report.selected_pack_ids());
+        assert_eq!(
+            state.missing_selected_pack_ids(),
+            report.missing_selected_pack_ids()
+        );
+        assert_eq!(state.known_pack_ids(), report.known_pack_ids());
+        assert_eq!(
+            state.stack_pack_ids(),
+            report
+                .stack()
+                .packs()
+                .iter()
+                .map(|pack| pack.id().to_owned())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -31515,7 +31570,7 @@ mod tests {
 
         let state = repository.state();
 
-        assert_eq!(state.selected_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert!(state.selected_pack_ids().is_empty());
         assert_eq!(state.stack_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
         assert!(!state.server_resource_packs_included());
         assert_eq!(
