@@ -31,6 +31,7 @@ pub struct ResourceLoadingTracker {
     flow: StartupFlow,
     resource_reload_snapshot: Option<ResourceReloadProgressSnapshot>,
     resource_reload_error: Option<String>,
+    pack_load_failure_toast: Option<ResourceLoadingPackLoadFailureToast>,
 }
 
 impl ResourceLoadingTracker {
@@ -39,6 +40,7 @@ impl ResourceLoadingTracker {
             flow: StartupFlow::new(accounts),
             resource_reload_snapshot: None,
             resource_reload_error: None,
+            pack_load_failure_toast: None,
         }
     }
 
@@ -47,6 +49,7 @@ impl ResourceLoadingTracker {
             flow,
             resource_reload_snapshot: None,
             resource_reload_error: None,
+            pack_load_failure_toast: None,
         }
     }
 
@@ -80,6 +83,10 @@ impl ResourceLoadingTracker {
 
     pub fn resource_reload_error(&self) -> Option<&str> {
         self.resource_reload_error.as_deref()
+    }
+
+    pub fn pack_load_failure_toast(&self) -> Option<&ResourceLoadingPackLoadFailureToast> {
+        self.pack_load_failure_toast.as_ref()
     }
 
     pub fn loading_overlay_actual_progress(&self) -> f32 {
@@ -136,6 +143,7 @@ impl ResourceLoadingTracker {
         self.flow.show_mojang_loading_overlay();
         self.resource_reload_snapshot = Some(snapshot.clone());
         self.resource_reload_error = None;
+        self.pack_load_failure_toast = None;
     }
 
     pub fn run_resource_reload(
@@ -147,7 +155,10 @@ impl ResourceLoadingTracker {
         match &report {
             Ok(_) => self.mark_complete(),
             Err(error) => {
-                self.resource_reload_error = Some(error.to_string());
+                let error = error.to_string();
+                self.resource_reload_error = Some(error.clone());
+                self.pack_load_failure_toast =
+                    Some(ResourceLoadingPackLoadFailureToast::from_error(error));
             }
         }
 
@@ -188,6 +199,7 @@ impl ResourceLoadingTracker {
 
     pub fn mark_complete(&mut self) {
         self.resource_reload_error = None;
+        self.pack_load_failure_toast = None;
         self.flow.finish_loading();
     }
 
@@ -287,6 +299,30 @@ pub enum ResourceLoadingReloadPhase {
     ListenerComplete,
     Complete,
     Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceLoadingPackLoadFailureToast {
+    pub id: ResourceLoadingSystemToastId,
+    pub title_key: &'static str,
+    pub message: Option<String>,
+}
+
+impl ResourceLoadingPackLoadFailureToast {
+    pub const TITLE_KEY: &'static str = "resourcePack.load_fail";
+
+    pub fn from_error(error: impl Into<String>) -> Self {
+        Self {
+            id: ResourceLoadingSystemToastId::PackLoadFailure,
+            title_key: Self::TITLE_KEY,
+            message: Some(error.into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceLoadingSystemToastId {
+    PackLoadFailure,
 }
 
 impl From<ResourceReloadStep> for ResourceLoadingReloadPhase {
@@ -542,6 +578,7 @@ mod tests {
             }
         );
         assert_eq!(tracker.resource_reload_error(), None);
+        assert_eq!(tracker.pack_load_failure_toast(), None);
 
         let failing_manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
             .with_listener(TestReloadListener("textures"))
@@ -559,12 +596,85 @@ mod tests {
             failing_tracker.resource_reload_error(),
             Some(error_message.as_str())
         );
+        assert_eq!(
+            failing_tracker.pack_load_failure_toast(),
+            Some(&ResourceLoadingPackLoadFailureToast {
+                id: ResourceLoadingSystemToastId::PackLoadFailure,
+                title_key: "resourcePack.load_fail",
+                message: Some(error_message),
+            })
+        );
         assert_eq!(error_view.reload.phase, ResourceLoadingReloadPhase::Error);
         assert!(error_view.reload.label.contains("test:sounds"));
         assert_ne!(
             failing_tracker.flow().loading_phase(),
             StartupLoadingPhase::Complete
         );
+    }
+
+    #[test]
+    fn pack_load_failure_toast_is_exposed_with_reload_error_view() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(FailingReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let error = tracker
+            .run_resource_reload(&manager)
+            .expect_err("reload failure should expose pack load failure toast");
+        let error_message = error.to_string();
+        let view = tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+
+        assert_eq!(view.reload.phase, ResourceLoadingReloadPhase::Error);
+        assert_eq!(view.reload.label, error_message);
+        assert_eq!(
+            tracker.pack_load_failure_toast(),
+            Some(&ResourceLoadingPackLoadFailureToast {
+                id: ResourceLoadingSystemToastId::PackLoadFailure,
+                title_key: ResourceLoadingPackLoadFailureToast::TITLE_KEY,
+                message: Some(error_message),
+            })
+        );
+    }
+
+    #[test]
+    fn pack_load_failure_toast_is_absent_after_success_and_complete() {
+        let success_manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"));
+        let mut success_tracker = ResourceLoadingTracker::new(Vec::new());
+
+        success_tracker
+            .run_resource_reload(&success_manager)
+            .expect("successful reload should complete");
+
+        assert_eq!(success_tracker.resource_reload_error(), None);
+        assert_eq!(success_tracker.pack_load_failure_toast(), None);
+
+        let failing_manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(FailingReloadListener("sounds"));
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .run()
+            .expect("reload should provide a fresh snapshot");
+        let mut recovering_tracker = ResourceLoadingTracker::new(Vec::new());
+
+        recovering_tracker
+            .run_resource_reload(&failing_manager)
+            .expect_err("failure should create toast state");
+        assert!(recovering_tracker.pack_load_failure_toast().is_some());
+
+        recovering_tracker.apply_resource_reload_event(&report.events()[0]);
+        assert_eq!(recovering_tracker.resource_reload_error(), None);
+        assert_eq!(recovering_tracker.pack_load_failure_toast(), None);
+
+        recovering_tracker
+            .run_resource_reload(&failing_manager)
+            .expect_err("failure should recreate toast state");
+        assert!(recovering_tracker.pack_load_failure_toast().is_some());
+
+        recovering_tracker.mark_complete();
+        assert_eq!(recovering_tracker.resource_reload_error(), None);
+        assert_eq!(recovering_tracker.pack_load_failure_toast(), None);
     }
 
     #[test]
