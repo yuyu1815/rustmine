@@ -56,6 +56,9 @@ const DEFAULT_ATLAS_MANIFESTS: &[&str] = &[
 const ATLAS_MANIFEST_RESOURCE_GLOB: &str = "assets/*/atlases/*.json";
 const CLIENT_ATLAS_SOURCE_RUNTIME_BOUNDARY: &str = "atlas_sources_loaded_stitch_pending";
 const CLIENT_ATLAS_SOURCE_RUNTIME_SAMPLE_LIMIT: usize = 3;
+const CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_BOUNDARY: &str =
+    "atlas_stitch_candidates_loaded_texture_decode_pending";
+const CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT: usize = 3;
 const DEFAULT_COLORMAPS: &[&str] = &[
     GRASS_COLORMAP_RESOURCE,
     FOLIAGE_COLORMAP_RESOURCE,
@@ -35544,6 +35547,267 @@ impl AtlasStitchCandidateManifestReport {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientAtlasStitchCandidateRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientAtlasStitchCandidateRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientAtlasStitchCandidateRuntimeReport {
+    status: ClientAtlasStitchCandidateRuntimeStatus,
+    atlas_count: usize,
+    source_entry_count: usize,
+    stitch_candidate_count: usize,
+    available_candidate_count: usize,
+    missing_blocked_count: usize,
+    referenced_resource_count: usize,
+    representative_atlases: Vec<String>,
+    representative_sprites: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_packs: Vec<String>,
+    representative_source_types: Vec<String>,
+    representative_blockers: Vec<String>,
+    error: Option<String>,
+    boundary: &'static str,
+}
+
+impl ClientAtlasStitchCandidateRuntimeReport {
+    pub fn from_collection(collection: &AtlasStitchCandidateCollection) -> Self {
+        Self::from_parts(collection, 0, None)
+    }
+
+    fn from_parts(
+        collection: &AtlasStitchCandidateCollection,
+        failed_count: usize,
+        error: Option<String>,
+    ) -> Self {
+        let mut source_type_counts = BTreeMap::new();
+        for atlas in collection.atlases() {
+            for (source_type, count) in atlas.source_type_counts() {
+                *source_type_counts.entry(source_type.clone()).or_insert(0) += count;
+            }
+        }
+        let missing_resource_count = collection
+            .atlases()
+            .iter()
+            .map(AtlasStitchCandidateManifest::missing_resource_count)
+            .sum::<usize>();
+        let missing_blocked_count = missing_resource_count + failed_count;
+
+        Self {
+            status: atlas_stitch_candidate_runtime_status(
+                collection.atlases().len(),
+                collection
+                    .atlases()
+                    .iter()
+                    .map(AtlasStitchCandidateManifest::available_resource_count)
+                    .sum(),
+                missing_blocked_count,
+                failed_count,
+            ),
+            atlas_count: collection.atlases().len(),
+            source_entry_count: collection
+                .atlases()
+                .iter()
+                .map(AtlasStitchCandidateManifest::source_count)
+                .sum(),
+            stitch_candidate_count: collection
+                .atlases()
+                .iter()
+                .map(AtlasStitchCandidateManifest::candidate_count)
+                .sum(),
+            available_candidate_count: collection
+                .atlases()
+                .iter()
+                .map(AtlasStitchCandidateManifest::available_resource_count)
+                .sum(),
+            missing_blocked_count,
+            referenced_resource_count: collection
+                .atlases()
+                .iter()
+                .map(AtlasStitchCandidateManifest::referenced_resource_count)
+                .sum(),
+            representative_atlases: collection
+                .atlases()
+                .iter()
+                .take(CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT)
+                .map(|atlas| format!("{}@{}", atlas.resource(), atlas.pack_id()))
+                .collect(),
+            representative_sprites: atlas_stitch_candidate_runtime_representative_sprites(
+                collection,
+            ),
+            representative_resources: atlas_stitch_candidate_runtime_representative_resources(
+                collection,
+            ),
+            representative_packs: atlas_stitch_candidate_runtime_representative_packs(collection),
+            representative_source_types: source_type_counts
+                .keys()
+                .take(CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT)
+                .cloned()
+                .collect(),
+            representative_blockers: atlas_stitch_candidate_runtime_representative_blockers(
+                collection,
+            ),
+            error,
+            boundary: CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientAtlasStitchCandidateRuntimeStatus::Missing
+            } else {
+                ClientAtlasStitchCandidateRuntimeStatus::Failed
+            },
+            atlas_count: 0,
+            source_entry_count: 0,
+            stitch_candidate_count: 0,
+            available_candidate_count: 0,
+            missing_blocked_count: 1,
+            referenced_resource_count: 0,
+            representative_atlases: Vec::new(),
+            representative_sprites: Vec::new(),
+            representative_resources: Vec::new(),
+            representative_packs: Vec::new(),
+            representative_source_types: Vec::new(),
+            representative_blockers: Vec::new(),
+            error: Some(error.to_string()),
+            boundary: CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn status(&self) -> ClientAtlasStitchCandidateRuntimeStatus {
+        self.status
+    }
+
+    pub fn atlas_count(&self) -> usize {
+        self.atlas_count
+    }
+
+    pub fn source_entry_count(&self) -> usize {
+        self.source_entry_count
+    }
+
+    pub fn stitch_candidate_count(&self) -> usize {
+        self.stitch_candidate_count
+    }
+
+    pub fn available_candidate_count(&self) -> usize {
+        self.available_candidate_count
+    }
+
+    pub fn missing_blocked_count(&self) -> usize {
+        self.missing_blocked_count
+    }
+
+    pub fn referenced_resource_count(&self) -> usize {
+        self.referenced_resource_count
+    }
+
+    pub fn representative_atlases(&self) -> &[String] {
+        &self.representative_atlases
+    }
+
+    pub fn representative_sprites(&self) -> &[String] {
+        &self.representative_sprites
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_packs(&self) -> &[String] {
+        &self.representative_packs
+    }
+
+    pub fn representative_source_types(&self) -> &[String] {
+        &self.representative_source_types
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_atlas_stitch_candidate_runtime:status:{} atlases:{} sources:{} stitch_candidates:{} available:{} missing_blocked:{} refs:{} representative_atlases:{} representative_sprites:{} representative_resources:{} representative_packs:{} source_types:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.atlas_count(),
+            self.source_entry_count(),
+            self.stitch_candidate_count(),
+            self.available_candidate_count(),
+            self.missing_blocked_count(),
+            self.referenced_resource_count(),
+            atlas_stitch_candidate_runtime_list_fragment(self.representative_atlases()),
+            atlas_stitch_candidate_runtime_list_fragment(self.representative_sprites()),
+            atlas_stitch_candidate_runtime_list_fragment(self.representative_resources()),
+            atlas_stitch_candidate_runtime_list_fragment(self.representative_packs()),
+            atlas_stitch_candidate_runtime_list_fragment(self.representative_source_types()),
+            atlas_stitch_candidate_runtime_list_fragment(self.representative_blockers()),
+            self.error().unwrap_or("none"),
+            self.boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_atlases.iter().map(|atlas| {
+            format!(
+                "client_atlas_stitch_candidate_runtime_atlas:{atlas} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.representative_sprites.iter().map(|sprite| {
+            format!(
+                "client_atlas_stitch_candidate_runtime_sprite:{sprite} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_atlas_stitch_candidate_runtime_resource:{resource} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.representative_blockers.iter().map(|blocker| {
+            format!(
+                "client_atlas_stitch_candidate_runtime_blocker:{blocker} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_atlas_stitch_candidate_runtime_error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
+        items
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AtlasStitchCandidateReloadListener {
     name: String,
@@ -35572,6 +35836,18 @@ impl AtlasStitchCandidateReloadListener {
             load_discovered_client_atlas_stitch_candidates(stack)
         } else {
             load_client_atlas_stitch_candidates(stack, &self.manifests)
+        }
+    }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientAtlasStitchCandidateRuntimeReport {
+        match self.resolved_manifests(stack) {
+            Ok(manifests) => {
+                atlas_stitch_candidate_runtime_report_from_manifests(stack, &manifests)
+            }
+            Err(error) => ClientAtlasStitchCandidateRuntimeReport::from_failure(&error),
         }
     }
 
@@ -35616,11 +35892,13 @@ impl ResourceReloadListener for AtlasStitchCandidateReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let candidates = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(
-            candidates
-                .reports()
-                .map(|report| atlas_stitch_candidate_report_item(&report)),
-        ))
+        let runtime_report = ClientAtlasStitchCandidateRuntimeReport::from_collection(&candidates);
+        let mut items = candidates
+            .reports()
+            .map(|report| atlas_stitch_candidate_report_item(&report))
+            .collect::<Vec<_>>();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -35711,6 +35989,123 @@ fn atlas_stitch_blockers_fragment(blockers: &[AtlasStitchBlocker]) -> String {
         .map(|blocker| format!("missing:{}", blocker.resource()))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn atlas_stitch_candidate_runtime_report_from_manifests(
+    stack: &ClientResourceStack,
+    manifests: &[String],
+) -> ClientAtlasStitchCandidateRuntimeReport {
+    let mut atlases = Vec::new();
+    let mut errors = Vec::new();
+
+    for manifest in manifests {
+        let locations = stack.resource_stack(manifest);
+        if locations.is_empty() {
+            errors.push(ResourceReloadError::MissingResource(manifest.clone()).to_string());
+            continue;
+        }
+
+        for location in locations {
+            let pack_id = location.pack_id.clone();
+            let path = location.path.clone();
+            match load_atlas_source_runtime_manifest(stack, manifest, location) {
+                Ok(source_manifest) => atlases.push(build_atlas_stitch_candidate_manifest(
+                    stack,
+                    &source_manifest.atlas,
+                )),
+                Err(error) => errors.push(format!("{manifest}@{pack_id} ({path:?}): {error}")),
+            }
+        }
+    }
+
+    let collection = AtlasStitchCandidateCollection { atlases };
+    let error = (!errors.is_empty()).then(|| errors.join("|"));
+    ClientAtlasStitchCandidateRuntimeReport::from_parts(&collection, errors.len(), error)
+}
+
+fn atlas_stitch_candidate_runtime_status(
+    atlas_count: usize,
+    available_candidate_count: usize,
+    missing_blocked_count: usize,
+    failed_count: usize,
+) -> ClientAtlasStitchCandidateRuntimeStatus {
+    if failed_count > 0 {
+        ClientAtlasStitchCandidateRuntimeStatus::Failed
+    } else if missing_blocked_count > 0 {
+        ClientAtlasStitchCandidateRuntimeStatus::Blocked
+    } else if available_candidate_count > 0 {
+        ClientAtlasStitchCandidateRuntimeStatus::Loaded
+    } else if atlas_count > 0 {
+        ClientAtlasStitchCandidateRuntimeStatus::Missing
+    } else {
+        ClientAtlasStitchCandidateRuntimeStatus::Missing
+    }
+}
+
+fn atlas_stitch_candidate_runtime_representative_sprites(
+    collection: &AtlasStitchCandidateCollection,
+) -> Vec<String> {
+    let mut sprites = BTreeSet::new();
+    for atlas in collection.atlases() {
+        for sprite in atlas.sprite_candidates() {
+            sprites.insert(sprite.clone());
+            if sprites.len() >= CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT {
+                return sprites.into_iter().collect();
+            }
+        }
+    }
+    sprites.into_iter().collect()
+}
+
+fn atlas_stitch_candidate_runtime_representative_resources(
+    collection: &AtlasStitchCandidateCollection,
+) -> Vec<String> {
+    let mut resources = BTreeSet::new();
+    for atlas in collection.atlases() {
+        for resource in atlas.referenced_resources() {
+            resources.insert(resource.clone());
+            if resources.len() >= CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT {
+                return resources.into_iter().collect();
+            }
+        }
+    }
+    resources.into_iter().collect()
+}
+
+fn atlas_stitch_candidate_runtime_representative_packs(
+    collection: &AtlasStitchCandidateCollection,
+) -> Vec<String> {
+    let mut packs = BTreeSet::new();
+    for atlas in collection.atlases() {
+        packs.insert(atlas.pack_id().to_owned());
+        if packs.len() >= CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT {
+            break;
+        }
+    }
+    packs.into_iter().collect()
+}
+
+fn atlas_stitch_candidate_runtime_representative_blockers(
+    collection: &AtlasStitchCandidateCollection,
+) -> Vec<String> {
+    let mut blockers = BTreeSet::new();
+    for atlas in collection.atlases() {
+        for blocker in atlas.blockers() {
+            blockers.insert(format!("missing:{}", blocker.resource()));
+            if blockers.len() >= CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_SAMPLE_LIMIT {
+                return blockers.into_iter().collect();
+            }
+        }
+    }
+    blockers.into_iter().collect()
+}
+
+fn atlas_stitch_candidate_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+
+    items.join("|")
 }
 
 const ATLAS_TEXTURE_UPLOAD_BOUNDARY: &str = "sprite_decode_complete_texture_upload_pending";
@@ -47292,6 +47687,117 @@ mod tests {
                 && report.candidate_count() > 0
                 && report.available_resource_count() > 0
         }));
+    }
+
+    #[test]
+    fn committed_vanilla_atlas_stitch_candidate_runtime_report_has_default_surface() {
+        let report = AtlasStitchCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientAtlasStitchCandidateRuntimeStatus::Loaded
+        );
+        assert_eq!(report.atlas_count(), 15);
+        assert!(report.source_entry_count() > 0);
+        assert!(report.stitch_candidate_count() > 0);
+        assert!(report.available_candidate_count() > 0);
+        assert!(report.referenced_resource_count() > 0);
+        assert_eq!(
+            report.boundary(),
+            CLIENT_ATLAS_STITCH_CANDIDATE_RUNTIME_BOUNDARY
+        );
+        assert!(!report.representative_atlases().is_empty());
+        assert!(!report.representative_sprites().is_empty());
+        assert!(!report.representative_resources().is_empty());
+        assert!(
+            report
+                .representative_packs()
+                .contains(&VANILLA_PACK_ID.to_owned())
+        );
+        assert!(!report.representative_source_types().is_empty());
+        assert!(report.error().is_none());
+        assert!(report.items().iter().all(|item| {
+            item.contains("boundary:atlas_stitch_candidates_loaded_texture_decode_pending")
+        }));
+    }
+
+    #[test]
+    fn atlas_stitch_candidate_runtime_report_missing_corrupt_and_missing_sprite_do_not_panic() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/ok.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:item/missing"}]}"#,
+        );
+        temp.write("assets/minecraft/atlases/corrupt.json", "{not json");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = AtlasStitchCandidateReloadListener::new([
+            "assets/minecraft/atlases/ok.json",
+            "assets/minecraft/atlases/corrupt.json",
+            "assets/minecraft/atlases/missing.json",
+        ])
+        .runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientAtlasStitchCandidateRuntimeStatus::Failed
+        );
+        assert_eq!(report.atlas_count(), 1);
+        assert_eq!(report.stitch_candidate_count(), 1);
+        assert_eq!(report.available_candidate_count(), 0);
+        assert_eq!(report.missing_blocked_count(), 3);
+        assert_eq!(report.referenced_resource_count(), 1);
+        assert!(
+            report
+                .representative_blockers()
+                .contains(&"missing:assets/minecraft/textures/item/missing.png".to_owned())
+        );
+        assert!(
+            report
+                .error()
+                .expect("corrupt and missing manifests should be summarized")
+                .contains("assets/minecraft/atlases/missing.json")
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| { item.starts_with("client_atlas_stitch_candidate_runtime_error:") })
+        );
+    }
+
+    #[test]
+    fn atlas_stitch_candidate_runtime_report_reload_rows_append_after_stitch_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/atlases/test.json",
+            r#"{"sources":[{"type":"minecraft:single","resource":"minecraft:block/stone"}]}"#,
+        );
+        temp.write_bytes("assets/minecraft/textures/block/stone.png", MINIMAL_PNG);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(AtlasStitchCandidateReloadListener::new([
+                "assets/minecraft/atlases/test.json",
+            ]))
+            .run()
+            .expect("atlas stitch candidate reload should succeed");
+        let items = report.listener_reports()[0].reload.items();
+
+        assert_eq!(
+            items[0],
+            "assets/minecraft/atlases/test.json@test:1 sources types:single=1 candidates:1 refs:1 available:1 missing:0 filtered:0 blockers:none"
+        );
+        assert!(items[1].starts_with("client_atlas_stitch_candidate_runtime:"));
+        assert!(
+            items[1].contains("boundary:atlas_stitch_candidates_loaded_texture_decode_pending")
+        );
+        assert!(
+            items[2..]
+                .iter()
+                .all(|item| item.starts_with("client_atlas_stitch_candidate_runtime_"))
+        );
     }
 
     #[test]
