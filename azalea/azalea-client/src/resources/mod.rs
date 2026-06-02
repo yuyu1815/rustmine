@@ -23791,6 +23791,10 @@ impl TextureManagerUploadCandidateReloadListener {
     pub fn load(&self, stack: &ClientResourceStack) -> TextureManagerUploadCandidateReloadReport {
         load_texture_manager_upload_candidates(stack, &self.registrations)
     }
+
+    pub fn load_state(&self, stack: &ClientResourceStack) -> ClientTextureManagerState {
+        ClientTextureManagerState::from_upload_candidate_report(self.load(stack))
+    }
 }
 
 impl Default for TextureManagerUploadCandidateReloadListener {
@@ -23945,6 +23949,193 @@ impl TextureManagerUploadCandidateReloadReport {
                 .map(TextureUploadCandidateBlocker::item_string),
         );
         items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureManagerState {
+    ready_textures: BTreeMap<String, TextureUploadCandidateReport>,
+    blockers: BTreeMap<String, TextureUploadCandidateBlocker>,
+}
+
+impl ClientTextureManagerState {
+    pub fn from_upload_candidate_report(report: TextureManagerUploadCandidateReloadReport) -> Self {
+        let ready_textures = report
+            .candidates
+            .into_iter()
+            .map(|candidate| (candidate.registered_id.clone(), candidate))
+            .collect();
+        let blockers = report
+            .blockers
+            .into_iter()
+            .map(|blocker| (blocker.registered_id.clone(), blocker))
+            .collect();
+
+        Self {
+            ready_textures,
+            blockers,
+        }
+    }
+
+    pub fn load(
+        stack: &ClientResourceStack,
+        registrations: impl IntoIterator<Item = TextureManagerTextureRegistration>,
+    ) -> Self {
+        TextureManagerUploadCandidateReloadListener::new(registrations).load_state(stack)
+    }
+
+    pub fn ready_textures(&self) -> &BTreeMap<String, TextureUploadCandidateReport> {
+        &self.ready_textures
+    }
+
+    pub fn blockers(&self) -> &BTreeMap<String, TextureUploadCandidateBlocker> {
+        &self.blockers
+    }
+
+    pub fn ready_texture(&self, registered_id: &str) -> Option<&TextureUploadCandidateReport> {
+        self.ready_textures.get(registered_id)
+    }
+
+    pub fn blocker(&self, registered_id: &str) -> Option<&TextureUploadCandidateBlocker> {
+        self.blockers.get(registered_id)
+    }
+
+    pub fn status(&self, registered_id: &str) -> ClientTextureManagerTextureStatus {
+        if self.ready_textures.contains_key(registered_id) {
+            ClientTextureManagerTextureStatus::Ready
+        } else if self.blockers.contains_key(registered_id) {
+            ClientTextureManagerTextureStatus::Blocked
+        } else {
+            ClientTextureManagerTextureStatus::Missing
+        }
+    }
+
+    pub fn ready_texture_count(&self) -> usize {
+        self.ready_textures.len()
+    }
+
+    pub fn blocked_texture_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn registered_texture_count(&self) -> usize {
+        self.ready_texture_count() + self.blocked_texture_count()
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.ready_textures
+            .values()
+            .map(|texture| texture.sources.len())
+            .sum()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.ready_textures
+            .values()
+            .flat_map(|texture| texture.sources.iter())
+            .map(|source| source.byte_count)
+            .sum()
+    }
+
+    pub fn is_ready(&self, registered_id: &str) -> bool {
+        self.status(registered_id) == ClientTextureManagerTextureStatus::Ready
+    }
+
+    pub fn is_blocked(&self, registered_id: &str) -> bool {
+        self.status(registered_id) == ClientTextureManagerTextureStatus::Blocked
+    }
+
+    pub fn is_missing(&self, registered_id: &str) -> bool {
+        self.status(registered_id) == ClientTextureManagerTextureStatus::Missing
+    }
+
+    pub fn summary(&self) -> ClientTextureManagerStateReport {
+        ClientTextureManagerStateReport {
+            registered_texture_count: self.registered_texture_count(),
+            ready_texture_count: self.ready_texture_count(),
+            blocked_texture_count: self.blocked_texture_count(),
+            source_count: self.source_count(),
+            byte_count: self.byte_count(),
+        }
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        self.summary().item_string()
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.ready_textures
+                .values()
+                .map(client_texture_manager_ready_item),
+        );
+        items.extend(
+            self.blockers
+                .values()
+                .map(client_texture_manager_blocked_item),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientTextureManagerTextureStatus {
+    Ready,
+    Blocked,
+    Missing,
+}
+
+impl ClientTextureManagerTextureStatus {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureManagerStateReport {
+    registered_texture_count: usize,
+    ready_texture_count: usize,
+    blocked_texture_count: usize,
+    source_count: usize,
+    byte_count: usize,
+}
+
+impl ClientTextureManagerStateReport {
+    pub fn registered_texture_count(&self) -> usize {
+        self.registered_texture_count
+    }
+
+    pub fn ready_texture_count(&self) -> usize {
+        self.ready_texture_count
+    }
+
+    pub fn blocked_texture_count(&self) -> usize {
+        self.blocked_texture_count
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "client_texture_manager_state:registered:{} ready:{} blocked:{} sources:{} bytes:{} boundary:{}",
+            self.registered_texture_count,
+            self.ready_texture_count,
+            self.blocked_texture_count,
+            self.source_count,
+            self.byte_count,
+            TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+        )
     }
 }
 
@@ -24187,6 +24378,17 @@ impl TextureUploadCandidateReport {
 
     pub fn sources(&self) -> &[TextureUploadCandidateSource] {
         &self.sources
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.sources.len()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.sources
+            .iter()
+            .map(TextureUploadCandidateSource::byte_count)
+            .sum()
     }
 
     pub fn width(&self) -> u32 {
@@ -25074,6 +25276,39 @@ fn texture_manager_prepare_item(registration: &TextureManagerTextureRegistration
 
 fn texture_manager_report_item(item: &InitialTextureReportItem) -> String {
     format!("registered:{}", initial_texture_report_item(item))
+}
+
+fn client_texture_manager_ready_item(texture: &TextureUploadCandidateReport) -> String {
+    format!(
+        "client_texture_manager_texture:{} status:{} kind:{} source_resource:{} sources:{} bytes:{} size:{}x{}x{} metadata:{} boundary:{}",
+        texture.registered_id(),
+        ClientTextureManagerTextureStatus::Ready.report_fragment(),
+        texture.loader_kind().report_fragment(),
+        texture.source_resource(),
+        texture.sources().len(),
+        texture
+            .sources()
+            .iter()
+            .map(TextureUploadCandidateSource::byte_count)
+            .sum::<usize>(),
+        texture.width(),
+        texture.height(),
+        texture.depth(),
+        texture.metadata().source().report_fragment(),
+        TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+    )
+}
+
+fn client_texture_manager_blocked_item(blocker: &TextureUploadCandidateBlocker) -> String {
+    format!(
+        "client_texture_manager_texture:{} status:{} kind:{} source_resource:{} reason:{} boundary:{}",
+        blocker.registered_id(),
+        ClientTextureManagerTextureStatus::Blocked.report_fragment(),
+        blocker.loader_kind().report_fragment(),
+        blocker.source_resource(),
+        blocker.reason(),
+        TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+    )
 }
 
 fn texture_manager_runtime_candidate_report_item(
@@ -34611,6 +34846,111 @@ mod tests {
                 && item.contains("upload_size:")
                 && item.contains("x6 metadata:synthetic")
         }));
+    }
+
+    #[test]
+    fn texture_manager_state_indexes_ready_and_blocked_registered_textures() {
+        let temp = TempPack::new();
+        let ready_resource = INITIAL_SIMPLE_TEXTURES[0].1;
+        let blocked_resource = "assets/minecraft/textures/gui/title/missing_for_state.png";
+        let ready_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        temp.write_bytes(ready_resource, &ready_png);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = TextureManagerUploadCandidateReloadListener::new([
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/ready",
+                ready_resource,
+            ),
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/blocked",
+                blocked_resource,
+            ),
+        ]);
+        let state = listener.load_state(&stack);
+
+        assert_eq!(state.registered_texture_count(), 2);
+        assert_eq!(state.ready_texture_count(), 1);
+        assert_eq!(state.blocked_texture_count(), 1);
+        assert_eq!(state.source_count(), 1);
+        assert_eq!(state.byte_count(), ready_png.len());
+        assert_eq!(
+            state.status("minecraft:test/ready"),
+            ClientTextureManagerTextureStatus::Ready
+        );
+        assert_eq!(
+            state.status("minecraft:test/blocked"),
+            ClientTextureManagerTextureStatus::Blocked
+        );
+        assert_eq!(
+            state.status("minecraft:test/unknown"),
+            ClientTextureManagerTextureStatus::Missing
+        );
+        assert!(state.is_ready("minecraft:test/ready"));
+        assert!(state.is_blocked("minecraft:test/blocked"));
+        assert!(state.is_missing("minecraft:test/unknown"));
+        assert_eq!(
+            state
+                .ready_texture("minecraft:test/ready")
+                .unwrap()
+                .byte_count(),
+            ready_png.len()
+        );
+        assert_eq!(
+            state.blocker("minecraft:test/blocked").unwrap().reason(),
+            &format!("missing_resource:{blocked_resource}")
+        );
+
+        let ready_keys = state.ready_textures().keys().cloned().collect::<Vec<_>>();
+        assert_eq!(ready_keys, ["minecraft:test/ready".to_owned()]);
+        let blocker_keys = state.blockers().keys().cloned().collect::<Vec<_>>();
+        assert_eq!(blocker_keys, ["minecraft:test/blocked".to_owned()]);
+        assert_eq!(
+            state.summary_fragment(),
+            format!(
+                "client_texture_manager_state:registered:2 ready:1 blocked:1 sources:1 bytes:{} boundary:texture_assets_loaded_runtime_registry_pending",
+                ready_png.len()
+            )
+        );
+
+        let items = state.items();
+        assert_eq!(items[0], state.summary_fragment());
+        assert!(items.iter().any(|item| {
+            item.contains("client_texture_manager_texture:minecraft:test/ready status:ready")
+                && item.contains("sources:1")
+                && item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("client_texture_manager_texture:minecraft:test/blocked status:blocked")
+                && item.contains(&format!("reason:missing_resource:{blocked_resource}"))
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_texture_manager_state_loads_startup_registered_textures() {
+        let state = TextureManagerUploadCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::vanilla());
+        let summary = state.summary();
+
+        assert_eq!(
+            summary.registered_texture_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(
+            summary.ready_texture_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(summary.blocked_texture_count(), 0);
+        assert_eq!(summary.source_count(), INITIAL_SIMPLE_TEXTURES.len() + 7);
+        assert!(summary.byte_count() > PNG_SIGNATURE.len());
+        assert!(state.is_ready(INITIAL_MOJANG_LOGO_ID));
+        assert!(state.is_ready(INITIAL_CUBEMAP_ID));
+        assert!(
+            state
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_texture_manager_state:registered:"))
+        );
     }
 
     #[test]
