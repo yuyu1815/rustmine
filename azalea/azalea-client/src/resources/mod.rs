@@ -38778,6 +38778,13 @@ impl TextureManagerUploadCandidateReloadListener {
     pub fn load_state(&self, stack: &ClientResourceStack) -> ClientTextureManagerState {
         ClientTextureManagerState::from_upload_candidate_report(self.load(stack))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientTextureManagerUploadCandidateRuntimeReport {
+        ClientTextureManagerUploadCandidateRuntimeReport::from_stack(stack, &self.registrations)
+    }
 }
 
 impl Default for TextureManagerUploadCandidateReloadListener {
@@ -38804,7 +38811,14 @@ impl ResourceReloadListener for TextureManagerUploadCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack).items()))
+        let loaded = self.load(stack);
+        let runtime_report = ClientTextureManagerUploadCandidateRuntimeReport::from_loaded_report(
+            &self.registrations,
+            &loaded,
+        );
+        Ok(ResourceReloadTaskReport::new(
+            loaded.items().into_iter().chain(runtime_report.items()),
+        ))
     }
 }
 
@@ -39214,6 +39228,236 @@ impl TextureManagerUploadCandidateReloadReport {
                 .iter()
                 .map(TextureUploadCandidateBlocker::item_string),
         );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientTextureManagerUploadCandidateRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientTextureManagerUploadCandidateRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureManagerUploadCandidateRuntimeReport {
+    status: ClientTextureManagerUploadCandidateRuntimeStatus,
+    registration_count: usize,
+    ready_candidate_count: usize,
+    blocked_candidate_count: usize,
+    source_count: usize,
+    byte_count: usize,
+    loader_kind_counts: Vec<String>,
+    representative_registered_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    packs: Vec<String>,
+    source_roles: Vec<String>,
+    metadata_sources: Vec<String>,
+    blockers: Vec<String>,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientTextureManagerUploadCandidateRuntimeReport {
+    pub fn from_stack(
+        stack: &ClientResourceStack,
+        registrations: &[TextureManagerTextureRegistration],
+    ) -> Self {
+        let candidates = load_texture_manager_upload_candidates(stack, registrations);
+        Self::from_loaded_report(registrations, &candidates)
+    }
+
+    pub fn from_loaded_report(
+        registrations: &[TextureManagerTextureRegistration],
+        report: &TextureManagerUploadCandidateReloadReport,
+    ) -> Self {
+        Self::from_parts(registrations, report, None)
+    }
+
+    pub fn from_failure(
+        registrations: &[TextureManagerTextureRegistration],
+        error: impl Into<String>,
+    ) -> Self {
+        let report = TextureManagerUploadCandidateReloadReport {
+            candidates: Vec::new(),
+            blockers: Vec::new(),
+        };
+        Self::from_parts(registrations, &report, Some(error.into()))
+    }
+
+    fn from_parts(
+        registrations: &[TextureManagerTextureRegistration],
+        report: &TextureManagerUploadCandidateReloadReport,
+        error: Option<String>,
+    ) -> Self {
+        let status = texture_manager_upload_candidate_runtime_status(
+            report.ready_candidate_count(),
+            report.blockers(),
+            error.as_ref(),
+        );
+
+        Self {
+            status,
+            registration_count: registrations.len(),
+            ready_candidate_count: report.ready_candidate_count(),
+            blocked_candidate_count: report.blocked_candidate_count(),
+            source_count: report.source_count(),
+            byte_count: report.byte_count(),
+            loader_kind_counts: texture_manager_registered_loader_kind_counts(registrations),
+            representative_registered_ids: texture_upload_candidate_representative_ids(report),
+            representative_resources: texture_upload_candidate_representative_resources(report),
+            packs: texture_upload_candidate_packs(report),
+            source_roles: texture_upload_candidate_source_roles(report),
+            metadata_sources: texture_upload_candidate_metadata_sources(report),
+            blockers: texture_upload_candidate_runtime_blockers(report),
+            boundary: TEXTURE_MANAGER_UPLOAD_CANDIDATE_RUNTIME_BOUNDARY,
+            error,
+        }
+    }
+
+    pub fn status(&self) -> ClientTextureManagerUploadCandidateRuntimeStatus {
+        self.status
+    }
+
+    pub fn registration_count(&self) -> usize {
+        self.registration_count
+    }
+
+    pub fn ready_candidate_count(&self) -> usize {
+        self.ready_candidate_count
+    }
+
+    pub fn blocked_candidate_count(&self) -> usize {
+        self.blocked_candidate_count
+    }
+
+    pub fn source_count(&self) -> usize {
+        self.source_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn loader_kind_counts(&self) -> &[String] {
+        &self.loader_kind_counts
+    }
+
+    pub fn representative_registered_ids(&self) -> &[String] {
+        &self.representative_registered_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn packs(&self) -> &[String] {
+        &self.packs
+    }
+
+    pub fn source_roles(&self) -> &[String] {
+        &self.source_roles
+    }
+
+    pub fn metadata_sources(&self) -> &[String] {
+        &self.metadata_sources
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_texture_manager_upload_candidate_runtime:status:{} registrations:{} ready:{} blocked:{} sources:{} bytes:{} loader_kinds:{} representative_textures:{} representative_resources:{} packs:{} source_roles:{} metadata_sources:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.registration_count(),
+            self.ready_candidate_count(),
+            self.blocked_candidate_count(),
+            self.source_count(),
+            self.byte_count(),
+            initial_texture_runtime_list_fragment(self.loader_kind_counts()),
+            initial_texture_runtime_list_fragment(self.representative_registered_ids()),
+            initial_texture_runtime_list_fragment(self.representative_resources()),
+            initial_texture_runtime_list_fragment(self.packs()),
+            initial_texture_runtime_list_fragment(self.source_roles()),
+            initial_texture_runtime_list_fragment(self.metadata_sources()),
+            initial_texture_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_registered_ids.iter().map(|texture| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_texture:{texture} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_resource:{resource} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.packs.iter().map(|pack| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_pack:{pack} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.source_roles.iter().map(|role| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_source_role:{role} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.metadata_sources.iter().map(|source| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_metadata:{source} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.loader_kind_counts.iter().map(|count| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_loader_kind:{count} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_texture_manager_upload_candidate_runtime_blocker:{blocker} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_texture_manager_upload_candidate_runtime_failure:error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
         items
     }
 }
@@ -40625,6 +40869,8 @@ const TEXTURE_MANAGER_RUNTIME_BOUNDARY: &str = "texture_assets_loaded_runtime_re
 const CLIENT_INITIAL_TEXTURE_RUNTIME_BOUNDARY: &str = "initial_textures_loaded_gpu_upload_pending";
 const TEXTURE_MANAGER_REGISTERED_TEXTURE_RUNTIME_BOUNDARY: &str =
     "texture_manager_registered_textures_loaded_upload_pending";
+const TEXTURE_MANAGER_UPLOAD_CANDIDATE_RUNTIME_BOUNDARY: &str =
+    "texture_upload_candidates_loaded_gpu_upload_pending";
 
 struct TextureManagerRuntimeCandidateSpec {
     id: &'static str,
@@ -41135,6 +41381,135 @@ fn texture_manager_registered_runtime_status(
     } else {
         ClientTextureManagerRegisteredTextureRuntimeStatus::Blocked
     }
+}
+
+fn texture_manager_upload_candidate_runtime_status(
+    ready_candidate_count: usize,
+    blockers: &[TextureUploadCandidateBlocker],
+    error: Option<&String>,
+) -> ClientTextureManagerUploadCandidateRuntimeStatus {
+    if error.is_some() {
+        ClientTextureManagerUploadCandidateRuntimeStatus::Failed
+    } else if blockers.is_empty() {
+        ClientTextureManagerUploadCandidateRuntimeStatus::Loaded
+    } else if ready_candidate_count == 0
+        && blockers
+            .iter()
+            .all(|blocker| blocker.reason().starts_with("missing_resource:"))
+    {
+        ClientTextureManagerUploadCandidateRuntimeStatus::Missing
+    } else {
+        ClientTextureManagerUploadCandidateRuntimeStatus::Blocked
+    }
+}
+
+fn texture_upload_candidate_representative_ids(
+    report: &TextureManagerUploadCandidateReloadReport,
+) -> Vec<String> {
+    let mut ids = report
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.registered_id().to_owned())
+        .take(5)
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        ids.extend(
+            report
+                .blockers()
+                .iter()
+                .map(|blocker| blocker.registered_id().to_owned())
+                .take(5),
+        );
+    }
+    ids
+}
+
+fn texture_upload_candidate_representative_resources(
+    report: &TextureManagerUploadCandidateReloadReport,
+) -> Vec<String> {
+    let mut resources = report
+        .candidates()
+        .iter()
+        .flat_map(TextureUploadCandidateReport::sources)
+        .take(10)
+        .map(|source| {
+            format!(
+                "{}@{}:{}",
+                source.resource(),
+                source.pack_id(),
+                source.role().report_fragment()
+            )
+        })
+        .collect::<Vec<_>>();
+    if resources.is_empty() {
+        resources.extend(report.blockers().iter().take(10).map(|blocker| {
+            format!(
+                "{}:{}",
+                blocker.source_resource(),
+                texture_upload_candidate_blocker_runtime_fragment(blocker)
+            )
+        }));
+    }
+    resources
+}
+
+fn texture_upload_candidate_packs(
+    report: &TextureManagerUploadCandidateReloadReport,
+) -> Vec<String> {
+    report
+        .candidates()
+        .iter()
+        .flat_map(TextureUploadCandidateReport::sources)
+        .map(|source| source.pack_id().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn texture_upload_candidate_source_roles(
+    report: &TextureManagerUploadCandidateReloadReport,
+) -> Vec<String> {
+    report
+        .candidates()
+        .iter()
+        .flat_map(TextureUploadCandidateReport::sources)
+        .map(|source| source.role().report_fragment())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn texture_upload_candidate_metadata_sources(
+    report: &TextureManagerUploadCandidateReloadReport,
+) -> Vec<String> {
+    report
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.metadata().source().report_fragment())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn texture_upload_candidate_runtime_blockers(
+    report: &TextureManagerUploadCandidateReloadReport,
+) -> Vec<String> {
+    report
+        .blockers()
+        .iter()
+        .map(texture_upload_candidate_blocker_runtime_fragment)
+        .collect()
+}
+
+fn texture_upload_candidate_blocker_runtime_fragment(
+    blocker: &TextureUploadCandidateBlocker,
+) -> String {
+    format!(
+        "{}:{}:{}",
+        blocker.registered_id(),
+        blocker.loader_kind().report_fragment(),
+        blocker.reason()
+    )
 }
 
 fn texture_manager_registered_loader_kind_counts(
@@ -57678,10 +58053,13 @@ mod tests {
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "texture_manager_upload_candidates");
-        assert_eq!(listener.reload.items().len(), 3);
         assert_eq!(
             listener.reload.items()[0],
             "texture_upload_candidates:candidates:2 ready:0 blocked:2 sources:0 bytes:0"
+        );
+        assert!(
+            listener.reload.items()[3]
+                .starts_with("client_texture_manager_upload_candidate_runtime:status:blocked")
         );
         assert!(listener.reload.items().iter().any(|item| {
             item == &format!(
@@ -57711,10 +58089,6 @@ mod tests {
                 .map(texture_manager_prepare_item)
                 .collect::<Vec<_>>()
         );
-        assert_eq!(
-            listener.reload.items().len(),
-            INITIAL_SIMPLE_TEXTURES.len() + 3
-        );
         assert!(listener.reload.items()[0].starts_with(&format!(
             "texture_upload_candidates:candidates:{} ready:{} blocked:0 sources:{} bytes:",
             INITIAL_SIMPLE_TEXTURES.len() + 2,
@@ -57735,6 +58109,156 @@ mod tests {
                 && item.contains("upload_size:")
                 && item.contains("x6 metadata:synthetic")
         }));
+    }
+
+    #[test]
+    fn texture_manager_upload_candidate_runtime_report_committed_vanilla_reports_loaded_gpu_upload_pending()
+     {
+        let listener = TextureManagerUploadCandidateReloadListener::default();
+        let report = listener.runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientTextureManagerUploadCandidateRuntimeStatus::Loaded
+        );
+        assert_eq!(
+            report.registration_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(
+            report.ready_candidate_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(report.blocked_candidate_count(), 0);
+        assert_eq!(report.source_count(), INITIAL_SIMPLE_TEXTURES.len() + 7);
+        assert!(report.byte_count() > PNG_SIGNATURE.len());
+        assert!(
+            report
+                .loader_kind_counts()
+                .contains(&format!("simple_texture:{}", INITIAL_SIMPLE_TEXTURES.len()))
+        );
+        assert!(
+            report
+                .loader_kind_counts()
+                .contains(&"cubemap:1".to_owned())
+        );
+        assert!(
+            report
+                .representative_registered_ids()
+                .contains(&INITIAL_MOJANG_LOGO_ID.to_owned())
+        );
+        assert!(
+            report
+                .representative_resources()
+                .iter()
+                .any(|resource| resource.contains(INITIAL_MOJANG_LOGO_RESOURCE)
+                    && resource.contains("loading_overlay_mojang_logo"))
+        );
+        assert_eq!(report.packs(), ["vanilla".to_owned()]);
+        assert!(
+            report
+                .source_roles()
+                .iter()
+                .any(|role| role.starts_with("cubemap_face:0:_1.png"))
+        );
+        assert!(report.metadata_sources().contains(&"default".to_owned()));
+        assert!(report.metadata_sources().contains(&"synthetic".to_owned()));
+        assert!(report.blockers().is_empty());
+        assert_eq!(
+            report.boundary(),
+            "texture_upload_candidates_loaded_gpu_upload_pending"
+        );
+        assert!(report.summary_fragment().contains("status:loaded"));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_manager_upload_candidate_runtime_loader_kind:cubemap:1")
+                && item.contains("boundary:texture_upload_candidates_loaded_gpu_upload_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_upload_candidate_runtime_report_missing_corrupt_inputs_do_not_panic() {
+        let temp = TempPack::new();
+        let corrupt_resource = "assets/minecraft/textures/gui/title/corrupt_upload_runtime.png";
+        let missing_resource = "assets/minecraft/textures/gui/title/missing_upload_runtime.png";
+        temp.write_bytes(corrupt_resource, b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = TextureManagerUploadCandidateReloadListener::new([
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/corrupt_upload_runtime",
+                corrupt_resource,
+            ),
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/missing_upload_runtime",
+                missing_resource,
+            ),
+        ])
+        .runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientTextureManagerUploadCandidateRuntimeStatus::Blocked
+        );
+        assert_eq!(report.registration_count(), 2);
+        assert_eq!(report.ready_candidate_count(), 0);
+        assert_eq!(report.blocked_candidate_count(), 2);
+        assert_eq!(report.source_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.error(), None);
+        assert!(report.representative_registered_ids().iter().any(|id| {
+            id == "minecraft:test/corrupt_upload_runtime"
+                || id == "minecraft:test/missing_upload_runtime"
+        }));
+        assert!(report.representative_resources().iter().any(|resource| {
+            resource.contains(corrupt_resource) && resource.contains("invalid_png_signature")
+        }));
+        assert!(report.representative_resources().iter().any(|resource| {
+            resource.contains(missing_resource) && resource.contains("missing_resource")
+        }));
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.contains("minecraft:test/corrupt_upload_runtime")
+                && blocker.contains("invalid_png_signature")
+                && blocker.contains("bytes:9")
+        }));
+        assert!(report.summary_fragment().contains("status:blocked"));
+        assert!(report.items().iter().all(|item| {
+            item.contains("boundary:texture_upload_candidates_loaded_gpu_upload_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_upload_candidate_runtime_report_reload_rows_append_after_upload_candidate_rows()
+     {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(TextureManagerUploadCandidateReloadListener::default())
+            .run()
+            .expect("committed vanilla upload candidates should append runtime rows");
+
+        let listener = &report.listener_reports()[0];
+        let loaded = TextureManagerUploadCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla());
+        let upload_row_count = loaded.items().len();
+        assert_eq!(
+            listener.reload.items()[0..upload_row_count]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            loaded.items()
+        );
+        assert!(
+            listener.reload.items()[upload_row_count]
+                .starts_with("client_texture_manager_upload_candidate_runtime:status:loaded")
+        );
+        assert!(
+            listener.reload.items()[upload_row_count..]
+                .iter()
+                .any(|item| {
+                    item.contains("client_texture_manager_upload_candidate_runtime_resource:")
+                        && item.contains(
+                            "boundary:texture_upload_candidates_loaded_gpu_upload_pending",
+                        )
+                })
+        );
     }
 
     #[test]
