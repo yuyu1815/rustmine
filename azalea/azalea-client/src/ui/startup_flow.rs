@@ -37,6 +37,7 @@ impl StartupFlow {
             loading_phase: self.loading_phase,
             loading_screen: self.loading_screen(),
             startup_destination: self.startup_destination,
+            title_menu: self.title_menu_view(),
             loading_overlay: self.loading_overlay(),
         }
     }
@@ -75,6 +76,12 @@ impl StartupFlow {
 
     pub fn startup_destination(&self) -> Option<StartupDestination> {
         self.startup_destination
+    }
+
+    pub fn title_menu_view(&self) -> Option<StartupTitleMenuView> {
+        (self.loading_phase == StartupLoadingPhase::Complete
+            && self.startup_destination == Some(StartupDestination::TitleMenu))
+        .then(StartupTitleMenuView::vanilla_initial)
     }
 
     pub fn is_loading(&self) -> bool {
@@ -231,6 +238,7 @@ pub struct StartupScreen<'a> {
     pub loading_phase: StartupLoadingPhase,
     pub loading_screen: StartupLoadingScreen<'a>,
     pub startup_destination: Option<StartupDestination>,
+    pub title_menu: Option<StartupTitleMenuView>,
     pub loading_overlay: Option<&'a [LoadingTask]>,
 }
 
@@ -289,6 +297,78 @@ pub enum StartupDestination {
     TitleMenu,
     QuickPlay,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupTitleMenuView {
+    pub destination: StartupDestination,
+    pub fading: bool,
+    pub assets: StartupTitleMenuAssets,
+}
+
+impl StartupTitleMenuView {
+    pub fn vanilla_initial() -> Self {
+        Self {
+            destination: StartupDestination::TitleMenu,
+            fading: true,
+            assets: StartupTitleMenuAssets::vanilla(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupTitleMenuAssets {
+    pub logo: StartupTitleMenuTexture,
+    pub edition: StartupTitleMenuTexture,
+    pub panorama: StartupTitleMenuCubeMap,
+    pub panorama_overlay: StartupTitleMenuTexture,
+}
+
+impl StartupTitleMenuAssets {
+    pub fn vanilla() -> Self {
+        Self {
+            logo: StartupTitleMenuTexture {
+                id: TITLE_MENU_LOGO_ID,
+                resource: TITLE_MENU_LOGO_RESOURCE,
+            },
+            edition: StartupTitleMenuTexture {
+                id: TITLE_MENU_EDITION_ID,
+                resource: TITLE_MENU_EDITION_RESOURCE,
+            },
+            panorama: StartupTitleMenuCubeMap {
+                id: TITLE_MENU_PANORAMA_ID,
+                resource_prefix: TITLE_MENU_PANORAMA_RESOURCE_PREFIX,
+            },
+            panorama_overlay: StartupTitleMenuTexture {
+                id: TITLE_MENU_PANORAMA_OVERLAY_ID,
+                resource: TITLE_MENU_PANORAMA_OVERLAY_RESOURCE,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupTitleMenuTexture {
+    pub id: &'static str,
+    pub resource: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupTitleMenuCubeMap {
+    pub id: &'static str,
+    pub resource_prefix: &'static str,
+}
+
+pub const TITLE_MENU_LOGO_ID: &str = "minecraft:textures/gui/title/minecraft.png";
+pub const TITLE_MENU_LOGO_RESOURCE: &str = "assets/minecraft/textures/gui/title/minecraft.png";
+pub const TITLE_MENU_EDITION_ID: &str = "minecraft:textures/gui/title/edition.png";
+pub const TITLE_MENU_EDITION_RESOURCE: &str = "assets/minecraft/textures/gui/title/edition.png";
+pub const TITLE_MENU_PANORAMA_ID: &str = "minecraft:textures/gui/title/background/panorama";
+pub const TITLE_MENU_PANORAMA_RESOURCE_PREFIX: &str =
+    "assets/minecraft/textures/gui/title/background/panorama";
+pub const TITLE_MENU_PANORAMA_OVERLAY_ID: &str =
+    "minecraft:textures/gui/title/background/panorama_overlay.png";
+pub const TITLE_MENU_PANORAMA_OVERLAY_RESOURCE: &str =
+    "assets/minecraft/textures/gui/title/background/panorama_overlay.png";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VanillaLoadingOverlay {
@@ -844,6 +924,7 @@ mod tests {
                     StartupGenericMessageView::loading_minecraft()
                 ),
                 startup_destination: None,
+                title_menu: None,
                 loading_overlay: None,
             }
         );
@@ -916,6 +997,10 @@ mod tests {
             Some(StartupDestination::TitleMenu)
         );
         assert_eq!(
+            flow.screen().title_menu,
+            Some(StartupTitleMenuView::vanilla_initial())
+        );
+        assert_eq!(
             flow.screen().account_screen,
             &AccountFlowScreen::AccountSelection
         );
@@ -960,7 +1045,46 @@ mod tests {
             screen.startup_destination,
             Some(StartupDestination::TitleMenu)
         );
+        assert_eq!(
+            screen.title_menu,
+            Some(StartupTitleMenuView::vanilla_initial())
+        );
         assert_eq!(screen.account_screen, &AccountFlowScreen::AccountSelection);
+    }
+
+    #[test]
+    fn title_menu_view_exposes_vanilla_startup_assets_after_loading_completes() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.finish_loading();
+
+        let title_menu = flow
+            .screen()
+            .title_menu
+            .expect("normal startup completion should expose the title menu view");
+        assert_eq!(title_menu.destination, StartupDestination::TitleMenu);
+        assert!(title_menu.fading);
+        assert_eq!(
+            title_menu.assets,
+            StartupTitleMenuAssets {
+                logo: StartupTitleMenuTexture {
+                    id: "minecraft:textures/gui/title/minecraft.png",
+                    resource: "assets/minecraft/textures/gui/title/minecraft.png",
+                },
+                edition: StartupTitleMenuTexture {
+                    id: "minecraft:textures/gui/title/edition.png",
+                    resource: "assets/minecraft/textures/gui/title/edition.png",
+                },
+                panorama: StartupTitleMenuCubeMap {
+                    id: "minecraft:textures/gui/title/background/panorama",
+                    resource_prefix: "assets/minecraft/textures/gui/title/background/panorama",
+                },
+                panorama_overlay: StartupTitleMenuTexture {
+                    id: "minecraft:textures/gui/title/background/panorama_overlay.png",
+                    resource: "assets/minecraft/textures/gui/title/background/panorama_overlay.png",
+                },
+            }
+        );
     }
 
     #[test]
@@ -981,6 +1105,7 @@ mod tests {
             screen.startup_destination,
             Some(StartupDestination::QuickPlay)
         );
+        assert_eq!(screen.title_menu, None);
         assert_eq!(screen.account_screen, &AccountFlowScreen::AccountSelection);
     }
 

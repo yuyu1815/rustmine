@@ -388,7 +388,7 @@ mod tests {
         ui::startup_flow::{
             LoadingTask, LoadingTaskPresentationState, StartupDestination,
             StartupGenericMessageView, StartupLoadingPhase, StartupLoadingScreen,
-            StartupMojangLoadingOverlaySurface, loading_task_names,
+            StartupMojangLoadingOverlaySurface, StartupTitleMenuView, loading_task_names,
         },
     };
 
@@ -740,6 +740,10 @@ mod tests {
             complete_screen.startup_destination,
             Some(StartupDestination::TitleMenu)
         );
+        assert_eq!(
+            complete_screen.title_menu,
+            Some(StartupTitleMenuView::vanilla_initial())
+        );
     }
 
     #[test]
@@ -891,6 +895,10 @@ mod tests {
         assert_eq!(
             tracker.flow().startup_destination(),
             Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(
+            tracker.screen().title_menu,
+            Some(StartupTitleMenuView::vanilla_initial())
         );
         assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
     }
