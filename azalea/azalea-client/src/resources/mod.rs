@@ -35559,6 +35559,13 @@ impl TextureManagerRuntimeCandidateReloadListener {
     pub fn load(&self) -> TextureManagerRuntimeCandidateSet {
         build_texture_manager_runtime_candidate_set(&self.registrations)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientTextureManagerRuntimeReport {
+        let state = TextureManagerUploadCandidateReloadListener::new(self.registrations.clone())
+            .load_state(stack);
+        let candidates = self.load();
+        ClientTextureManagerRuntimeReport::from_pipeline(&state, &candidates)
+    }
 }
 
 impl Default for TextureManagerRuntimeCandidateReloadListener {
@@ -35849,6 +35856,209 @@ impl ClientTextureManagerStateReport {
             self.byte_count,
             TEXTURE_MANAGER_RUNTIME_BOUNDARY,
         )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientTextureManagerRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientTextureManagerRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureManagerRuntimeReport {
+    status: ClientTextureManagerRuntimeStatus,
+    registered_texture_count: usize,
+    ready_texture_count: usize,
+    blocked_texture_count: usize,
+    runtime_candidate_count: usize,
+    runtime_source_count: usize,
+    dependency_count: usize,
+    upload_blocker_count: usize,
+    runtime_blocker_count: usize,
+    byte_count: usize,
+    candidate_categories: Vec<TextureManagerRuntimeCandidateCategory>,
+    representative_textures: Vec<String>,
+    representative_sources: Vec<String>,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientTextureManagerRuntimeReport {
+    pub fn from_pipeline(
+        state: &ClientTextureManagerState,
+        candidates: &TextureManagerRuntimeCandidateSet,
+    ) -> Self {
+        Self {
+            status: texture_manager_runtime_status_from_pipeline(state, candidates),
+            registered_texture_count: state.registered_texture_count(),
+            ready_texture_count: state.ready_texture_count(),
+            blocked_texture_count: state.blocked_texture_count(),
+            runtime_candidate_count: candidates.candidates().len(),
+            runtime_source_count: candidates.runtime_source_count(),
+            dependency_count: candidates.dependency_count(),
+            upload_blocker_count: state.blocked_texture_count(),
+            runtime_blocker_count: candidates.blocker_count(),
+            byte_count: state.byte_count(),
+            candidate_categories: candidates
+                .candidates()
+                .iter()
+                .map(TextureManagerRuntimeCandidate::category)
+                .collect(),
+            representative_textures: representative_textures_from_texture_manager_state(state),
+            representative_sources: representative_sources_from_texture_manager_state(state),
+            runtime_boundary: TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(error: impl Into<String>) -> Self {
+        Self {
+            status: ClientTextureManagerRuntimeStatus::Failed,
+            registered_texture_count: 0,
+            ready_texture_count: 0,
+            blocked_texture_count: 0,
+            runtime_candidate_count: 0,
+            runtime_source_count: 0,
+            dependency_count: 0,
+            upload_blocker_count: 0,
+            runtime_blocker_count: 0,
+            byte_count: 0,
+            candidate_categories: Vec::new(),
+            representative_textures: Vec::new(),
+            representative_sources: Vec::new(),
+            runtime_boundary: TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn status(&self) -> ClientTextureManagerRuntimeStatus {
+        self.status
+    }
+
+    pub fn registered_texture_count(&self) -> usize {
+        self.registered_texture_count
+    }
+
+    pub fn ready_texture_count(&self) -> usize {
+        self.ready_texture_count
+    }
+
+    pub fn blocked_texture_count(&self) -> usize {
+        self.blocked_texture_count
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidate_count
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_source_count
+    }
+
+    pub fn dependency_count(&self) -> usize {
+        self.dependency_count
+    }
+
+    pub fn upload_blocker_count(&self) -> usize {
+        self.upload_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.upload_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn candidate_categories(&self) -> &[TextureManagerRuntimeCandidateCategory] {
+        &self.candidate_categories
+    }
+
+    pub fn representative_textures(&self) -> &[String] {
+        &self.representative_textures
+    }
+
+    pub fn representative_sources(&self) -> &[String] {
+        &self.representative_sources
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_texture_manager_runtime:status:{} registered:{} ready:{} blocked:{} runtime_candidates:{} runtime_sources:{} deps:{} upload_blocked:{} runtime_blocked:{} total_blocked:{} bytes:{} categories:{} representative_textures:{} representative_sources:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.registered_texture_count(),
+            self.ready_texture_count(),
+            self.blocked_texture_count(),
+            self.runtime_candidate_count(),
+            self.runtime_source_count(),
+            self.dependency_count(),
+            self.upload_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            self.byte_count(),
+            texture_manager_runtime_category_list_fragment(self.candidate_categories()),
+            texture_manager_runtime_list_fragment(self.representative_textures()),
+            texture_manager_runtime_list_fragment(self.representative_sources()),
+            self.error().unwrap_or("none"),
+            self.runtime_boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_textures.iter().map(|texture| {
+            format!(
+                "client_texture_manager_runtime_texture:{texture} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_sources.iter().map(|source| {
+            format!(
+                "client_texture_manager_runtime_source:{source} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.candidate_categories.iter().map(|category| {
+            format!(
+                "client_texture_manager_runtime_category:{} boundary:{}",
+                category.report_fragment(),
+                self.runtime_boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_texture_manager_runtime_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        items
     }
 }
 
@@ -37022,6 +37232,87 @@ fn client_texture_manager_blocked_item(blocker: &TextureUploadCandidateBlocker) 
         blocker.reason(),
         TEXTURE_MANAGER_RUNTIME_BOUNDARY,
     )
+}
+
+fn texture_manager_runtime_status_from_pipeline(
+    state: &ClientTextureManagerState,
+    candidates: &TextureManagerRuntimeCandidateSet,
+) -> ClientTextureManagerRuntimeStatus {
+    if state.registered_texture_count() == 0 && candidates.candidates().is_empty() {
+        ClientTextureManagerRuntimeStatus::Missing
+    } else if state.ready_texture_count() == 0 && state.blocked_texture_count() == 0 {
+        ClientTextureManagerRuntimeStatus::Missing
+    } else if state.blocked_texture_count() == 0 && candidates.blocker_count() == 0 {
+        ClientTextureManagerRuntimeStatus::Loaded
+    } else {
+        ClientTextureManagerRuntimeStatus::Blocked
+    }
+}
+
+fn representative_textures_from_texture_manager_state(
+    state: &ClientTextureManagerState,
+) -> Vec<String> {
+    let mut textures = state
+        .ready_textures()
+        .keys()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>();
+    if textures.is_empty() {
+        textures.extend(state.blockers().keys().take(3).cloned());
+    }
+    textures
+}
+
+fn representative_sources_from_texture_manager_state(
+    state: &ClientTextureManagerState,
+) -> Vec<String> {
+    let mut sources = state
+        .ready_textures()
+        .values()
+        .flat_map(TextureUploadCandidateReport::sources)
+        .take(3)
+        .map(|source| {
+            format!(
+                "{}@{}:{}",
+                source.resource(),
+                source.pack_id(),
+                source.role().report_fragment()
+            )
+        })
+        .collect::<Vec<_>>();
+    if sources.is_empty() {
+        sources.extend(
+            state
+                .blockers()
+                .values()
+                .take(3)
+                .map(|blocker| format!("{}:{}", blocker.source_resource(), blocker.reason())),
+        );
+    }
+    sources
+}
+
+fn texture_manager_runtime_category_list_fragment(
+    categories: &[TextureManagerRuntimeCandidateCategory],
+) -> String {
+    if categories.is_empty() {
+        "none".to_owned()
+    } else {
+        categories
+            .iter()
+            .map(|category| category.report_fragment())
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+}
+
+fn texture_manager_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join("|")
+    }
 }
 
 fn texture_manager_runtime_candidate_report_item(
@@ -52244,6 +52535,132 @@ mod tests {
             item.contains("texture_manager_runtime_candidate:dynamic_texture_registration")
                 && item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
                 && item.contains("dynamic_texture_registration_unavailable")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_runtime_report_committed_vanilla_exposes_boundary_and_categories() {
+        let report = TextureManagerRuntimeCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientTextureManagerRuntimeStatus::Blocked);
+        assert_eq!(
+            report.registered_texture_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(
+            report.ready_texture_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(report.blocked_texture_count(), 0);
+        assert_eq!(report.upload_blocker_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert_eq!(
+            report.runtime_source_count(),
+            TextureManagerRuntimeCandidateReloadListener::default()
+                .load()
+                .runtime_source_count()
+        );
+        assert!(report.dependency_count() > report.runtime_candidate_count());
+        assert!(report.runtime_blocker_count() > 0);
+        assert_eq!(report.runtime_boundary(), TEXTURE_MANAGER_RUNTIME_BOUNDARY);
+        assert!(
+            report
+                .candidate_categories()
+                .contains(&TextureManagerRuntimeCandidateCategory::RegisteredTextureCache)
+        );
+        assert!(
+            report
+                .candidate_categories()
+                .contains(&TextureManagerRuntimeCandidateCategory::MissingTextureFallback)
+        );
+        assert!(
+            report.representative_textures().iter().any(|texture| {
+                texture == INITIAL_MOJANG_LOGO_ID || texture == INITIAL_CUBEMAP_ID
+            })
+        );
+        assert!(report.summary_fragment().contains("status:blocked"));
+        assert!(
+            report
+                .summary_fragment()
+                .contains("boundary:texture_assets_loaded_runtime_registry_pending")
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_manager_runtime_category:registered_texture_cache")
+                && item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_runtime_report_custom_loading_overlay_logo_sources_are_visible() {
+        let temp = TempPack::new();
+        let logo_png = encode_test_rgba_png(2, 1, &[255, 255, 255, 255, 0, 0, 0, 255]);
+        temp.write_bytes(INITIAL_MOJANG_LOGO_RESOURCE, &logo_png);
+        let stack =
+            ClientResourceStack::new(vec![ClientResourcePack::new(VANILLA_PACK_ID, temp.path())]);
+
+        let report = TextureManagerRuntimeCandidateReloadListener::new([
+            TextureManagerTextureRegistration::loading_overlay_logo(),
+        ])
+        .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientTextureManagerRuntimeStatus::Blocked);
+        assert_eq!(report.registered_texture_count(), 1);
+        assert_eq!(report.ready_texture_count(), 1);
+        assert_eq!(report.blocked_texture_count(), 0);
+        assert_eq!(report.byte_count(), logo_png.len());
+        assert_eq!(
+            report.representative_textures(),
+            [INITIAL_MOJANG_LOGO_ID.to_owned()]
+        );
+        assert!(report.representative_sources().iter().any(|source| {
+            source.contains(INITIAL_MOJANG_LOGO_RESOURCE)
+                && source.contains("loading_overlay_mojang_logo")
+        }));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_manager_runtime_source:")
+                && item.contains(INITIAL_MOJANG_LOGO_RESOURCE)
+                && item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_runtime_report_missing_and_corrupt_inputs_do_not_panic() {
+        let temp = TempPack::new();
+        let corrupt_resource = "assets/minecraft/textures/gui/title/corrupt_runtime.png";
+        let missing_resource = "assets/minecraft/textures/gui/title/missing_runtime.png";
+        temp.write_bytes(corrupt_resource, b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = TextureManagerRuntimeCandidateReloadListener::new([
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/corrupt_runtime",
+                corrupt_resource,
+            ),
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/missing_runtime",
+                missing_resource,
+            ),
+        ])
+        .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientTextureManagerRuntimeStatus::Blocked);
+        assert_eq!(report.registered_texture_count(), 2);
+        assert_eq!(report.ready_texture_count(), 0);
+        assert_eq!(report.blocked_texture_count(), 2);
+        assert_eq!(report.upload_blocker_count(), 2);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert!(report.runtime_blocker_count() > 0);
+        assert_eq!(report.error(), None);
+        assert!(report.representative_sources().iter().any(|source| {
+            source.contains(corrupt_resource) && source.contains("invalid_png_signature")
+        }));
+        assert!(report.representative_sources().iter().any(|source| {
+            source.contains(missing_resource) && source.contains("missing_resource")
+        }));
+        assert!(report.summary_fragment().contains("blocked:2"));
+        assert!(report.items().iter().all(|item| {
+            item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
         }));
     }
 
