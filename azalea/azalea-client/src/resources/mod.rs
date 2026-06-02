@@ -11190,6 +11190,271 @@ impl ClientDynamicTextureManagerState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientDynamicTextureManagerRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientDynamicTextureManagerRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientDynamicTextureManagerRuntimeReport {
+    status: ClientDynamicTextureManagerRuntimeStatus,
+    candidate_count: usize,
+    representative_texture_id_count: usize,
+    representative_resource_count: usize,
+    runtime_source_count: usize,
+    texture_manager_dependency_count: usize,
+    dynamic_texture_allocation_dependency_count: usize,
+    atlas_sprite_lookup_dependency_count: usize,
+    map_data_packet_dependency_count: usize,
+    painting_renderer_dependency_count: usize,
+    entity_renderer_dependency_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_candidate_ids: Vec<String>,
+    representative_categories: Vec<String>,
+    representative_texture_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_runtime_sources: Vec<String>,
+    representative_candidate_blockers: Vec<String>,
+    representative_runtime_blockers: Vec<String>,
+    representative_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientDynamicTextureManagerRuntimeReport {
+    pub fn from_state(state: &ClientDynamicTextureManagerState) -> Self {
+        let representative_candidate_blockers =
+            dynamic_texture_manager_runtime_representative_candidate_blockers(state);
+        let representative_runtime_blockers =
+            dynamic_texture_manager_runtime_representative_runtime_blockers(state);
+        let representative_blockers = runtime_representative_blockers(
+            representative_candidate_blockers
+                .iter()
+                .chain(representative_runtime_blockers.iter())
+                .cloned(),
+        );
+
+        Self {
+            status: dynamic_texture_manager_runtime_status_from_state(state),
+            candidate_count: state.candidate_count(),
+            representative_texture_id_count: state.representative_texture_id_count(),
+            representative_resource_count: state.representative_resource_count(),
+            runtime_source_count: state.runtime_source_count(),
+            texture_manager_dependency_count: state.texture_manager_dependency_count(),
+            dynamic_texture_allocation_dependency_count: state
+                .dynamic_texture_allocation_dependency_count(),
+            atlas_sprite_lookup_dependency_count: state.atlas_sprite_lookup_dependency_count(),
+            map_data_packet_dependency_count: state.map_data_packet_dependency_count(),
+            painting_renderer_dependency_count: state.painting_renderer_dependency_count(),
+            entity_renderer_dependency_count: state.entity_renderer_dependency_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_candidate_ids: state
+                .candidates()
+                .iter()
+                .take(5)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            representative_categories: dynamic_texture_manager_runtime_representative_categories(
+                state,
+            ),
+            representative_texture_ids: dynamic_texture_manager_runtime_representative_texture_ids(
+                state,
+            ),
+            representative_resources: dynamic_texture_manager_runtime_representative_resources(
+                state,
+            ),
+            representative_runtime_sources: dynamic_texture_manager_runtime_representative_sources(
+                state,
+            ),
+            representative_candidate_blockers,
+            representative_runtime_blockers,
+            representative_blockers,
+            runtime_boundary: state.runtime_boundary(),
+        }
+    }
+
+    pub fn status(&self) -> ClientDynamicTextureManagerRuntimeStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_count
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_id_count
+    }
+
+    pub fn representative_resource_count(&self) -> usize {
+        self.representative_resource_count
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_source_count
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.texture_manager_dependency_count
+    }
+
+    pub fn dynamic_texture_allocation_dependency_count(&self) -> usize {
+        self.dynamic_texture_allocation_dependency_count
+    }
+
+    pub fn atlas_sprite_lookup_dependency_count(&self) -> usize {
+        self.atlas_sprite_lookup_dependency_count
+    }
+
+    pub fn map_data_packet_dependency_count(&self) -> usize {
+        self.map_data_packet_dependency_count
+    }
+
+    pub fn painting_renderer_dependency_count(&self) -> usize {
+        self.painting_renderer_dependency_count
+    }
+
+    pub fn entity_renderer_dependency_count(&self) -> usize {
+        self.entity_renderer_dependency_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_candidate_ids(&self) -> &[String] {
+        &self.representative_candidate_ids
+    }
+
+    pub fn representative_categories(&self) -> &[String] {
+        &self.representative_categories
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_runtime_sources(&self) -> &[String] {
+        &self.representative_runtime_sources
+    }
+
+    pub fn representative_candidate_blockers(&self) -> &[String] {
+        &self.representative_candidate_blockers
+    }
+
+    pub fn representative_runtime_blockers(&self) -> &[String] {
+        &self.representative_runtime_blockers
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_dynamic_texture_manager_runtime_report:status:{} candidates:{} representative_texture_ids:{} resources:{} runtime_sources:{} deps:texture_manager:{} dynamic_texture_allocation:{} atlas_sprite_lookup:{} map_data_packets:{} painting_renderer:{} entity_renderer:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_candidates:{} representative_categories:{} representative_texture_ids_samples:{} representative_resources:{} representative_runtime_sources:{} representative_candidate_blockers:{} representative_runtime_blockers:{} representative_blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.representative_resource_count(),
+            self.runtime_source_count(),
+            self.texture_manager_dependency_count(),
+            self.dynamic_texture_allocation_dependency_count(),
+            self.atlas_sprite_lookup_dependency_count(),
+            self.map_data_packet_dependency_count(),
+            self.painting_renderer_dependency_count(),
+            self.entity_renderer_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_categories()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_texture_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_resources()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_sources()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_blockers()),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_candidate_ids.iter().map(|id| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_candidate:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_categories.iter().map(|category| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_category:{category} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_texture_ids.iter().map(|texture_id| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_texture:{texture_id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_resource:{resource} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_sources.iter().map(|source| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_source:{source} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_candidate_blockers.iter().map(|blocker| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_candidate_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_blockers.iter().map(|blocker| {
+            format!(
+                "client_dynamic_texture_manager_runtime_report_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientDynamicTextureManagerLoadStatus {
     Loaded,
     Blocked,
@@ -11737,6 +12002,240 @@ impl ClientMapTextureManagerState {
                 .iter()
                 .map(ClientMapTextureManagerCandidateState::item_string),
         );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientMapTextureManagerRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientMapTextureManagerRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientMapTextureManagerRuntimeReport {
+    status: ClientMapTextureManagerRuntimeStatus,
+    candidate_count: usize,
+    representative_texture_id_count: usize,
+    runtime_source_count: usize,
+    texture_registry_dependency_count: usize,
+    dynamic_texture_allocation_dependency_count: usize,
+    map_data_packet_cache_dependency_count: usize,
+    map_renderer_dependency_count: usize,
+    texture_manager_dependency_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_candidate_ids: Vec<String>,
+    representative_categories: Vec<String>,
+    representative_texture_ids: Vec<String>,
+    representative_runtime_sources: Vec<String>,
+    representative_candidate_blockers: Vec<String>,
+    representative_runtime_blockers: Vec<String>,
+    representative_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientMapTextureManagerRuntimeReport {
+    pub fn from_state(state: &ClientMapTextureManagerState) -> Self {
+        let representative_candidate_blockers =
+            map_texture_manager_runtime_representative_candidate_blockers(state);
+        let representative_runtime_blockers =
+            map_texture_manager_runtime_representative_runtime_blockers(state);
+        let representative_blockers = runtime_representative_blockers(
+            representative_candidate_blockers
+                .iter()
+                .chain(representative_runtime_blockers.iter())
+                .cloned(),
+        );
+
+        Self {
+            status: map_texture_manager_runtime_status_from_state(state),
+            candidate_count: state.candidate_count(),
+            representative_texture_id_count: state.representative_texture_id_count(),
+            runtime_source_count: state.runtime_source_count(),
+            texture_registry_dependency_count: state.texture_registry_dependency_count(),
+            dynamic_texture_allocation_dependency_count: state
+                .dynamic_texture_allocation_dependency_count(),
+            map_data_packet_cache_dependency_count: state.map_data_packet_cache_dependency_count(),
+            map_renderer_dependency_count: state.map_renderer_dependency_count(),
+            texture_manager_dependency_count: state.texture_manager_dependency_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_candidate_ids: state
+                .candidates()
+                .iter()
+                .take(5)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            representative_categories: map_texture_manager_runtime_representative_categories(state),
+            representative_texture_ids: map_texture_manager_runtime_representative_texture_ids(
+                state,
+            ),
+            representative_runtime_sources: map_texture_manager_runtime_representative_sources(
+                state,
+            ),
+            representative_candidate_blockers,
+            representative_runtime_blockers,
+            representative_blockers,
+            runtime_boundary: state.runtime_boundary(),
+        }
+    }
+
+    pub fn status(&self) -> ClientMapTextureManagerRuntimeStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_count
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_id_count
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_source_count
+    }
+
+    pub fn texture_registry_dependency_count(&self) -> usize {
+        self.texture_registry_dependency_count
+    }
+
+    pub fn dynamic_texture_allocation_dependency_count(&self) -> usize {
+        self.dynamic_texture_allocation_dependency_count
+    }
+
+    pub fn map_data_packet_cache_dependency_count(&self) -> usize {
+        self.map_data_packet_cache_dependency_count
+    }
+
+    pub fn map_renderer_dependency_count(&self) -> usize {
+        self.map_renderer_dependency_count
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.texture_manager_dependency_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_candidate_ids(&self) -> &[String] {
+        &self.representative_candidate_ids
+    }
+
+    pub fn representative_categories(&self) -> &[String] {
+        &self.representative_categories
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn representative_runtime_sources(&self) -> &[String] {
+        &self.representative_runtime_sources
+    }
+
+    pub fn representative_candidate_blockers(&self) -> &[String] {
+        &self.representative_candidate_blockers
+    }
+
+    pub fn representative_runtime_blockers(&self) -> &[String] {
+        &self.representative_runtime_blockers
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_map_texture_manager_runtime_report:status:{} candidates:{} representative_texture_ids:{} runtime_sources:{} deps:texture_registry:{} dynamic_texture_allocation:{} map_data_packet_cache:{} map_renderer:{} texture_manager:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_candidates:{} representative_categories:{} representative_texture_ids_samples:{} representative_runtime_sources:{} representative_candidate_blockers:{} representative_runtime_blockers:{} representative_blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.runtime_source_count(),
+            self.texture_registry_dependency_count(),
+            self.dynamic_texture_allocation_dependency_count(),
+            self.map_data_packet_cache_dependency_count(),
+            self.map_renderer_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_categories()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_texture_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_sources()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_blockers()),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_candidate_ids.iter().map(|id| {
+            format!(
+                "client_map_texture_manager_runtime_report_candidate:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_categories.iter().map(|category| {
+            format!(
+                "client_map_texture_manager_runtime_report_category:{category} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_texture_ids.iter().map(|texture_id| {
+            format!(
+                "client_map_texture_manager_runtime_report_texture:{texture_id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_sources.iter().map(|source| {
+            format!(
+                "client_map_texture_manager_runtime_report_source:{source} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_candidate_blockers.iter().map(|blocker| {
+            format!(
+                "client_map_texture_manager_runtime_report_candidate_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_blockers.iter().map(|blocker| {
+            format!(
+                "client_map_texture_manager_runtime_report_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
         items
     }
 }
@@ -18318,6 +18817,17 @@ impl DynamicTextureManagerCandidateReloadListener {
             self.load(stack)?,
         ))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientDynamicTextureManagerRuntimeReport {
+        ClientDynamicTextureManagerRuntimeReport::from_state(
+            &self
+                .load_state(stack)
+                .expect("dynamic texture manager candidates should load"),
+        )
+    }
 }
 
 impl ResourceReloadListener for DynamicTextureManagerCandidateReloadListener {
@@ -18338,9 +18848,11 @@ impl ResourceReloadListener for DynamicTextureManagerCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(
-            self.load_state(stack)?.items(),
-        ))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientDynamicTextureManagerRuntimeReport::from_state(&state);
+        let mut items = state.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -18363,6 +18875,17 @@ impl MapTextureManagerCandidateReloadListener {
             self.load(stack)?,
         ))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientMapTextureManagerRuntimeReport {
+        ClientMapTextureManagerRuntimeReport::from_state(
+            &self
+                .load_state(stack)
+                .expect("map texture manager candidates should load"),
+        )
+    }
 }
 
 impl ResourceReloadListener for MapTextureManagerCandidateReloadListener {
@@ -18383,9 +18906,11 @@ impl ResourceReloadListener for MapTextureManagerCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(
-            self.load_state(stack)?.items(),
-        ))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientMapTextureManagerRuntimeReport::from_state(&state);
+        let mut items = state.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -26099,6 +26624,184 @@ fn player_skin_cache_runtime_status_from_state(
         ClientPlayerSkinCacheLoadStatus::Blocked => ClientPlayerSkinCacheRuntimeStatus::Blocked,
         ClientPlayerSkinCacheLoadStatus::Missing => ClientPlayerSkinCacheRuntimeStatus::Missing,
     }
+}
+
+fn dynamic_texture_manager_runtime_status_from_state(
+    state: &ClientDynamicTextureManagerState,
+) -> ClientDynamicTextureManagerRuntimeStatus {
+    match state.status() {
+        ClientDynamicTextureManagerLoadStatus::Loaded => {
+            ClientDynamicTextureManagerRuntimeStatus::Loaded
+        }
+        ClientDynamicTextureManagerLoadStatus::Blocked => {
+            ClientDynamicTextureManagerRuntimeStatus::Blocked
+        }
+        ClientDynamicTextureManagerLoadStatus::Missing => {
+            ClientDynamicTextureManagerRuntimeStatus::Missing
+        }
+    }
+}
+
+fn dynamic_texture_manager_runtime_representative_categories(
+    state: &ClientDynamicTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.category().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(5)
+        .collect()
+}
+
+fn dynamic_texture_manager_runtime_representative_texture_ids(
+    state: &ClientDynamicTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.representative_texture_ids().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn dynamic_texture_manager_runtime_representative_resources(
+    state: &ClientDynamicTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.representative_resources().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn dynamic_texture_manager_runtime_representative_sources(
+    state: &ClientDynamicTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.runtime_sources().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn dynamic_texture_manager_runtime_representative_candidate_blockers(
+    state: &ClientDynamicTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.candidate_blockers().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn dynamic_texture_manager_runtime_representative_runtime_blockers(
+    state: &ClientDynamicTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.runtime_blockers().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn map_texture_manager_runtime_status_from_state(
+    state: &ClientMapTextureManagerState,
+) -> ClientMapTextureManagerRuntimeStatus {
+    match state.status() {
+        ClientMapTextureManagerLoadStatus::Loaded => ClientMapTextureManagerRuntimeStatus::Loaded,
+        ClientMapTextureManagerLoadStatus::Blocked => ClientMapTextureManagerRuntimeStatus::Blocked,
+        ClientMapTextureManagerLoadStatus::Missing => ClientMapTextureManagerRuntimeStatus::Missing,
+    }
+}
+
+fn map_texture_manager_runtime_representative_categories(
+    state: &ClientMapTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.category().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(5)
+        .collect()
+}
+
+fn map_texture_manager_runtime_representative_texture_ids(
+    state: &ClientMapTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.representative_texture_ids().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn map_texture_manager_runtime_representative_sources(
+    state: &ClientMapTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.runtime_sources().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn map_texture_manager_runtime_representative_candidate_blockers(
+    state: &ClientMapTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.candidate_blockers().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn map_texture_manager_runtime_representative_runtime_blockers(
+    state: &ClientMapTextureManagerState,
+) -> Vec<String> {
+    state
+        .candidates()
+        .iter()
+        .flat_map(|candidate| candidate.runtime_blockers().iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
+fn runtime_representative_blockers(blockers: impl IntoIterator<Item = String>) -> Vec<String> {
+    blockers
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
 }
 
 fn player_skin_cache_runtime_representative_categories(
@@ -51656,6 +52359,120 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_texture_manager_runtime_report_committed_vanilla_reports_upload_pending_surface() {
+        let report = DynamicTextureManagerCandidateReloadListener
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientDynamicTextureManagerRuntimeStatus::Blocked
+        );
+        assert_eq!(report.candidate_count(), 4);
+        assert_eq!(report.representative_texture_id_count(), 7);
+        assert_eq!(report.representative_resource_count(), 7);
+        assert_eq!(report.runtime_source_count(), 12);
+        assert_eq!(report.texture_manager_dependency_count(), 4);
+        assert_eq!(report.dynamic_texture_allocation_dependency_count(), 2);
+        assert_eq!(report.atlas_sprite_lookup_dependency_count(), 1);
+        assert_eq!(report.map_data_packet_dependency_count(), 2);
+        assert_eq!(report.painting_renderer_dependency_count(), 1);
+        assert_eq!(report.entity_renderer_dependency_count(), 3);
+        assert_eq!(report.candidate_blocker_count(), 21);
+        assert_eq!(report.runtime_blocker_count(), 4);
+        assert_eq!(report.total_blocker_count(), 25);
+        assert_eq!(report.runtime_boundary(), DYNAMIC_TEXTURE_MANAGER_BOUNDARY);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_dynamic_texture_manager_runtime_report:status:blocked")
+        );
+        assert!(
+            report
+                .representative_candidate_ids()
+                .contains(&"map_texture_instances".to_owned())
+        );
+        assert!(
+            report
+                .representative_categories()
+                .contains(&"runtime_map_dynamic_texture".to_owned())
+        );
+        assert!(
+            report
+                .representative_texture_ids()
+                .contains(&"minecraft:map/{id}".to_owned())
+        );
+        assert!(
+            report
+                .representative_resources()
+                .contains(&"assets/minecraft/atlases/paintings.json".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_sources()
+                .contains(&"DynamicTexture.upload".to_owned())
+        );
+        assert!(
+            report
+                .representative_candidate_blockers()
+                .contains(&"dynamic_texture_gpu_upload_unavailable".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_blockers()
+                .contains(&DYNAMIC_TEXTURE_MANAGER_BOUNDARY.to_owned())
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains(
+                "client_dynamic_texture_manager_runtime_report_candidate:map_texture_instances",
+            ) && item.contains("boundary:dynamic_texture_manager_candidates_loaded_upload_pending")
+        }));
+    }
+
+    #[test]
+    fn dynamic_texture_manager_runtime_report_reload_rows_keep_state_and_runtime_shape() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(DynamicTextureManagerCandidateReloadListener)
+            .run()
+            .expect("dynamic texture manager runtime report should not panic");
+        let listener = &report.listener_reports()[0];
+
+        let state_candidate_index = listener
+            .reload
+            .items()
+            .iter()
+            .position(|item| item.starts_with("dynamic_texture_manager_state_candidate:"))
+            .expect("state candidate row should remain");
+        let runtime_report_index = listener
+            .reload
+            .items()
+            .iter()
+            .position(|item| {
+                item.starts_with("client_dynamic_texture_manager_runtime_report:status:blocked")
+            })
+            .expect("runtime report row should be appended");
+        assert!(runtime_report_index > state_candidate_index);
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_dynamic_texture_manager_runtime_report:status:blocked")
+                && item.contains("candidates:4")
+                && item.contains("representative_texture_ids:7")
+                && item.contains("resources:7")
+                && item.contains("runtime_sources:12")
+                && item.contains("candidate_blockers:21")
+                && item.contains("runtime_blockers:4")
+                && item.contains("total_blockers:25")
+                && item.contains("representative_candidates:")
+                && item.contains("representative_resources:")
+                && item
+                    .contains("boundary:dynamic_texture_manager_candidates_loaded_upload_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains(
+                "client_dynamic_texture_manager_runtime_report_runtime_blocker:dynamic_texture_manager_candidates_loaded_upload_pending",
+            )
+        }));
+    }
+
+    #[test]
     fn committed_vanilla_default_dynamic_texture_manager_state_reports_upload_pending_boundary() {
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(DynamicTextureManagerCandidateReloadListener)
@@ -51812,6 +52629,111 @@ mod tests {
                 .runtime_sources()
                 .contains(&"DynamicTexture.upload".to_owned())
         );
+    }
+
+    #[test]
+    fn map_texture_manager_runtime_report_committed_vanilla_reports_runtime_pending_surface() {
+        let report = MapTextureManagerCandidateReloadListener
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientMapTextureManagerRuntimeStatus::Blocked
+        );
+        assert_eq!(report.candidate_count(), 4);
+        assert_eq!(report.representative_texture_id_count(), 6);
+        assert_eq!(report.runtime_source_count(), 12);
+        assert_eq!(report.texture_registry_dependency_count(), 3);
+        assert_eq!(report.dynamic_texture_allocation_dependency_count(), 2);
+        assert_eq!(report.map_data_packet_cache_dependency_count(), 3);
+        assert_eq!(report.map_renderer_dependency_count(), 2);
+        assert_eq!(report.texture_manager_dependency_count(), 3);
+        assert_eq!(report.candidate_blocker_count(), 24);
+        assert_eq!(report.runtime_blocker_count(), 4);
+        assert_eq!(report.total_blocker_count(), 28);
+        assert_eq!(report.runtime_boundary(), MAP_TEXTURE_MANAGER_BOUNDARY);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_map_texture_manager_runtime_report:status:blocked")
+        );
+        assert!(
+            report
+                .representative_candidate_ids()
+                .contains(&"map_id_texture_registry".to_owned())
+        );
+        assert!(
+            report
+                .representative_categories()
+                .contains(&"map_renderer_texture_binding".to_owned())
+        );
+        assert!(
+            report
+                .representative_texture_ids()
+                .contains(&"minecraft:map/{id}".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_sources()
+                .contains(&"DynamicTexture.upload".to_owned())
+        );
+        assert!(
+            report
+                .representative_candidate_blockers()
+                .contains(&"client_map_data_packet_cache_unavailable".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_blockers()
+                .contains(&MAP_TEXTURE_MANAGER_BOUNDARY.to_owned())
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains(
+                "client_map_texture_manager_runtime_report_candidate:map_renderer_binding",
+            ) && item.contains("boundary:map_texture_manager_state_runtime_binding_pending")
+        }));
+    }
+
+    #[test]
+    fn map_texture_manager_runtime_report_reload_rows_keep_state_and_runtime_shape() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(MapTextureManagerCandidateReloadListener)
+            .run()
+            .expect("map texture manager runtime report should not panic");
+        let listener = &report.listener_reports()[0];
+
+        let state_candidate_index = listener
+            .reload
+            .items()
+            .iter()
+            .position(|item| item.starts_with("map_texture_manager_state_candidate:"))
+            .expect("state candidate row should remain");
+        let runtime_report_index = listener
+            .reload
+            .items()
+            .iter()
+            .position(|item| {
+                item.starts_with("client_map_texture_manager_runtime_report:status:blocked")
+            })
+            .expect("runtime report row should be appended");
+        assert!(runtime_report_index > state_candidate_index);
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_map_texture_manager_runtime_report:status:blocked")
+                && item.contains("candidates:4")
+                && item.contains("representative_texture_ids:6")
+                && item.contains("runtime_sources:12")
+                && item.contains("candidate_blockers:24")
+                && item.contains("runtime_blockers:4")
+                && item.contains("total_blockers:28")
+                && item.contains("representative_candidates:")
+                && item.contains("representative_categories:")
+                && item.contains("boundary:map_texture_manager_state_runtime_binding_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains(
+                "client_map_texture_manager_runtime_report_runtime_blocker:map_texture_manager_state_runtime_binding_pending",
+            )
+        }));
     }
 
     #[test]
