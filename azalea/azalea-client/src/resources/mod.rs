@@ -111,6 +111,17 @@ const PACK_MCMETA_RESOURCE: &str = "pack.mcmeta";
 const CLIENT_RESOURCE_PACK_FORMAT: u32 = 84;
 const SOUND_FILE_RESOURCE_GLOB: &str = "assets/*/sounds/**/*.ogg";
 const PARTICLE_SPRITE_SET_BOUNDARY: &str = "sprite_decode_complete_particle_engine_pending";
+const PARTICLE_ENGINE_RUNTIME_BOUNDARY: &str = "particle_sprites_loaded_runtime_engine_pending";
+const PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES: &[&str] = &[
+    "provider_registry",
+    "sprite_set_rebind",
+    "particle_provider_lookup",
+    "particle_creation_queue",
+    "tracking_emitters",
+    "particle_tick_groups",
+    "particle_limit_counts",
+    "render_state_extraction",
+];
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
 const ITEM_MODEL_RESOLVER_PROPERTIES_BOUNDARY: &str =
@@ -2203,6 +2214,7 @@ impl ResourceReloadManager {
             .with_listener(ParticleManifestReloadListener::default())
             .with_listener(ParticleSpriteResourceReloadListener::default())
             .with_listener(ParticleSpriteSetCandidateReloadListener::default())
+            .with_listener(ParticleEngineRuntimeCandidateReloadListener::default())
             .with_listener(WaypointStyleManifestReloadListener::default())
             .with_listener(WaypointStyleAssetReloadListener::default())
             .with_listener(WaypointStyleManagerCandidateReloadListener::default())
@@ -5796,6 +5808,200 @@ impl ClientParticleSpriteSetCandidate {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleEngineRuntimeCandidateSet {
+    particles: Vec<ClientParticleEngineRuntimeCandidate>,
+}
+
+impl ClientParticleEngineRuntimeCandidateSet {
+    pub fn particles(&self) -> &[ClientParticleEngineRuntimeCandidate] {
+        &self.particles
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientParticleEngineRuntimeCandidateReport> + '_ {
+        self.particles
+            .iter()
+            .map(ClientParticleEngineRuntimeCandidate::report)
+    }
+
+    pub fn particle_count(&self) -> usize {
+        self.particles.len()
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.particles
+            .iter()
+            .map(ClientParticleEngineRuntimeCandidate::sprite_count)
+            .sum()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.particles
+            .iter()
+            .map(ClientParticleEngineRuntimeCandidate::decoded_resource_count)
+            .sum()
+    }
+
+    pub fn ready_sprite_set_count(&self) -> usize {
+        self.particles
+            .iter()
+            .filter(|particle| particle.is_sprite_set_ready())
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.particles
+            .iter()
+            .map(ClientParticleEngineRuntimeCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn pending_surface_count(&self) -> usize {
+        PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES.len()
+    }
+
+    pub fn pending_surfaces(&self) -> &'static [&'static str] {
+        PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "particle_engine_runtime_candidates:particles:{} sprites:{} decoded:{} ready_sprite_sets:{} blocked:{} pending_surfaces:{} surfaces:{} boundary:{}",
+            self.particle_count(),
+            self.sprite_count(),
+            self.decoded_resource_count(),
+            self.ready_sprite_set_count(),
+            self.blocker_count(),
+            self.pending_surface_count(),
+            PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES.join(","),
+            PARTICLE_ENGINE_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| particle_engine_runtime_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleEngineRuntimeCandidate {
+    particle_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    decoded_resource_count: usize,
+    blocker_count: usize,
+    pending_surfaces: Vec<String>,
+}
+
+impl ClientParticleEngineRuntimeCandidate {
+    pub fn particle_id(&self) -> &str {
+        &self.particle_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    pub fn is_sprite_set_ready(&self) -> bool {
+        self.blocker_count == 0 && self.sprite_count == self.decoded_resource_count
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        PARTICLE_ENGINE_RUNTIME_BOUNDARY
+    }
+
+    pub fn report(&self) -> ClientParticleEngineRuntimeCandidateReport {
+        ClientParticleEngineRuntimeCandidateReport {
+            particle_id: self.particle_id.clone(),
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            sprite_count: self.sprite_count,
+            decoded_resource_count: self.decoded_resource_count,
+            blocker_count: self.blocker_count,
+            sprite_set_ready: self.is_sprite_set_ready(),
+            pending_surfaces: self.pending_surfaces.clone(),
+            runtime_boundary: self.runtime_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientParticleEngineRuntimeCandidateReport {
+    particle_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    decoded_resource_count: usize,
+    blocker_count: usize,
+    sprite_set_ready: bool,
+    pending_surfaces: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientParticleEngineRuntimeCandidateReport {
+    pub fn particle_id(&self) -> &str {
+        &self.particle_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn sprite_set_ready(&self) -> bool {
+        self.sprite_set_ready
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientParticleSpriteSetDecodedResource {
     sprite: String,
     resource: String,
@@ -8150,6 +8356,58 @@ impl Default for ParticleSpriteSetCandidateReloadListener {
 impl ResourceReloadListener for ParticleSpriteSetCandidateReloadListener {
     fn name(&self) -> &str {
         "particle_sprite_set_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(particle_manifest_resources(
+            stack, &self.ids,
+        )?))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParticleEngineRuntimeCandidateReloadListener {
+    ids: Vec<String>,
+}
+
+impl ParticleEngineRuntimeCandidateReloadListener {
+    pub fn new(ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn ids(&self) -> &[String] {
+        &self.ids
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientParticleEngineRuntimeCandidateSet> {
+        load_client_particle_engine_runtime_candidates(stack, &self.ids)
+    }
+}
+
+impl Default for ParticleEngineRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self { ids: Vec::new() }
+    }
+}
+
+impl ResourceReloadListener for ParticleEngineRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "particle_engine_runtime_candidates"
     }
 
     fn prepare(
@@ -12945,6 +13203,16 @@ pub fn load_client_particle_sprite_set_candidates(
     ))
 }
 
+pub fn load_client_particle_engine_runtime_candidates(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<ClientParticleEngineRuntimeCandidateSet> {
+    let candidates = load_client_particle_sprite_set_candidates(stack, ids)?;
+    Ok(build_client_particle_engine_runtime_candidate_set(
+        &candidates,
+    ))
+}
+
 pub fn load_client_waypoint_styles(
     stack: &ClientResourceStack,
     ids: &[String],
@@ -15203,6 +15471,35 @@ fn build_client_particle_sprite_set_candidate(
     }
 }
 
+fn build_client_particle_engine_runtime_candidate_set(
+    candidates: &ClientParticleSpriteSetCandidateSet,
+) -> ClientParticleEngineRuntimeCandidateSet {
+    ClientParticleEngineRuntimeCandidateSet {
+        particles: candidates
+            .particles()
+            .iter()
+            .map(build_client_particle_engine_runtime_candidate)
+            .collect(),
+    }
+}
+
+fn build_client_particle_engine_runtime_candidate(
+    candidate: &ClientParticleSpriteSetCandidate,
+) -> ClientParticleEngineRuntimeCandidate {
+    ClientParticleEngineRuntimeCandidate {
+        particle_id: candidate.particle_id().to_owned(),
+        resource: candidate.resource().to_owned(),
+        pack_id: candidate.pack_id().to_owned(),
+        sprite_count: candidate.sprite_count(),
+        decoded_resource_count: candidate.decoded_resource_count(),
+        blocker_count: candidate.blocker_count(),
+        pending_surfaces: PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES
+            .iter()
+            .map(|surface| (*surface).to_owned())
+            .collect(),
+    }
+}
+
 fn load_particle_sprite_set_decoded_resource(
     sprite: &str,
     resource: &str,
@@ -15707,6 +16004,23 @@ fn particle_sprite_set_candidate_report_item(
         particle_sprite_set_resources_fragment(report.decoded_sprite_resources()),
         particle_sprite_set_blockers_fragment(report.blockers()),
         report.sprite_set_boundary()
+    )
+}
+
+fn particle_engine_runtime_candidate_report_item(
+    report: &ClientParticleEngineRuntimeCandidateReport,
+) -> String {
+    format!(
+        "{}@{} id:{} sprites:{} decoded:{} ready_sprite_set:{} blockers:{} pending_surfaces:{} boundary:{}",
+        report.resource(),
+        report.pack_id(),
+        report.particle_id(),
+        report.sprite_count(),
+        report.decoded_resource_count(),
+        report.sprite_set_ready(),
+        report.blocker_count(),
+        report.pending_surfaces().join(","),
+        report.runtime_boundary()
     )
 }
 
@@ -26001,6 +26315,7 @@ mod tests {
                 "particle_manifests",
                 "particle_sprite_resources",
                 "particle_sprite_set_candidates",
+                "particle_engine_runtime_candidates",
                 "waypoint_style_manifests",
                 "waypoint_style_sprite_assets",
                 "waypoint_style_manager_candidates",
@@ -30434,6 +30749,62 @@ mod tests {
     }
 
     #[test]
+    fn particle_engine_runtime_candidates_report_pending_surfaces_after_sprite_sets() {
+        let temp = TempPack::new();
+        let spark_png = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/particles/sparkle.json",
+            r#"{"textures":["minecraft:spark_0"]}"#,
+        );
+        temp.write_bytes("assets/minecraft/textures/particle/spark_0.png", &spark_png);
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ParticleEngineRuntimeCandidateReloadListener::new([
+                "sparkle",
+            ]))
+            .run()
+            .expect("particle engine runtime candidates should report without creating an engine");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "particle_engine_runtime_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            "particle_engine_runtime_candidates:particles:1 sprites:1 decoded:1 ready_sprite_sets:1 blocked:0 pending_surfaces:8 surfaces:provider_registry,sprite_set_rebind,particle_provider_lookup,particle_creation_queue,tracking_emitters,particle_tick_groups,particle_limit_counts,render_state_extraction boundary:particle_sprites_loaded_runtime_engine_pending"
+        );
+        assert_eq!(
+            listener.reload.items()[1],
+            "assets/minecraft/particles/sparkle.json@test id:sparkle sprites:1 decoded:1 ready_sprite_set:true blockers:0 pending_surfaces:provider_registry,sprite_set_rebind,particle_provider_lookup,particle_creation_queue,tracking_emitters,particle_tick_groups,particle_limit_counts,render_state_extraction boundary:particle_sprites_loaded_runtime_engine_pending"
+        );
+    }
+
+    #[test]
+    fn particle_engine_runtime_candidates_preserve_sprite_set_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/particles/sparkle.json",
+            r#"{"textures":["minecraft:missing"]}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let candidates = ParticleEngineRuntimeCandidateReloadListener::new(["sparkle"])
+            .load(&stack)
+            .expect(
+                "particle engine runtime candidates should keep sprite blockers as report data",
+            );
+        let particle = &candidates.particles()[0];
+
+        assert_eq!(candidates.ready_sprite_set_count(), 0);
+        assert_eq!(candidates.blocker_count(), 1);
+        assert!(!particle.is_sprite_set_ready());
+        assert_eq!(particle.pending_surfaces().len(), 8);
+        assert_eq!(
+            particle.runtime_boundary(),
+            PARTICLE_ENGINE_RUNTIME_BOUNDARY
+        );
+    }
+
+    #[test]
     fn particle_manifest_reload_rejects_invalid_texture_shape() {
         let temp = TempPack::new();
         temp.write(
@@ -30557,6 +30928,31 @@ mod tests {
                         && resource.width() > 0
                         && resource.height() > 0
                 })
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_particle_engine_runtime_candidates_report_nonzero_surface() {
+        let candidates = ParticleEngineRuntimeCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla particle engine runtime candidates should load");
+
+        assert_eq!(candidates.particles().len(), 106);
+        assert_eq!(candidates.ready_sprite_set_count(), 106);
+        assert_eq!(candidates.blocker_count(), 0);
+        assert_eq!(candidates.pending_surface_count(), 8);
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:particle_sprites_loaded_runtime_engine_pending")
+        );
+        assert!(candidates.particles().iter().any(|particle| {
+            particle.particle_id() == "firework"
+                && particle.is_sprite_set_ready()
+                && particle
+                    .pending_surfaces()
+                    .iter()
+                    .any(|surface| surface == "particle_provider_lookup")
         }));
     }
 
