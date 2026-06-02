@@ -5605,6 +5605,313 @@ impl EntityRendererDispatcherCandidateReport {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientEntityRendererDispatcherState {
+    status: ClientEntityRendererDispatcherLoadStatus,
+    candidate_set: EntityRendererDispatcherCandidateSet,
+    candidates: Vec<ClientEntityRendererDispatcherCandidateState>,
+    candidates_by_id: BTreeMap<String, usize>,
+    candidates_by_category: BTreeMap<String, Vec<usize>>,
+    candidates_by_category_id: BTreeMap<(String, String), usize>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientEntityRendererDispatcherState {
+    pub fn from_candidates(candidate_set: EntityRendererDispatcherCandidateSet) -> Self {
+        let runtime_boundary = ENTITY_RENDERER_DISPATCHER_BOUNDARY;
+        let candidates = candidate_set
+            .candidates()
+            .iter()
+            .map(|candidate| {
+                ClientEntityRendererDispatcherCandidateState::from_candidate(
+                    candidate,
+                    runtime_boundary,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut candidates_by_id = BTreeMap::new();
+        let mut candidates_by_category: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut candidates_by_category_id = BTreeMap::new();
+
+        for (index, candidate) in candidates.iter().enumerate() {
+            candidates_by_id.insert(candidate.id().to_owned(), index);
+            candidates_by_category
+                .entry(candidate.category().to_owned())
+                .or_default()
+                .push(index);
+            candidates_by_category_id.insert(
+                (candidate.category().to_owned(), candidate.id().to_owned()),
+                index,
+            );
+        }
+
+        let status = if candidates.is_empty() {
+            ClientEntityRendererDispatcherLoadStatus::Missing
+        } else if candidates.iter().any(|candidate| {
+            candidate.status() == ClientEntityRendererDispatcherLoadStatus::Missing
+        }) {
+            ClientEntityRendererDispatcherLoadStatus::Missing
+        } else if candidates.iter().any(|candidate| {
+            candidate.status() == ClientEntityRendererDispatcherLoadStatus::Blocked
+        }) {
+            ClientEntityRendererDispatcherLoadStatus::Blocked
+        } else {
+            ClientEntityRendererDispatcherLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            candidate_set,
+            candidates,
+            candidates_by_id,
+            candidates_by_category,
+            candidates_by_category_id,
+            runtime_boundary,
+        }
+    }
+
+    pub fn status(&self) -> ClientEntityRendererDispatcherLoadStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_set.candidate_count()
+    }
+
+    pub fn family_count(&self) -> usize {
+        self.candidate_count()
+    }
+
+    pub fn representative_entity_count(&self) -> usize {
+        self.candidate_set.representative_entity_count()
+    }
+
+    pub fn model_manager_dependency_count(&self) -> usize {
+        self.candidate_set.model_manager_dependency_count()
+    }
+
+    pub fn item_model_resolver_dependency_count(&self) -> usize {
+        self.candidate_set.item_model_resolver_dependency_count()
+    }
+
+    pub fn equipment_asset_manager_dependency_count(&self) -> usize {
+        self.candidate_set
+            .equipment_asset_manager_dependency_count()
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.candidate_set.font_dependency_count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidate_set.texture_manager_dependency_count()
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.candidate_set.model_layer_count()
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_set.blocker_count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.status() == ClientEntityRendererDispatcherLoadStatus::Blocked
+                    && candidate.runtime_boundary() == self.runtime_boundary
+            })
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn candidate_set(&self) -> &EntityRendererDispatcherCandidateSet {
+        &self.candidate_set
+    }
+
+    pub fn candidates(&self) -> &[ClientEntityRendererDispatcherCandidateState] {
+        &self.candidates
+    }
+
+    pub fn candidate(&self, id: &str) -> Option<&ClientEntityRendererDispatcherCandidateState> {
+        self.candidates_by_id
+            .get(id)
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn candidates_by_category(
+        &self,
+        category: &str,
+    ) -> Vec<&ClientEntityRendererDispatcherCandidateState> {
+        self.candidates_by_category
+            .get(category)
+            .into_iter()
+            .flat_map(|indexes| indexes.iter())
+            .filter_map(|index| self.candidates.get(*index))
+            .collect()
+    }
+
+    pub fn candidate_by_category_id(
+        &self,
+        category: &str,
+        id: &str,
+    ) -> Option<&ClientEntityRendererDispatcherCandidateState> {
+        self.candidates_by_category_id
+            .get(&(category.to_owned(), id.to_owned()))
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "entity_renderer_dispatcher_state:status:{:?} families:{} representative_entities:{} deps:model_manager:{} item_model_resolver:{} equipment_asset_manager:{} font:{} texture_manager:{} model_layers:{} candidate_blockers:{} runtime_blockers:{} blockers:{} boundary:{}",
+            self.status(),
+            self.family_count(),
+            self.representative_entity_count(),
+            self.model_manager_dependency_count(),
+            self.item_model_resolver_dependency_count(),
+            self.equipment_asset_manager_dependency_count(),
+            self.font_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.model_layer_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.blocker_count(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(ClientEntityRendererDispatcherCandidateState::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientEntityRendererDispatcherLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientEntityRendererDispatcherCandidateState {
+    id: String,
+    category: String,
+    representative_entities: Vec<String>,
+    dependencies: EntityRendererDispatcherDependencyFlags,
+    model_layer_count: usize,
+    candidate_blockers: Vec<String>,
+    runtime_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    status: ClientEntityRendererDispatcherLoadStatus,
+}
+
+impl ClientEntityRendererDispatcherCandidateState {
+    fn from_candidate(
+        candidate: &EntityRendererDispatcherCandidate,
+        runtime_boundary: &'static str,
+    ) -> Self {
+        Self {
+            id: candidate.id().to_owned(),
+            category: candidate.category().to_owned(),
+            representative_entities: candidate.representative_entities().to_vec(),
+            dependencies: candidate.dependencies(),
+            model_layer_count: candidate.model_layer_count(),
+            candidate_blockers: candidate.blockers().to_vec(),
+            runtime_blockers: vec![runtime_boundary.to_owned()],
+            runtime_boundary,
+            status: ClientEntityRendererDispatcherLoadStatus::Blocked,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_entities(&self) -> &[String] {
+        &self.representative_entities
+    }
+
+    pub fn representative_entity_count(&self) -> usize {
+        self.representative_entities.len()
+    }
+
+    pub fn dependencies(&self) -> EntityRendererDispatcherDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.model_layer_count
+    }
+
+    pub fn candidate_blockers(&self) -> &[String] {
+        &self.candidate_blockers
+    }
+
+    pub fn runtime_blockers(&self) -> &[String] {
+        &self.runtime_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blockers.len() + self.runtime_blockers.len()
+    }
+
+    pub fn status(&self) -> ClientEntityRendererDispatcherLoadStatus {
+        self.status
+    }
+
+    fn item_string(&self) -> String {
+        let representatives = if self.representative_entities.is_empty() {
+            "none".to_owned()
+        } else {
+            self.representative_entities.join(",")
+        };
+        let candidate_blockers = if self.candidate_blockers.is_empty() {
+            "none".to_owned()
+        } else {
+            self.candidate_blockers.join(",")
+        };
+        format!(
+            "entity_renderer_dispatcher_state_candidate:{} status:{:?} category:{} representative_entities:{} deps:model_manager:{} item_model_resolver:{} equipment_asset_manager:{} font:{} texture_manager:{} model_layers:{} candidate_blockers:{} runtime_blockers:{} blocker_details:{} boundary:{}",
+            self.id,
+            self.status,
+            self.category,
+            representatives,
+            self.dependencies.model_manager,
+            self.dependencies.item_model_resolver,
+            self.dependencies.equipment_asset_manager,
+            self.dependencies.font,
+            self.dependencies.texture_manager,
+            self.model_layer_count,
+            self.candidate_blockers.len(),
+            self.runtime_blockers.len(),
+            candidate_blockers,
+            self.runtime_boundary
+        )
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BlockEntityRendererDispatcherCandidateSet {
     candidates: Vec<BlockEntityRendererDispatcherCandidate>,
@@ -10417,6 +10724,15 @@ impl EntityRendererDispatcherCandidateReloadListener {
         _stack: &ClientResourceStack,
     ) -> ResourceReloadResult<EntityRendererDispatcherCandidateSet> {
         Ok(build_entity_renderer_dispatcher_candidate_set())
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientEntityRendererDispatcherState> {
+        Ok(ClientEntityRendererDispatcherState::from_candidates(
+            self.load(stack)?,
+        ))
     }
 }
 
@@ -37517,6 +37833,95 @@ mod tests {
                 .blockers()
                 .contains(&"equipment_renderer_layer_binding_unavailable".to_owned())
         );
+    }
+
+    #[test]
+    fn entity_renderer_dispatcher_state_tracks_counts_and_lookup() {
+        let state = EntityRendererDispatcherCandidateReloadListener
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("entity renderer dispatcher state should load");
+
+        assert_eq!(
+            state.status(),
+            ClientEntityRendererDispatcherLoadStatus::Blocked
+        );
+        assert_eq!(state.family_count(), state.candidate_count());
+        assert!(state.candidate_count() >= 10);
+        assert!(state.representative_entity_count() >= 40);
+        assert!(state.model_manager_dependency_count() > 0);
+        assert!(state.item_model_resolver_dependency_count() > 0);
+        assert!(state.equipment_asset_manager_dependency_count() > 0);
+        assert!(state.font_dependency_count() > 0);
+        assert!(state.texture_manager_dependency_count() > 0);
+        assert!(state.model_layer_count() > 0);
+        assert_eq!(state.runtime_blocker_count(), state.candidate_count());
+        assert_eq!(
+            state.blocker_count(),
+            state.candidate_blocker_count() + state.runtime_blocker_count()
+        );
+        assert_eq!(
+            state.runtime_boundary(),
+            "entity_renderer_registry_loaded_dispatcher_pending"
+        );
+
+        let thrown_item = state
+            .candidate("thrown_item")
+            .expect("thrown item state should be keyed by id");
+        assert_eq!(thrown_item.category(), "item_model_renderer");
+        assert_eq!(
+            thrown_item.status(),
+            ClientEntityRendererDispatcherLoadStatus::Blocked
+        );
+        assert!(thrown_item.dependencies().item_model_resolver);
+        assert_eq!(
+            thrown_item.runtime_blockers(),
+            &["entity_renderer_registry_loaded_dispatcher_pending".to_owned()]
+        );
+        assert_eq!(
+            state
+                .candidate_by_category_id("item_model_renderer", "thrown_item")
+                .map(ClientEntityRendererDispatcherCandidateState::id),
+            Some("thrown_item")
+        );
+        assert!(
+            state
+                .candidates_by_category("item_model_renderer")
+                .iter()
+                .any(|candidate| candidate.id() == "thrown_item")
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_entity_renderer_dispatcher_state_is_dispatcher_pending() {
+        let state = EntityRendererDispatcherCandidateReloadListener
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla entity renderer dispatcher state should load");
+
+        assert_eq!(
+            state.status(),
+            ClientEntityRendererDispatcherLoadStatus::Blocked
+        );
+        assert!(
+            state
+                .summary_fragment()
+                .contains("entity_renderer_dispatcher_state:status:Blocked")
+        );
+        assert!(
+            state
+                .summary_fragment()
+                .contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("entity_renderer_dispatcher_state_candidate:avatar")
+                && item.contains("status:Blocked")
+                && item.contains("representative_entities:player,mannequin")
+                && item.contains("runtime_blockers:1")
+                && item.contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+        assert!(state.candidates().iter().all(|candidate| candidate.status()
+            == ClientEntityRendererDispatcherLoadStatus::Blocked
+            && candidate.runtime_boundary()
+                == "entity_renderer_registry_loaded_dispatcher_pending"));
     }
 
     #[test]
