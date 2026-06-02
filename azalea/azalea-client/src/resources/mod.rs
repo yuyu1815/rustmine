@@ -115,6 +115,7 @@ const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_m
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
 const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
     "cloud_texture_decode_complete_renderer_rebuild_pending";
+const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warning_decision_pending";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -1984,6 +1985,7 @@ impl ResourceReloadManager {
             .with_listener(CloudTextureReloadListener::default())
             .with_listener(CloudRendererRebuildCandidateReloadListener::default())
             .with_listener(GpuWarnlistReloadListener::default())
+            .with_listener(GpuWarnlistWarningDecisionCandidateReloadListener::default())
             .with_listener(RegionalComplianciesReloadListener::default())
     }
 
@@ -2224,6 +2226,12 @@ impl GpuWarnlistDeviceInfo {
     }
 }
 
+impl Default for GpuWarnlistDeviceInfo {
+    fn default() -> Self {
+        Self::new("unavailable", "", "", "")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GpuWarnlist {
     renderer: Vec<Regex>,
@@ -2332,6 +2340,216 @@ impl GpuWarnlistWarnings {
             categories.push(("vendor", self.vendor.join(", ")));
         }
         categories
+    }
+
+    fn matched_warning_count(&self) -> usize {
+        self.renderer.len() + self.version.len() + self.vendor.len()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GpuWarnlistWarningDecisionCandidateReloadListener {
+    resource: String,
+    device_info: GpuWarnlistDeviceInfo,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GpuWarnlistWarningDecisionCandidateReport {
+    resource: String,
+    loaded_warnlist: Option<GpuWarnlistReloadReport>,
+    device_info: GpuWarnlistDeviceInfo,
+    warnings: GpuWarnlistWarnings,
+    blockers: Vec<String>,
+}
+
+impl GpuWarnlistWarningDecisionCandidateReport {
+    fn loaded(
+        resource: impl Into<String>,
+        device_info: GpuWarnlistDeviceInfo,
+        warnlist: &GpuWarnlist,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            loaded_warnlist: Some(warnlist.report().clone()),
+            warnings: warnlist.evaluate(&device_info),
+            device_info,
+            blockers: Vec::new(),
+        }
+    }
+
+    fn blocked(
+        resource: impl Into<String>,
+        device_info: GpuWarnlistDeviceInfo,
+        blocker: impl Into<String>,
+    ) -> Self {
+        Self {
+            resource: resource.into(),
+            loaded_warnlist: None,
+            device_info,
+            warnings: GpuWarnlistWarnings::default(),
+            blockers: vec![blocker.into()],
+        }
+    }
+
+    pub fn loaded_warnlist_report(&self) -> Option<&GpuWarnlistReloadReport> {
+        self.loaded_warnlist.as_ref()
+    }
+
+    pub fn device_info(&self) -> &GpuWarnlistDeviceInfo {
+        &self.device_info
+    }
+
+    pub fn warnings(&self) -> &GpuWarnlistWarnings {
+        &self.warnings
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary_marker(&self) -> &'static str {
+        GPU_WARNLIST_WARNING_DECISION_BOUNDARY
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        let warnlist = self
+            .loaded_warnlist
+            .as_ref()
+            .map(|report| {
+                format!(
+                    "{}:{}",
+                    report.loaded_resource_pack(),
+                    report.pattern_counts_fragment()
+                )
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "{}@<blocked>:renderer:0 version:0 vendor:0 patterns",
+                    self.resource
+                )
+            });
+
+        format!(
+            "gpu_warnlist_decision_candidates:{warnlist} matches:{} blockers:{} {}",
+            self.warnings.matched_warning_count(),
+            self.blockers.len(),
+            self.boundary_marker()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = Vec::new();
+        items.push(self.summary_fragment());
+        items.push(self.gpu_facts_fragment());
+
+        let categories = self.warnings.categories();
+        if categories.is_empty() {
+            items.push("gpu_warnlist_warnings:none".to_owned());
+        } else {
+            items.extend(
+                categories.into_iter().map(|(category, matches)| {
+                    format!("gpu_warnlist_warning:{category}:{matches}")
+                }),
+            );
+        }
+
+        if self.blockers.is_empty() {
+            items.push("gpu_warnlist_blockers:0".to_owned());
+        } else {
+            items.extend(
+                self.blockers
+                    .iter()
+                    .map(|blocker| format!("gpu_warnlist_blocker:{blocker}")),
+            );
+        }
+
+        items.push(self.boundary_marker().to_owned());
+        items
+    }
+
+    fn gpu_facts_fragment(&self) -> String {
+        let mut facts = vec![format!(
+            "gpu_backend:{}",
+            unavailable_if_empty(&self.device_info.backend)
+        )];
+
+        if !self.device_info.renderer.is_empty() {
+            facts.push(format!("gpu_renderer:{}", self.device_info.renderer));
+        }
+        if !self.device_info.version.is_empty() {
+            facts.push(format!("gpu_version:{}", self.device_info.version));
+        }
+        if !self.device_info.vendor.is_empty() {
+            facts.push(format!("gpu_vendor:{}", self.device_info.vendor));
+        }
+
+        format!("gpu_warnlist_device:{}", facts.join(" "))
+    }
+}
+
+impl GpuWarnlistWarningDecisionCandidateReloadListener {
+    pub fn new(resource: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+            device_info: GpuWarnlistDeviceInfo::default(),
+        }
+    }
+
+    pub fn with_device_info(mut self, device_info: GpuWarnlistDeviceInfo) -> Self {
+        self.device_info = device_info;
+        self
+    }
+
+    pub fn report(&self, stack: &ClientResourceStack) -> GpuWarnlistWarningDecisionCandidateReport {
+        match GpuWarnlistReloadListener::new(&self.resource).load(stack) {
+            Ok(warnlist) => GpuWarnlistWarningDecisionCandidateReport::loaded(
+                self.resource.clone(),
+                self.device_info.clone(),
+                &warnlist,
+            ),
+            Err(error) => GpuWarnlistWarningDecisionCandidateReport::blocked(
+                self.resource.clone(),
+                self.device_info.clone(),
+                error.to_string(),
+            ),
+        }
+    }
+}
+
+impl Default for GpuWarnlistWarningDecisionCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(GPU_WARNLIST_RESOURCE)
+    }
+}
+
+impl ResourceReloadListener for GpuWarnlistWarningDecisionCandidateReloadListener {
+    fn name(&self) -> &str {
+        "gpu_warnlist_decision_candidates"
+    }
+
+    fn prepare(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new([format!(
+            "{}:{}",
+            self.resource, GPU_WARNLIST_WARNING_DECISION_BOUNDARY
+        )]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.report(stack).items()))
+    }
+}
+
+fn unavailable_if_empty(value: &str) -> &str {
+    if value.is_empty() {
+        "unavailable"
+    } else {
+        value
     }
 }
 
@@ -19886,6 +20104,7 @@ mod tests {
                 "cloud_texture",
                 "cloud_renderer_rebuild_candidates",
                 "gpu_warnlist",
+                "gpu_warnlist_decision_candidates",
                 "regional_compliancies",
             ]
         );
@@ -21790,6 +22009,130 @@ mod tests {
             [format!(
                 "{GPU_WARNLIST_RESOURCE}@test:renderer:2 version:1 vendor:0 patterns"
             )]
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_decision_candidate_listener_reports_injected_matches() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel","iris"],"version":["mesa"],"vendor":["corp"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener =
+            GpuWarnlistWarningDecisionCandidateReloadListener::default().with_device_info(
+                GpuWarnlistDeviceInfo::new("OpenGL", "Intel Iris", "Mesa 24.1", "GPU Corp"),
+            );
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(listener)
+            .run()
+            .expect("gpu warnlist decision candidate listener should run");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "gpu_warnlist_decision_candidates");
+        assert_eq!(
+            listener.preparation.items(),
+            [format!(
+                "{GPU_WARNLIST_RESOURCE}:{GPU_WARNLIST_WARNING_DECISION_BOUNDARY}"
+            )]
+        );
+        assert_eq!(
+            listener.reload.items()[0],
+            format!(
+                "gpu_warnlist_decision_candidates:{GPU_WARNLIST_RESOURCE}@test:renderer:2 version:1 vendor:1 patterns matches:4 blockers:0 {GPU_WARNLIST_WARNING_DECISION_BOUNDARY}"
+            )
+        );
+        assert_eq!(
+            listener.reload.items()[1],
+            "gpu_warnlist_device:gpu_backend:OpenGL gpu_renderer:Intel Iris gpu_version:Mesa 24.1 gpu_vendor:GPU Corp"
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .contains(&"gpu_warnlist_warning:renderer:Intel, Iris".to_owned())
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .contains(&"gpu_warnlist_warning:version:Mesa".to_owned())
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .contains(&"gpu_warnlist_warning:vendor:Corp".to_owned())
+        );
+        assert!(
+            listener
+                .reload
+                .items()
+                .contains(&GPU_WARNLIST_WARNING_DECISION_BOUNDARY.to_owned())
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_decision_candidate_default_device_is_stable_unknown() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel"],"version":["mesa"],"vendor":["corp"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = GpuWarnlistWarningDecisionCandidateReloadListener::default().report(&stack);
+
+        assert_eq!(report.device_info(), &GpuWarnlistDeviceInfo::default());
+        assert!(report.warnings().is_empty());
+        assert!(report.blockers().is_empty());
+        assert_eq!(
+            report.items()[1],
+            "gpu_warnlist_device:gpu_backend:unavailable"
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_decision_candidate_reports_missing_warnlist_blocker() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report = GpuWarnlistWarningDecisionCandidateReloadListener::default().report(&stack);
+
+        assert!(report.loaded_warnlist_report().is_none());
+        assert_eq!(report.blockers().len(), 1);
+        assert!(report.blockers()[0].contains("missing client resource"));
+        assert!(
+            report
+                .summary_fragment()
+                .contains("gpu_warnlist_decision_candidates:")
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains(GPU_WARNLIST_WARNING_DECISION_BOUNDARY)
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_decision_candidate_reports_invalid_warnlist_blocker() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":"intel","version":[],"vendor":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = GpuWarnlistWarningDecisionCandidateReloadListener::default().report(&stack);
+
+        assert!(report.loaded_warnlist_report().is_none());
+        assert_eq!(report.blockers().len(), 1);
+        assert!(report.blockers()[0].contains("invalid gpu warnlist"));
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("gpu_warnlist_blocker:invalid gpu warnlist"))
         );
     }
 
