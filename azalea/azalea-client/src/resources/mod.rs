@@ -20069,6 +20069,69 @@ impl ClientSplashes {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSplashState {
+    splashes: ClientSplashes,
+    non_empty_line_indices: Vec<usize>,
+}
+
+impl ClientSplashState {
+    pub fn new(splashes: ClientSplashes) -> Self {
+        let non_empty_line_indices = splashes
+            .lines()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, line)| (!line.is_empty()).then_some(index))
+            .collect();
+
+        Self {
+            splashes,
+            non_empty_line_indices,
+        }
+    }
+
+    pub fn splashes(&self) -> &ClientSplashes {
+        &self.splashes
+    }
+
+    pub fn lines(&self) -> &[String] {
+        self.splashes.lines()
+    }
+
+    pub fn count(&self) -> usize {
+        self.splashes.count()
+    }
+
+    pub fn non_empty_count(&self) -> usize {
+        self.non_empty_line_indices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.non_empty_line_indices.is_empty()
+    }
+
+    pub fn report(&self) -> &ClientSplashesReloadReport {
+        self.splashes.report()
+    }
+
+    pub fn line(&self, index: usize) -> Option<&str> {
+        self.splashes.lines().get(index).map(String::as_str)
+    }
+
+    pub fn select_by_index(&self, index: usize) -> Option<&str> {
+        let selected_index = self
+            .non_empty_line_indices
+            .get(index.checked_rem(self.non_empty_line_indices.len())?)?;
+        self.line(*selected_index)
+    }
+}
+
+impl From<ClientSplashes> for ClientSplashState {
+    fn from(splashes: ClientSplashes) -> Self {
+        Self::new(splashes)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSplashesReloadReport {
     resource: String,
     pack_id: String,
@@ -20156,6 +20219,13 @@ impl SplashesReloadListener {
 
     pub fn load(&self, stack: &ClientResourceStack) -> ResourceReloadResult<ClientSplashes> {
         load_client_splashes_resource(stack, &self.resource)
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientSplashState> {
+        self.load(stack).map(ClientSplashState::from)
     }
 }
 
@@ -27261,6 +27331,50 @@ mod tests {
             format!("{SPLASHES_RESOURCE}@override")
         );
         assert_eq!(splashes.report().splash_count(), 4);
+    }
+
+    #[test]
+    fn splash_state_selects_non_empty_lines_by_wrapping_index() {
+        let pack = TempPack::new();
+        pack.write(SPLASHES_RESOURCE, "\n first \n\t\nsecond\nthird\n");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", pack.path())]);
+        let state = SplashesReloadListener::default()
+            .load_state(&stack)
+            .expect("splash state should load");
+
+        assert_eq!(state.lines(), ["", "first", "", "second", "third"]);
+        assert_eq!(state.count(), 5);
+        assert_eq!(state.non_empty_count(), 3);
+        assert!(!state.is_empty());
+        assert_eq!(state.line(0), Some(""));
+        assert_eq!(state.line(1), Some("first"));
+        assert_eq!(state.line(5), None);
+        assert_eq!(state.select_by_index(0), Some("first"));
+        assert_eq!(state.select_by_index(1), Some("second"));
+        assert_eq!(state.select_by_index(2), Some("third"));
+        assert_eq!(state.select_by_index(3), Some("first"));
+        assert_eq!(state.report().pack_id(), "test");
+        assert_eq!(state.splashes().report().resource(), SPLASHES_RESOURCE);
+    }
+
+    #[test]
+    fn splash_state_has_no_selection_when_loaded_lines_are_empty() {
+        let pack = TempPack::new();
+        pack.write(SPLASHES_RESOURCE, "\n \n\t\n");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("blank", pack.path())]);
+        let state = SplashesReloadListener::default()
+            .load_state(&stack)
+            .expect("blank splash state should load");
+
+        assert_eq!(state.lines(), ["", "", ""]);
+        assert_eq!(state.count(), 3);
+        assert_eq!(state.non_empty_count(), 0);
+        assert!(state.is_empty());
+        assert_eq!(state.line(0), Some(""));
+        assert_eq!(state.select_by_index(0), None);
+        assert_eq!(state.select_by_index(usize::MAX), None);
     }
 
     #[test]
