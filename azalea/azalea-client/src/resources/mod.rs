@@ -123,6 +123,8 @@ const LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY: &str =
     "level_renderer_reload_invalidation_loaded_rebuild_pending";
 const DYNAMIC_TEXTURE_MANAGER_BOUNDARY: &str =
     "dynamic_texture_manager_candidates_loaded_upload_pending";
+const PLAYER_SKIN_CACHE_BOUNDARY: &str =
+    "player_skin_cache_candidates_loaded_runtime_lookup_pending";
 const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
     "cloud_texture_decode_complete_renderer_rebuild_pending";
 const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warning_decision_pending";
@@ -1991,6 +1993,7 @@ impl ResourceReloadManager {
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
             .with_listener(DynamicTextureManagerCandidateReloadListener)
+            .with_listener(PlayerSkinCacheCandidateReloadListener)
             .with_listener(EntityRendererDispatcherCandidateReloadListener::default())
             .with_listener(BlockEntityRendererDispatcherCandidateReloadListener::default())
             .with_listener(LevelRendererInvalidationCandidateReloadListener)
@@ -4904,6 +4907,253 @@ impl DynamicTextureManagerCandidateReport {
     }
 
     pub fn dependencies(&self) -> DynamicTextureManagerDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        self.render_boundary
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PlayerSkinCacheCandidateSet {
+    candidates: Vec<PlayerSkinCacheCandidate>,
+}
+
+impl PlayerSkinCacheCandidateSet {
+    pub fn candidates(&self) -> &[PlayerSkinCacheCandidate] {
+        &self.candidates
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = PlayerSkinCacheCandidateReport> + '_ {
+        self.candidates()
+            .iter()
+            .map(PlayerSkinCacheCandidate::report)
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(PlayerSkinCacheCandidate::representative_texture_id_count)
+            .sum()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(PlayerSkinCacheCandidate::runtime_source_count)
+            .sum()
+    }
+
+    pub fn profile_lookup_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.profile_lookup)
+            .count()
+    }
+
+    pub fn profile_texture_unpack_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.profile_texture_unpack)
+            .count()
+    }
+
+    pub fn skin_download_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.skin_download)
+            .count()
+    }
+
+    pub fn local_skin_cache_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.local_skin_cache)
+            .count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.texture_manager)
+            .count()
+    }
+
+    pub fn render_cache_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.render_cache)
+            .count()
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.font)
+            .count()
+    }
+
+    pub fn model_renderer_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.model_renderer)
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(PlayerSkinCacheCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "player_skin_cache_candidates:candidates:{} representative_texture_ids:{} runtime_sources:{} deps:profile_lookup:{} profile_texture_unpack:{} skin_download:{} local_skin_cache:{} texture_manager:{} render_cache:{} font:{} model_renderer:{} blockers:{} boundary:{}",
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.runtime_source_count(),
+            self.profile_lookup_dependency_count(),
+            self.profile_texture_unpack_dependency_count(),
+            self.skin_download_dependency_count(),
+            self.local_skin_cache_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.render_cache_dependency_count(),
+            self.font_dependency_count(),
+            self.model_renderer_dependency_count(),
+            self.blocker_count(),
+            PLAYER_SKIN_CACHE_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| player_skin_cache_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlayerSkinCacheCandidate {
+    id: String,
+    category: String,
+    representative_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: PlayerSkinCacheDependencyFlags,
+    blockers: Vec<String>,
+}
+
+impl PlayerSkinCacheCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> PlayerSkinCacheDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_ids.len()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        PLAYER_SKIN_CACHE_BOUNDARY
+    }
+
+    pub fn report(&self) -> PlayerSkinCacheCandidateReport {
+        PlayerSkinCacheCandidateReport {
+            id: self.id.clone(),
+            category: self.category.clone(),
+            representative_texture_ids: self.representative_texture_ids.clone(),
+            runtime_sources: self.runtime_sources.clone(),
+            dependencies: self.dependencies,
+            blockers: self.blockers.clone(),
+            render_boundary: self.render_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PlayerSkinCacheDependencyFlags {
+    pub profile_lookup: bool,
+    pub profile_texture_unpack: bool,
+    pub skin_download: bool,
+    pub local_skin_cache: bool,
+    pub texture_manager: bool,
+    pub render_cache: bool,
+    pub font: bool,
+    pub model_renderer: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlayerSkinCacheCandidateReport {
+    id: String,
+    category: String,
+    representative_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: PlayerSkinCacheDependencyFlags,
+    blockers: Vec<String>,
+    render_boundary: &'static str,
+}
+
+impl PlayerSkinCacheCandidateReport {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> PlayerSkinCacheDependencyFlags {
         self.dependencies
     }
 
@@ -7857,6 +8107,40 @@ impl DynamicTextureManagerCandidateReloadListener {
 impl ResourceReloadListener for DynamicTextureManagerCandidateReloadListener {
     fn name(&self) -> &str {
         "dynamic_texture_manager_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new([self
+            .load(stack)?
+            .summary_fragment()]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PlayerSkinCacheCandidateReloadListener;
+
+impl PlayerSkinCacheCandidateReloadListener {
+    pub fn load(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<PlayerSkinCacheCandidateSet> {
+        Ok(build_player_skin_cache_candidate_set())
+    }
+}
+
+impl ResourceReloadListener for PlayerSkinCacheCandidateReloadListener {
+    fn name(&self) -> &str {
+        "player_skin_cache_candidates"
     }
 
     fn prepare(
@@ -12810,6 +13094,180 @@ fn build_dynamic_texture_manager_candidate(
     }
 }
 
+#[derive(Clone, Copy)]
+struct PlayerSkinCacheCandidateSpec {
+    id: &'static str,
+    category: &'static str,
+    representative_texture_ids: &'static [&'static str],
+    runtime_sources: &'static [&'static str],
+    dependencies: PlayerSkinCacheDependencyFlags,
+}
+
+const fn player_skin_cache_deps(
+    profile_lookup: bool,
+    profile_texture_unpack: bool,
+    skin_download: bool,
+    local_skin_cache: bool,
+    texture_manager: bool,
+    render_cache: bool,
+    font: bool,
+    model_renderer: bool,
+) -> PlayerSkinCacheDependencyFlags {
+    PlayerSkinCacheDependencyFlags {
+        profile_lookup,
+        profile_texture_unpack,
+        skin_download,
+        local_skin_cache,
+        texture_manager,
+        render_cache,
+        font,
+        model_renderer,
+    }
+}
+
+const PLAYER_SKIN_CACHE_CANDIDATE_SPECS: &[PlayerSkinCacheCandidateSpec] = &[
+    PlayerSkinCacheCandidateSpec {
+        id: "profile_texture_lookup_cache",
+        category: "skin_manager_profile_texture_lookup",
+        representative_texture_ids: &["runtime:DefaultPlayerSkin", "runtime:PlayerSkin"],
+        runtime_sources: &[
+            "SkinManager.createLookup(GameProfile,boolean)",
+            "SkinManager.get(GameProfile)",
+            "SkinManager.CacheKey(UUID,Property)",
+            "Services.sessionService().getPackedTextures(GameProfile)",
+            "Services.sessionService().unpackTextures(Property)",
+        ],
+        dependencies: player_skin_cache_deps(true, true, false, false, false, false, false, false),
+    },
+    PlayerSkinCacheCandidateSpec {
+        id: "skin_texture_download_register",
+        category: "skin_cape_elytra_texture_download_register",
+        representative_texture_ids: &[
+            "minecraft:skins/{hash}",
+            "minecraft:capes/{hash}",
+            "minecraft:elytra/{hash}",
+        ],
+        runtime_sources: &[
+            "SkinManager.registerTextures(UUID,MinecraftProfileTextures)",
+            "SkinManager.TextureCache.getOrLoad(MinecraftProfileTexture)",
+            "SkinManager.TextureCache.registerTexture(MinecraftProfileTexture)",
+            "SkinTextureDownloader.downloadAndRegisterSkin(Identifier,Path,String,boolean)",
+            "SkinTextureDownloader.registerTextureInManager(ClientAsset.Texture,NativeImage)",
+        ],
+        dependencies: player_skin_cache_deps(false, true, true, true, true, false, false, false),
+    },
+    PlayerSkinCacheCandidateSpec {
+        id: "player_skin_render_cache_lookup",
+        category: "resolvable_profile_render_info_cache",
+        representative_texture_ids: &[
+            "runtime:PlayerSkin.body.texturePath",
+            "runtime:PlayerSkinRenderCache.DEFAULT_PLAYER_SKIN_RENDER_TYPE",
+        ],
+        runtime_sources: &[
+            "PlayerSkinRenderCache.lookup(ResolvableProfile)",
+            "PlayerSkinRenderCache.createLookup(ResolvableProfile)",
+            "PlayerSkinRenderCache.getOrDefault(ResolvableProfile)",
+            "ResolvableProfile.resolveProfile(ProfileResolver)",
+            "PlayerSkinRenderCache.RenderInfo.renderType",
+            "PlayerSkinRenderCache.RenderInfo.textureView",
+            "PlayerSkinRenderCache.RenderInfo.glyphRenderTypes",
+        ],
+        dependencies: player_skin_cache_deps(true, false, false, false, true, true, false, true),
+    },
+    PlayerSkinCacheCandidateSpec {
+        id: "font_player_glyph_provider",
+        category: "font_player_head_glyph_provider",
+        representative_texture_ids: &["runtime:GlyphRenderTypes.forPlayerSkin"],
+        runtime_sources: &[
+            "FontManager.<init>(TextureManager,AtlasManager,PlayerSkinRenderCache)",
+            "PlayerGlyphProvider.<init>(PlayerSkinRenderCache)",
+            "PlayerGlyphProvider.getGlyph(ClientActivePlayers)",
+            "PlayerSkinRenderCache.RenderInfo.glyphRenderTypes",
+        ],
+        dependencies: player_skin_cache_deps(false, false, false, false, true, true, true, false),
+    },
+    PlayerSkinCacheCandidateSpec {
+        id: "skull_head_entity_model_dependencies",
+        category: "skull_head_entity_model_render_cache_consumers",
+        representative_texture_ids: &[
+            "runtime:SkullBlockRenderer.player_skin_render_type",
+            "minecraft:item/player_head",
+        ],
+        runtime_sources: &[
+            "Minecraft.<init>:new PlayerSkinRenderCache(TextureManager,SkinManager,ProfileResolver)",
+            "BlockEntityRendererProvider.Context.playerSkinRenderCache",
+            "EntityRendererProvider.Context.getPlayerSkinRenderCache",
+            "SkullBlockRenderer.<init>(BlockEntityRendererProvider.Context)",
+            "PlayerHeadSpecialRenderer.extractArgument(ItemStack)",
+            "CustomHeadLayer.<init>(EntityModelSet,PlayerSkinRenderCache)",
+            "ModelManager.<init>(BlockColors,AtlasManager,PlayerSkinRenderCache)",
+            "ModelBakery.<init>(...,PlayerSkinRenderCache)",
+        ],
+        dependencies: player_skin_cache_deps(false, false, false, false, true, true, false, true),
+    },
+];
+
+fn build_player_skin_cache_candidate_set() -> PlayerSkinCacheCandidateSet {
+    PlayerSkinCacheCandidateSet {
+        candidates: PLAYER_SKIN_CACHE_CANDIDATE_SPECS
+            .iter()
+            .map(build_player_skin_cache_candidate)
+            .collect(),
+    }
+}
+
+fn build_player_skin_cache_candidate(
+    spec: &PlayerSkinCacheCandidateSpec,
+) -> PlayerSkinCacheCandidate {
+    let dependencies = spec.dependencies;
+    let mut blockers = vec!["headless_player_skin_cache_unavailable".to_owned()];
+
+    if dependencies.profile_lookup {
+        blockers.push("profile_resolver_and_game_profile_lookup_unavailable".to_owned());
+    }
+    if dependencies.profile_texture_unpack {
+        blockers.push("session_service_texture_unpack_unavailable".to_owned());
+        blockers.push("profile_texture_signature_state_unavailable".to_owned());
+    }
+    if dependencies.skin_download {
+        blockers.push("skin_texture_http_download_unavailable".to_owned());
+        blockers.push("legacy_skin_processing_unavailable".to_owned());
+    }
+    if dependencies.local_skin_cache {
+        blockers.push("local_skin_disk_cache_unavailable".to_owned());
+    }
+    if dependencies.texture_manager {
+        blockers.push("texture_manager_runtime_registration_unavailable".to_owned());
+        blockers.push("skin_texture_gpu_upload_unavailable".to_owned());
+    }
+    if dependencies.render_cache {
+        blockers.push("player_skin_render_cache_runtime_lookup_unavailable".to_owned());
+    }
+    if dependencies.font {
+        blockers.push("font_player_glyph_provider_integration_unavailable".to_owned());
+    }
+    if dependencies.model_renderer {
+        blockers.push("skull_head_entity_model_render_integration_unavailable".to_owned());
+    }
+
+    PlayerSkinCacheCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category.to_owned(),
+        representative_texture_ids: spec
+            .representative_texture_ids
+            .iter()
+            .map(|texture_id| (*texture_id).to_owned())
+            .collect(),
+        runtime_sources: spec
+            .runtime_sources
+            .iter()
+            .map(|source| (*source).to_owned())
+            .collect(),
+        dependencies,
+        blockers,
+    }
+}
+
 fn parse_client_equipment_asset(
     manifest: &ClientJsonManifest,
 ) -> ResourceReloadResult<ClientEquipmentAsset> {
@@ -13864,6 +14322,28 @@ fn dynamic_texture_manager_candidate_report_item(
         dependencies.map_data_packets,
         dependencies.painting_renderer,
         dependencies.entity_renderer,
+        report.blocker_count(),
+        report.blockers().join(","),
+        report.render_boundary()
+    )
+}
+
+fn player_skin_cache_candidate_report_item(report: &PlayerSkinCacheCandidateReport) -> String {
+    let dependencies = report.dependencies();
+    format!(
+        "player_skin_cache_candidate:{} category:{} representative_texture_ids:{} runtime_sources:{} deps:profile_lookup:{} profile_texture_unpack:{} skin_download:{} local_skin_cache:{} texture_manager:{} render_cache:{} font:{} model_renderer:{} blockers:{} blocker_details:{} boundary:{}",
+        report.id(),
+        report.category(),
+        report.representative_texture_ids().join(","),
+        report.runtime_sources().join(","),
+        dependencies.profile_lookup,
+        dependencies.profile_texture_unpack,
+        dependencies.skin_download,
+        dependencies.local_skin_cache,
+        dependencies.texture_manager,
+        dependencies.render_cache,
+        dependencies.font,
+        dependencies.model_renderer,
         report.blocker_count(),
         report.blockers().join(","),
         report.render_boundary()
@@ -22702,6 +23182,7 @@ mod tests {
                 "equipment_assets",
                 "equipment_render_asset_candidates",
                 "dynamic_texture_manager_candidates",
+                "player_skin_cache_candidates",
                 "entity_renderer_dispatcher_candidates",
                 "block_entity_renderer_dispatcher_candidates",
                 "level_renderer_invalidation_candidates",
@@ -27630,6 +28111,137 @@ mod tests {
             item.contains("dynamic_texture_manager_candidate:dynamic_texture_allocation")
                 && item.contains("runtime_sources:DynamicTexture.<init>(Supplier,NativeImage)")
                 && item.contains("dynamic_texture_gpu_upload_unavailable")
+        }));
+    }
+
+    #[test]
+    fn skin_manager_candidate_report_tracks_player_texture_cache_dependencies() {
+        let candidates = PlayerSkinCacheCandidateReloadListener
+            .load(&ClientResourceStack::vanilla())
+            .expect("skin manager candidates should load");
+
+        assert_eq!(candidates.candidate_count(), 5);
+        assert!(candidates.representative_texture_id_count() >= 8);
+        assert!(candidates.runtime_source_count() >= 25);
+        assert_eq!(candidates.profile_lookup_dependency_count(), 2);
+        assert_eq!(candidates.profile_texture_unpack_dependency_count(), 2);
+        assert_eq!(candidates.skin_download_dependency_count(), 1);
+        assert_eq!(candidates.local_skin_cache_dependency_count(), 1);
+        assert_eq!(candidates.texture_manager_dependency_count(), 4);
+        assert_eq!(candidates.render_cache_dependency_count(), 3);
+        assert_eq!(candidates.font_dependency_count(), 1);
+        assert_eq!(candidates.model_renderer_dependency_count(), 2);
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:player_skin_cache_candidates_loaded_runtime_lookup_pending")
+        );
+
+        let by_id = candidates
+            .candidates()
+            .iter()
+            .map(|candidate| (candidate.id(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        let lookup = by_id
+            .get("profile_texture_lookup_cache")
+            .expect("SkinManager profile texture lookup should be reported");
+        assert_eq!(lookup.category(), "skin_manager_profile_texture_lookup");
+        assert!(lookup.dependencies().profile_lookup);
+        assert!(lookup.dependencies().profile_texture_unpack);
+        assert!(
+            lookup
+                .runtime_sources()
+                .contains(&"SkinManager.createLookup(GameProfile,boolean)".to_owned())
+        );
+        assert!(
+            lookup
+                .blockers()
+                .contains(&"session_service_texture_unpack_unavailable".to_owned())
+        );
+
+        let download = by_id
+            .get("skin_texture_download_register")
+            .expect("SkinTextureDownloader surface should be reported");
+        assert!(download.dependencies().skin_download);
+        assert!(download.dependencies().local_skin_cache);
+        assert!(download.dependencies().texture_manager);
+        assert!(
+            download
+                .representative_texture_ids()
+                .contains(&"minecraft:skins/{hash}".to_owned())
+        );
+        assert!(
+            download
+                .blockers()
+                .contains(&"skin_texture_http_download_unavailable".to_owned())
+        );
+
+        let render_cache = by_id
+            .get("player_skin_render_cache_lookup")
+            .expect("PlayerSkinRenderCache lookup should be reported");
+        assert!(render_cache.dependencies().profile_lookup);
+        assert!(render_cache.dependencies().render_cache);
+        assert!(render_cache.dependencies().model_renderer);
+        assert!(
+            render_cache
+                .runtime_sources()
+                .contains(&"PlayerSkinRenderCache.RenderInfo.textureView".to_owned())
+        );
+
+        let glyphs = by_id
+            .get("font_player_glyph_provider")
+            .expect("PlayerGlyphProvider dependency should be reported");
+        assert!(glyphs.dependencies().font);
+        assert!(glyphs.dependencies().render_cache);
+        assert!(
+            glyphs
+                .blockers()
+                .contains(&"font_player_glyph_provider_integration_unavailable".to_owned())
+        );
+
+        let consumers = by_id
+            .get("skull_head_entity_model_dependencies")
+            .expect("head/skull/model consumers should be reported");
+        assert!(consumers.dependencies().model_renderer);
+        assert!(consumers.runtime_sources().contains(
+            &"SkullBlockRenderer.<init>(BlockEntityRendererProvider.Context)".to_owned()
+        ));
+        assert!(
+            consumers
+                .blockers()
+                .contains(&"skull_head_entity_model_render_integration_unavailable".to_owned())
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_skin_manager_candidate_listener_reports_boundary_surface() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(PlayerSkinCacheCandidateReloadListener)
+            .run()
+            .expect("committed vanilla skin manager candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "player_skin_cache_candidates");
+        assert_eq!(listener.preparation.items().len(), 1);
+        assert!(
+            listener.preparation.items()[0]
+                .starts_with("player_skin_cache_candidates:candidates:5")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("player_skin_cache_candidate:profile_texture_lookup_cache")
+                && item.contains("deps:profile_lookup:true profile_texture_unpack:true")
+                && item
+                    .contains("boundary:player_skin_cache_candidates_loaded_runtime_lookup_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("player_skin_cache_candidate:skin_texture_download_register")
+                && item.contains("representative_texture_ids:minecraft:skins/{hash},minecraft:capes/{hash},minecraft:elytra/{hash}")
+                && item.contains("skin_texture_http_download_unavailable")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("player_skin_cache_candidate:font_player_glyph_provider")
+                && item.contains("runtime_sources:FontManager.<init>(TextureManager,AtlasManager,PlayerSkinRenderCache)")
+                && item.contains("font_player_glyph_provider_integration_unavailable")
         }));
     }
 
