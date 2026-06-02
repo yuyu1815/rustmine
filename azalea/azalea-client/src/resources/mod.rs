@@ -9883,6 +9883,17 @@ impl ClientWaypointStyleRuntimeCandidateSet {
             .count()
     }
 
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.blocker_count()
+    }
+
+    pub fn missing_candidate_blocker_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleRuntimeCandidate::missing_candidate_blocker_count)
+            .sum()
+    }
+
     pub fn blocker_count(&self) -> usize {
         self.styles
             .iter()
@@ -9930,6 +9941,7 @@ pub struct ClientWaypointStyleRuntimeCandidate {
     sprite_count: usize,
     decoded_resource_count: usize,
     blocker_count: usize,
+    missing_candidate_blocker_count: usize,
     pending_surfaces: Vec<String>,
 }
 
@@ -9958,6 +9970,14 @@ impl ClientWaypointStyleRuntimeCandidate {
         self.blocker_count
     }
 
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn missing_candidate_blocker_count(&self) -> usize {
+        self.missing_candidate_blocker_count
+    }
+
     pub fn pending_surfaces(&self) -> &[String] {
         &self.pending_surfaces
     }
@@ -9978,10 +9998,284 @@ impl ClientWaypointStyleRuntimeCandidate {
             sprite_count: self.sprite_count,
             decoded_resource_count: self.decoded_resource_count,
             blocker_count: self.blocker_count,
+            missing_candidate_blocker_count: self.missing_candidate_blocker_count,
             runtime_binding_ready: self.is_runtime_binding_ready(),
             pending_surfaces: self.pending_surfaces.clone(),
             runtime_boundary: self.runtime_boundary(),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientWaypointStyleLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleState {
+    status: ClientWaypointStyleLoadStatus,
+    candidates: ClientWaypointStyleRuntimeCandidateSet,
+    styles: Vec<ClientWaypointStyleRuntimeState>,
+    styles_by_id: BTreeMap<String, usize>,
+    styles_by_resource: BTreeMap<String, usize>,
+}
+
+impl ClientWaypointStyleState {
+    pub fn from_candidates(candidates: ClientWaypointStyleRuntimeCandidateSet) -> Self {
+        let mut styles = Vec::new();
+        let mut styles_by_id = BTreeMap::new();
+        let mut styles_by_resource = BTreeMap::new();
+
+        for candidate in candidates.styles() {
+            let index = styles.len();
+            styles.push(ClientWaypointStyleRuntimeState::from_candidate(candidate));
+            styles_by_id.insert(candidate.style_id().to_owned(), index);
+            styles_by_resource.insert(candidate.resource().to_owned(), index);
+        }
+
+        let status = if styles
+            .iter()
+            .any(|style| style.status() == ClientWaypointStyleLoadStatus::Missing)
+        {
+            ClientWaypointStyleLoadStatus::Missing
+        } else if styles
+            .iter()
+            .any(|style| style.status() == ClientWaypointStyleLoadStatus::Blocked)
+        {
+            ClientWaypointStyleLoadStatus::Blocked
+        } else {
+            ClientWaypointStyleLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            candidates,
+            styles,
+            styles_by_id,
+            styles_by_resource,
+        }
+    }
+
+    pub fn status(&self) -> ClientWaypointStyleLoadStatus {
+        self.status
+    }
+
+    pub fn style_count(&self) -> usize {
+        self.candidates.style_count()
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.candidates.sprite_count()
+    }
+
+    pub fn decoded_count(&self) -> usize {
+        self.candidates.decoded_resource_count()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_count()
+    }
+
+    pub fn runtime_ready_count(&self) -> usize {
+        self.candidates.runtime_ready_count()
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidates.candidate_blocker_count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleRuntimeState::runtime_blocker_count)
+            .sum()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn pending_surface_count(&self) -> usize {
+        self.candidates.pending_surface_count()
+    }
+
+    pub fn pending_surfaces(&self) -> &'static [&'static str] {
+        self.candidates.pending_surfaces()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        WAYPOINT_STYLE_RUNTIME_BOUNDARY
+    }
+
+    pub fn candidates(&self) -> &ClientWaypointStyleRuntimeCandidateSet {
+        &self.candidates
+    }
+
+    pub fn styles(&self) -> &[ClientWaypointStyleRuntimeState] {
+        &self.styles
+    }
+
+    pub fn style_by_id(&self, style_id: &str) -> Option<&ClientWaypointStyleRuntimeState> {
+        self.styles_by_id
+            .get(style_id)
+            .and_then(|index| self.styles.get(*index))
+    }
+
+    pub fn style_by_resource(&self, resource: &str) -> Option<&ClientWaypointStyleRuntimeState> {
+        self.styles_by_resource
+            .get(resource)
+            .and_then(|index| self.styles.get(*index))
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "waypoint_style_state:status:{:?} styles:{} sprites:{} decoded:{} runtime_ready:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} pending_surfaces:{} surfaces:{} runtime_boundary:{}",
+            self.status(),
+            self.style_count(),
+            self.sprite_count(),
+            self.decoded_count(),
+            self.runtime_ready_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            self.pending_surface_count(),
+            WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES.join(","),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.styles
+                .iter()
+                .map(ClientWaypointStyleRuntimeState::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleRuntimeState {
+    style_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    decoded_resource_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    status: ClientWaypointStyleLoadStatus,
+    blocker_reason: Option<String>,
+    boundary: &'static str,
+    pending_surfaces: Vec<String>,
+}
+
+impl ClientWaypointStyleRuntimeState {
+    fn from_candidate(candidate: &ClientWaypointStyleRuntimeCandidate) -> Self {
+        let runtime_blocker_count = usize::from(candidate.is_runtime_binding_ready());
+        let status = if candidate.missing_candidate_blocker_count() > 0 {
+            ClientWaypointStyleLoadStatus::Missing
+        } else if candidate.candidate_blocker_count() > 0 || runtime_blocker_count > 0 {
+            ClientWaypointStyleLoadStatus::Blocked
+        } else {
+            ClientWaypointStyleLoadStatus::Loaded
+        };
+        let (blocker_reason, boundary) = if runtime_blocker_count > 0 {
+            (
+                Some(WAYPOINT_STYLE_RUNTIME_BOUNDARY.to_owned()),
+                WAYPOINT_STYLE_RUNTIME_BOUNDARY,
+            )
+        } else if candidate.candidate_blocker_count() > 0 {
+            (
+                Some(WAYPOINT_STYLE_MANAGER_BOUNDARY.to_owned()),
+                WAYPOINT_STYLE_MANAGER_BOUNDARY,
+            )
+        } else {
+            (None, WAYPOINT_STYLE_RUNTIME_BOUNDARY)
+        };
+
+        Self {
+            style_id: candidate.style_id().to_owned(),
+            resource: candidate.resource().to_owned(),
+            pack_id: candidate.pack_id().to_owned(),
+            sprite_count: candidate.sprite_count(),
+            decoded_resource_count: candidate.decoded_resource_count(),
+            candidate_blocker_count: candidate.candidate_blocker_count(),
+            runtime_blocker_count,
+            status,
+            blocker_reason,
+            boundary,
+            pending_surfaces: candidate.pending_surfaces().to_vec(),
+        }
+    }
+
+    pub fn style_id(&self) -> &str {
+        &self.style_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn status(&self) -> ClientWaypointStyleLoadStatus {
+        self.status
+    }
+
+    pub fn blocker_reason(&self) -> Option<&str> {
+        self.blocker_reason.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    fn item_string(&self) -> String {
+        let reason = self.blocker_reason.as_deref().unwrap_or("none");
+        format!(
+            "waypoint_style_state_style:{} resource:{}@{} status:{:?} sprites:{} decoded:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} reason:{} pending_surfaces:{} boundary:{}",
+            self.style_id,
+            self.resource,
+            self.pack_id,
+            self.status,
+            self.sprite_count,
+            self.decoded_resource_count,
+            self.candidate_blocker_count,
+            self.runtime_blocker_count,
+            self.total_blocker_count(),
+            reason,
+            self.pending_surfaces.join(","),
+            self.boundary
+        )
     }
 }
 
@@ -9993,6 +10287,7 @@ pub struct ClientWaypointStyleRuntimeCandidateReport {
     sprite_count: usize,
     decoded_resource_count: usize,
     blocker_count: usize,
+    missing_candidate_blocker_count: usize,
     runtime_binding_ready: bool,
     pending_surfaces: Vec<String>,
     runtime_boundary: &'static str,
@@ -10021,6 +10316,10 @@ impl ClientWaypointStyleRuntimeCandidateReport {
 
     pub fn blocker_count(&self) -> usize {
         self.blocker_count
+    }
+
+    pub fn missing_candidate_blocker_count(&self) -> usize {
+        self.missing_candidate_blocker_count
     }
 
     pub fn is_runtime_binding_ready(&self) -> bool {
@@ -12104,6 +12403,14 @@ impl WaypointStyleRuntimeCandidateReloadListener {
     ) -> ResourceReloadResult<ClientWaypointStyleRuntimeCandidateSet> {
         load_client_waypoint_style_runtime_candidates(stack, &self.ids)
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientWaypointStyleState> {
+        self.load(stack)
+            .map(ClientWaypointStyleState::from_candidates)
+    }
 }
 
 impl Default for WaypointStyleRuntimeCandidateReloadListener {
@@ -12132,7 +12439,9 @@ impl ResourceReloadListener for WaypointStyleRuntimeCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        Ok(ResourceReloadTaskReport::new(
+            self.load_state(stack)?.items(),
+        ))
     }
 }
 
@@ -19873,6 +20182,13 @@ fn build_client_waypoint_style_runtime_candidate(
         sprite_count: candidate.sprite_count(),
         decoded_resource_count: candidate.decoded_resource_count(),
         blocker_count: candidate.blocker_count(),
+        missing_candidate_blocker_count: candidate
+            .blockers()
+            .iter()
+            .filter(|blocker| {
+                blocker.reason() == &ClientWaypointStyleManagerBlockerReason::MissingTextureResource
+            })
+            .count(),
         pending_surfaces: WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES
             .iter()
             .map(|surface| (*surface).to_owned())
@@ -36973,11 +37289,11 @@ mod tests {
         assert_eq!(listener.name, "waypoint_style_runtime_candidates");
         assert_eq!(
             listener.reload.items()[0],
-            "waypoint_style_runtime_candidates:styles:1 sprites:2 decoded:2 runtime_ready:1 blocked:0 pending_surfaces:7 surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
+            "waypoint_style_state:status:Blocked styles:1 sprites:2 decoded:2 runtime_ready:1 candidate_blockers:0 runtime_blockers:1 total_blockers:1 pending_surfaces:7 surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission runtime_boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
         );
         assert_eq!(
             listener.reload.items()[1],
-            "assets/minecraft/waypoint_style/default.json@test id:default sprites:2 decoded:2 runtime_binding_ready:true blockers:0 pending_surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
+            "waypoint_style_state_style:default resource:assets/minecraft/waypoint_style/default.json@test status:Blocked sprites:2 decoded:2 candidate_blockers:0 runtime_blockers:1 total_blockers:1 reason:waypoint_style_sprites_loaded_runtime_binding_pending pending_surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
         );
     }
 
@@ -37000,6 +37316,103 @@ mod tests {
         assert!(!style.is_runtime_binding_ready());
         assert_eq!(style.pending_surfaces().len(), 7);
         assert_eq!(style.runtime_boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+    }
+
+    #[test]
+    fn waypoint_style_state_counts_lookup_and_runtime_boundary_with_small_pack() {
+        let temp = TempPack::new();
+        let default_png = encode_test_rgba_png(2, 3, &[0, 0, 0, 255].repeat(6));
+        let custom_png = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0","custom:pin"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &default_png,
+        );
+        temp.write_bytes(
+            "assets/custom/textures/gui/sprites/hud/locator_bar_dot/pin.png",
+            &custom_png,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let state = WaypointStyleRuntimeCandidateReloadListener::new(["default"])
+            .load_state(&stack)
+            .expect("waypoint style state should load from runtime candidates");
+
+        assert_eq!(state.status(), ClientWaypointStyleLoadStatus::Blocked);
+        assert_eq!(state.style_count(), 1);
+        assert_eq!(state.sprite_count(), 2);
+        assert_eq!(state.decoded_count(), 2);
+        assert_eq!(state.runtime_ready_count(), 1);
+        assert_eq!(state.candidate_blocker_count(), 0);
+        assert_eq!(state.runtime_blocker_count(), 1);
+        assert_eq!(state.total_blocker_count(), 1);
+        assert_eq!(state.pending_surface_count(), 7);
+        assert_eq!(state.runtime_boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+
+        let by_id = state
+            .style_by_id("default")
+            .expect("style id lookup should be deterministic");
+        let by_resource = state
+            .style_by_resource("assets/minecraft/waypoint_style/default.json")
+            .expect("style resource lookup should be deterministic");
+        assert_eq!(by_id, by_resource);
+        assert_eq!(by_id.status(), ClientWaypointStyleLoadStatus::Blocked);
+        assert_eq!(by_id.candidate_blocker_count(), 0);
+        assert_eq!(by_id.runtime_blocker_count(), 1);
+        assert_eq!(
+            by_id.blocker_reason(),
+            Some(WAYPOINT_STYLE_RUNTIME_BOUNDARY)
+        );
+        assert_eq!(by_id.boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+        assert!(
+            by_id
+                .pending_surfaces()
+                .iter()
+                .any(|surface| surface == "locator_bar_sprite_lookup")
+        );
+        assert!(state.items()[0].contains("runtime_blockers:1 total_blockers:1"));
+    }
+
+    #[test]
+    fn waypoint_style_state_retains_candidate_blockers_without_runtime_binding() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:missing"]}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let state = WaypointStyleRuntimeCandidateReloadListener::new(["default"])
+            .load_state(&stack)
+            .expect("waypoint style state should retain manager blockers");
+        let style = state
+            .style_by_id("default")
+            .expect("blocked style should still be indexed");
+
+        assert_eq!(state.status(), ClientWaypointStyleLoadStatus::Missing);
+        assert_eq!(state.style_count(), 1);
+        assert_eq!(state.sprite_count(), 1);
+        assert_eq!(state.decoded_count(), 0);
+        assert_eq!(state.runtime_ready_count(), 0);
+        assert_eq!(state.candidate_blocker_count(), 1);
+        assert_eq!(state.runtime_blocker_count(), 0);
+        assert_eq!(state.total_blocker_count(), 1);
+        assert_eq!(style.status(), ClientWaypointStyleLoadStatus::Missing);
+        assert_eq!(style.candidate_blocker_count(), 1);
+        assert_eq!(style.runtime_blocker_count(), 0);
+        assert_eq!(style.boundary(), WAYPOINT_STYLE_MANAGER_BOUNDARY);
+        assert_eq!(
+            style.blocker_reason(),
+            Some(WAYPOINT_STYLE_MANAGER_BOUNDARY)
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("status:Missing")
+                && item.contains("candidate_blockers:1")
+                && item.contains("boundary:sprite_decode_complete_waypoint_manager_pending")
+        }));
     }
 
     #[test]
@@ -39052,6 +39465,43 @@ mod tests {
                 .summary_fragment()
                 .contains("boundary:waypoint_style_sprites_loaded_runtime_binding_pending")
         );
+    }
+
+    #[test]
+    fn committed_vanilla_waypoint_style_state_reports_default_runtime_pending() {
+        let state = WaypointStyleRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla waypoint style state should load");
+        let default_style = state
+            .style_by_id("default")
+            .expect("default waypoint style should be indexed");
+        let default_resource = state
+            .style_by_resource("assets/minecraft/waypoint_style/default.json")
+            .expect("default waypoint style resource should be indexed");
+
+        assert_eq!(state.status(), ClientWaypointStyleLoadStatus::Blocked);
+        assert_eq!(state.styles().len(), 2);
+        assert!(state.sprite_count() > 0);
+        assert_eq!(state.sprite_count(), state.decoded_resource_count());
+        assert_eq!(state.runtime_ready_count(), 2);
+        assert_eq!(state.candidate_blocker_count(), 0);
+        assert_eq!(state.runtime_blocker_count(), 2);
+        assert_eq!(state.total_blocker_count(), 2);
+        assert_eq!(
+            state.pending_surfaces(),
+            WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES
+        );
+        assert_eq!(default_style, default_resource);
+        assert_eq!(
+            default_style.status(),
+            ClientWaypointStyleLoadStatus::Blocked
+        );
+        assert_eq!(default_style.runtime_blocker_count(), 1);
+        assert_eq!(
+            default_style.blocker_reason(),
+            Some(WAYPOINT_STYLE_RUNTIME_BOUNDARY)
+        );
+        assert_eq!(default_style.boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
     }
 
     #[test]
