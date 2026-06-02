@@ -1795,6 +1795,130 @@ impl ClientPackRepositoryState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientResourcePackCombinedStackState {
+    repository_stack_pack_ids: Vec<String>,
+    server_resulting_stack_pack_ids: Vec<String>,
+    final_stack_pack_ids: Vec<String>,
+    selected_pack_ids: Vec<String>,
+    missing_selected_pack_ids: Vec<String>,
+    known_pack_ids: Vec<KnownPackId>,
+    server_pack_count: usize,
+    applied_server_pack_count: usize,
+    pending_server_pack_count: usize,
+    applied_server_pack_ids: Vec<Uuid>,
+    non_applied_server_pack_ids: Vec<Uuid>,
+    server_resource_packs_included: bool,
+    server_items: Vec<ServerResourcePackApplyStateSummary>,
+}
+
+impl ClientResourcePackCombinedStackState {
+    pub fn from_repository_and_server_model(
+        repository: &ClientResourceRepository,
+        server_model: &ServerResourcePackApplyModel,
+    ) -> Self {
+        let repository_state = repository.state();
+        let server_state = server_model.state();
+        Self::from_repository_and_server_states(&repository_state, &server_state)
+    }
+
+    pub fn from_repository_and_server_states(
+        repository_state: &ClientPackRepositoryState,
+        server_state: &ServerResourcePackApplyModelState,
+    ) -> Self {
+        let applied_server_pack_ids = server_state
+            .items()
+            .iter()
+            .filter(|item| item.enters_resource_stack())
+            .map(ServerResourcePackApplyStateSummary::id)
+            .collect::<Vec<_>>();
+        let non_applied_server_pack_ids = server_state
+            .items()
+            .iter()
+            .filter(|item| !item.enters_resource_stack())
+            .map(ServerResourcePackApplyStateSummary::id)
+            .collect::<Vec<_>>();
+        let server_resource_packs_included = server_state.items().iter().any(|item| {
+            item.enters_resource_stack()
+                && item.stack_pack_id().is_some_and(|id| {
+                    server_state
+                        .resulting_stack_pack_ids()
+                        .iter()
+                        .any(|pack| pack == id)
+                })
+        });
+
+        Self {
+            repository_stack_pack_ids: repository_state.stack_pack_ids().to_vec(),
+            server_resulting_stack_pack_ids: server_state.resulting_stack_pack_ids().to_vec(),
+            final_stack_pack_ids: server_state.resulting_stack_pack_ids().to_vec(),
+            selected_pack_ids: repository_state.selected_pack_ids().to_vec(),
+            missing_selected_pack_ids: repository_state.missing_selected_pack_ids().to_vec(),
+            known_pack_ids: repository_state.known_pack_ids().to_vec(),
+            server_pack_count: server_state.server_pack_count(),
+            applied_server_pack_count: server_state.applied_pack_count(),
+            pending_server_pack_count: server_state.server_pack_count()
+                - server_state.applied_pack_count(),
+            applied_server_pack_ids,
+            non_applied_server_pack_ids,
+            server_resource_packs_included,
+            server_items: server_state.items().to_vec(),
+        }
+    }
+
+    pub fn repository_stack_pack_ids(&self) -> &[String] {
+        &self.repository_stack_pack_ids
+    }
+
+    pub fn server_resulting_stack_pack_ids(&self) -> &[String] {
+        &self.server_resulting_stack_pack_ids
+    }
+
+    pub fn final_stack_pack_ids(&self) -> &[String] {
+        &self.final_stack_pack_ids
+    }
+
+    pub fn selected_pack_ids(&self) -> &[String] {
+        &self.selected_pack_ids
+    }
+
+    pub fn missing_selected_pack_ids(&self) -> &[String] {
+        &self.missing_selected_pack_ids
+    }
+
+    pub fn known_pack_ids(&self) -> &[KnownPackId] {
+        &self.known_pack_ids
+    }
+
+    pub fn server_pack_count(&self) -> usize {
+        self.server_pack_count
+    }
+
+    pub fn applied_server_pack_count(&self) -> usize {
+        self.applied_server_pack_count
+    }
+
+    pub fn pending_server_pack_count(&self) -> usize {
+        self.pending_server_pack_count
+    }
+
+    pub fn applied_server_pack_ids(&self) -> &[Uuid] {
+        &self.applied_server_pack_ids
+    }
+
+    pub fn non_applied_server_pack_ids(&self) -> &[Uuid] {
+        &self.non_applied_server_pack_ids
+    }
+
+    pub fn server_resource_packs_included(&self) -> bool {
+        self.server_resource_packs_included
+    }
+
+    pub fn server_items(&self) -> &[ServerResourcePackApplyStateSummary] {
+        &self.server_items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AvailableClientResourcePack {
     pack: ClientResourcePack,
     known_pack_id: Option<KnownPackId>,
@@ -33322,6 +33446,200 @@ mod tests {
                 .map(ClientResourcePack::id)
                 .collect::<Vec<_>>(),
             [VANILLA_PACK_ID, &format!("server:{id}")]
+        );
+    }
+
+    #[test]
+    fn client_resource_pack_combined_state_keeps_repository_only_state_unchanged() {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let mut server_model = ServerResourcePackApplyModel::new(repository.stack());
+        let id = resource_pack_id(2402);
+
+        server_model
+            .receive(server_pack_request(id, true))
+            .apply_test_server_pack();
+
+        let repository_state = repository.state();
+        let combined = ClientResourcePackCombinedStackState::from_repository_and_server_model(
+            &repository,
+            &server_model,
+        );
+
+        assert_eq!(
+            repository_state.stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned()]
+        );
+        assert!(!repository_state.server_resource_packs_included());
+        assert_eq!(
+            combined.repository_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned()]
+        );
+        assert_eq!(
+            combined.final_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned(), format!("server:{id}")]
+        );
+        assert!(combined.server_resource_packs_included());
+    }
+
+    #[test]
+    fn client_resource_pack_combined_state_includes_applied_server_pack_above_selected_packs() {
+        let selected = TempPack::new();
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(
+                AvailableClientResourcePack::new(ClientResourcePack::new(
+                    "selected",
+                    selected.path(),
+                ))
+                .with_known_pack_id(KnownPackId::new("example", "selected", "1")),
+            )
+            .with_selected_pack_ids(["selected"]);
+        let mut server_model = ServerResourcePackApplyModel::new(repository.stack());
+        let id = resource_pack_id(2403);
+
+        server_model
+            .receive(server_pack_request(id, true))
+            .apply_test_server_pack();
+
+        let combined = ClientResourcePackCombinedStackState::from_repository_and_server_model(
+            &repository,
+            &server_model,
+        );
+
+        assert_eq!(
+            combined.repository_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned(), "selected".to_owned()]
+        );
+        assert_eq!(
+            combined.server_resulting_stack_pack_ids(),
+            [
+                VANILLA_PACK_ID.to_owned(),
+                "selected".to_owned(),
+                format!("server:{id}")
+            ]
+        );
+        assert_eq!(
+            combined.final_stack_pack_ids(),
+            [
+                VANILLA_PACK_ID.to_owned(),
+                "selected".to_owned(),
+                format!("server:{id}")
+            ]
+        );
+        assert_eq!(combined.selected_pack_ids(), ["selected".to_owned()]);
+        assert_eq!(
+            combined.known_pack_ids(),
+            [
+                KnownPackId::vanilla(),
+                KnownPackId::new("example", "selected", "1")
+            ]
+        );
+        assert_eq!(combined.server_pack_count(), 1);
+        assert_eq!(combined.applied_server_pack_count(), 1);
+        assert_eq!(combined.pending_server_pack_count(), 0);
+        assert_eq!(combined.applied_server_pack_ids(), [id]);
+        assert!(combined.non_applied_server_pack_ids().is_empty());
+        assert!(combined.server_resource_packs_included());
+    }
+
+    #[test]
+    fn client_resource_pack_combined_state_reports_accepted_server_pack_without_final_stack_entry()
+    {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let mut server_model = ServerResourcePackApplyModel::new(repository.stack());
+        let id = resource_pack_id(2404);
+
+        server_model.receive(server_pack_request(id, true)).accept();
+
+        let combined = ClientResourcePackCombinedStackState::from_repository_and_server_model(
+            &repository,
+            &server_model,
+        );
+
+        assert_eq!(
+            combined.final_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned()]
+        );
+        assert_eq!(combined.server_pack_count(), 1);
+        assert_eq!(combined.applied_server_pack_count(), 0);
+        assert_eq!(combined.pending_server_pack_count(), 1);
+        assert!(combined.applied_server_pack_ids().is_empty());
+        assert_eq!(combined.non_applied_server_pack_ids(), [id]);
+        assert!(!combined.server_resource_packs_included());
+        assert_eq!(
+            combined
+                .server_items()
+                .first()
+                .expect("accepted server pack summary should exist")
+                .status(),
+            ServerResourcePackStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn client_resource_pack_combined_state_updates_after_server_pack_pop() {
+        let repository = ClientResourceRepository::committed_vanilla();
+        let removed_id = resource_pack_id(2405);
+        let kept_id = resource_pack_id(2406);
+        let mut server_model = ServerResourcePackApplyModel::new(repository.stack());
+
+        server_model
+            .receive(server_pack_request(removed_id, true))
+            .apply_test_server_pack();
+        server_model
+            .receive(server_pack_request(kept_id, true))
+            .apply_test_server_pack();
+
+        assert!(server_model.pop(removed_id));
+
+        let combined = ClientResourcePackCombinedStackState::from_repository_and_server_model(
+            &repository,
+            &server_model,
+        );
+
+        assert_eq!(combined.server_pack_count(), 1);
+        assert_eq!(combined.applied_server_pack_ids(), [kept_id]);
+        assert_eq!(
+            combined.final_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned(), format!("server:{kept_id}")]
+        );
+        assert!(
+            combined
+                .server_items()
+                .iter()
+                .all(|item| item.id() != removed_id)
+        );
+    }
+
+    #[test]
+    fn client_resource_pack_combined_state_retains_missing_selected_packs() {
+        let present = TempPack::new();
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "present",
+                present.path(),
+            )))
+            .with_selected_pack_ids(["missing", "present"]);
+        let mut server_model = ServerResourcePackApplyModel::new(repository.stack());
+        let id = resource_pack_id(2407);
+
+        server_model
+            .receive(server_pack_request(id, true))
+            .apply_test_server_pack();
+
+        let combined = ClientResourcePackCombinedStackState::from_repository_and_server_model(
+            &repository,
+            &server_model,
+        );
+
+        assert_eq!(combined.selected_pack_ids(), ["present".to_owned()]);
+        assert_eq!(combined.missing_selected_pack_ids(), ["missing".to_owned()]);
+        assert_eq!(
+            combined.final_stack_pack_ids(),
+            [
+                VANILLA_PACK_ID.to_owned(),
+                "present".to_owned(),
+                format!("server:{id}")
+            ]
         );
     }
 
