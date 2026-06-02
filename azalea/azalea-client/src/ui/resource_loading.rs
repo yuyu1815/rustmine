@@ -792,8 +792,9 @@ mod tests {
         },
         ui::startup_flow::{
             LoadingTask, LoadingTaskPresentationState, StartupDestination,
-            StartupGenericMessageView, StartupLoadingPhase, StartupLoadingScreen,
-            StartupMojangLoadingOverlaySurface, StartupTitleMenuView, loading_task_names,
+            StartupDestinationActionKind, StartupDestinationHandoffView, StartupGenericMessageView,
+            StartupLoadingPhase, StartupLoadingScreen, StartupMojangLoadingOverlaySurface,
+            StartupQuickPlayHandoffView, StartupTitleMenuView, loading_task_names,
         },
     };
 
@@ -1144,6 +1145,12 @@ mod tests {
         assert_eq!(
             complete_screen.startup_destination,
             Some(StartupDestination::TitleMenu)
+        );
+        assert_eq!(
+            complete_screen.completed_destination_handoff,
+            Some(StartupDestinationHandoffView::TitleMenu(
+                StartupTitleMenuView::vanilla_initial()
+            ))
         );
         assert_eq!(
             complete_screen.title_menu,
@@ -1606,6 +1613,12 @@ mod tests {
             tracker.screen().title_menu,
             Some(StartupTitleMenuView::vanilla_initial())
         );
+        assert_eq!(
+            tracker.screen().completed_destination_handoff,
+            Some(StartupDestinationHandoffView::TitleMenu(
+                StartupTitleMenuView::vanilla_initial()
+            ))
+        );
         assert_eq!(tracker.weighted_progress().actual_progress(), 1.0);
     }
 
@@ -1632,6 +1645,17 @@ mod tests {
             tracker.screen().title_menu,
             Some(StartupTitleMenuView::vanilla_initial())
         );
+        let handoff = tracker
+            .screen()
+            .completed_destination_handoff
+            .expect("completed default reload should expose a title handoff");
+        assert_eq!(handoff.destination(), StartupDestination::TitleMenu);
+        assert!(handoff.requires_title_menu());
+        assert!(!handoff.requires_external_action());
+        assert_eq!(
+            handoff.action_kind(),
+            StartupDestinationActionKind::ShowTitleMenu
+        );
     }
 
     #[test]
@@ -1653,6 +1677,12 @@ mod tests {
         assert_eq!(
             tracker.screen().loading_screen,
             StartupLoadingScreen::CompleteDestination(Some(StartupDestination::QuickPlay))
+        );
+        assert_eq!(
+            tracker.screen().completed_destination_handoff,
+            Some(StartupDestinationHandoffView::QuickPlay(
+                StartupQuickPlayHandoffView::external_launcher_action()
+            ))
         );
         assert_eq!(tracker.screen().title_menu, None);
     }

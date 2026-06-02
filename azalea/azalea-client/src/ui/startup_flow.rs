@@ -37,6 +37,7 @@ impl StartupFlow {
             loading_phase: self.loading_phase,
             loading_screen: self.loading_screen(),
             startup_destination: self.startup_destination,
+            completed_destination_handoff: self.completed_destination_handoff_view(),
             title_menu: self.title_menu_view(),
             loading_overlay: self.loading_overlay(),
         }
@@ -82,6 +83,15 @@ impl StartupFlow {
         (self.loading_phase == StartupLoadingPhase::Complete
             && self.startup_destination == Some(StartupDestination::TitleMenu))
         .then(StartupTitleMenuView::vanilla_initial)
+    }
+
+    pub fn completed_destination_handoff_view(&self) -> Option<StartupDestinationHandoffView> {
+        if self.loading_phase != StartupLoadingPhase::Complete {
+            return None;
+        }
+
+        self.startup_destination
+            .map(StartupDestinationHandoffView::for_destination)
     }
 
     pub fn is_loading(&self) -> bool {
@@ -238,6 +248,7 @@ pub struct StartupScreen<'a> {
     pub loading_phase: StartupLoadingPhase,
     pub loading_screen: StartupLoadingScreen<'a>,
     pub startup_destination: Option<StartupDestination>,
+    pub completed_destination_handoff: Option<StartupDestinationHandoffView>,
     pub title_menu: Option<StartupTitleMenuView>,
     pub loading_overlay: Option<&'a [LoadingTask]>,
 }
@@ -299,8 +310,58 @@ pub enum StartupDestination {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartupDestinationHandoffView {
+    TitleMenu(StartupTitleMenuView),
+    QuickPlay(StartupQuickPlayHandoffView),
+}
+
+impl StartupDestinationHandoffView {
+    pub fn for_destination(destination: StartupDestination) -> Self {
+        match destination {
+            StartupDestination::TitleMenu => {
+                Self::TitleMenu(StartupTitleMenuView::vanilla_initial())
+            }
+            StartupDestination::QuickPlay => {
+                Self::QuickPlay(StartupQuickPlayHandoffView::external_launcher_action())
+            }
+        }
+    }
+
+    pub fn destination(self) -> StartupDestination {
+        match self {
+            Self::TitleMenu(view) => view.destination,
+            Self::QuickPlay(view) => view.destination,
+        }
+    }
+
+    pub fn requires_title_menu(self) -> bool {
+        match self {
+            Self::TitleMenu(view) => view.requires_title_menu,
+            Self::QuickPlay(view) => view.requires_title_menu,
+        }
+    }
+
+    pub fn requires_external_action(self) -> bool {
+        match self {
+            Self::TitleMenu(view) => view.requires_external_action,
+            Self::QuickPlay(view) => view.requires_external_action,
+        }
+    }
+
+    pub fn action_kind(self) -> StartupDestinationActionKind {
+        match self {
+            Self::TitleMenu(view) => view.action_kind,
+            Self::QuickPlay(view) => view.action_kind,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StartupTitleMenuView {
     pub destination: StartupDestination,
+    pub requires_title_menu: bool,
+    pub requires_external_action: bool,
+    pub action_kind: StartupDestinationActionKind,
     pub fading: bool,
     pub assets: StartupTitleMenuAssets,
 }
@@ -309,10 +370,43 @@ impl StartupTitleMenuView {
     pub fn vanilla_initial() -> Self {
         Self {
             destination: StartupDestination::TitleMenu,
+            requires_title_menu: true,
+            requires_external_action: false,
+            action_kind: StartupDestinationActionKind::ShowTitleMenu,
             fading: true,
             assets: StartupTitleMenuAssets::vanilla(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupQuickPlayHandoffView {
+    pub destination: StartupDestination,
+    pub requires_title_menu: bool,
+    pub requires_external_action: bool,
+    pub action_kind: StartupDestinationActionKind,
+    pub status_label: &'static str,
+}
+
+impl StartupQuickPlayHandoffView {
+    pub const WAITING_FOR_EXTERNAL_QUICKPLAY_ACTION_LABEL: &str =
+        "Waiting for external quickplay action";
+
+    pub fn external_launcher_action() -> Self {
+        Self {
+            destination: StartupDestination::QuickPlay,
+            requires_title_menu: false,
+            requires_external_action: true,
+            action_kind: StartupDestinationActionKind::WaitForExternalQuickPlayAction,
+            status_label: Self::WAITING_FOR_EXTERNAL_QUICKPLAY_ACTION_LABEL,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartupDestinationActionKind {
+    ShowTitleMenu,
+    WaitForExternalQuickPlayAction,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -924,6 +1018,7 @@ mod tests {
                     StartupGenericMessageView::loading_minecraft()
                 ),
                 startup_destination: None,
+                completed_destination_handoff: None,
                 title_menu: None,
                 loading_overlay: None,
             }
@@ -997,6 +1092,12 @@ mod tests {
             Some(StartupDestination::TitleMenu)
         );
         assert_eq!(
+            flow.screen().completed_destination_handoff,
+            Some(StartupDestinationHandoffView::TitleMenu(
+                StartupTitleMenuView::vanilla_initial()
+            ))
+        );
+        assert_eq!(
             flow.screen().title_menu,
             Some(StartupTitleMenuView::vanilla_initial())
         );
@@ -1010,9 +1111,11 @@ mod tests {
     fn startup_destination_is_absent_until_loading_finishes() {
         let mut flow = StartupFlow::new(Vec::new());
         assert_eq!(flow.startup_destination(), None);
+        assert_eq!(flow.completed_destination_handoff_view(), None);
 
         flow.begin_loading();
         assert_eq!(flow.startup_destination(), None);
+        assert_eq!(flow.completed_destination_handoff_view(), None);
 
         flow.upsert_loading_task(LoadingTask::new(
             loading_task_names::DOWNLOADING_ASSET,
@@ -1020,6 +1123,7 @@ mod tests {
             0.5,
         ));
         assert_eq!(flow.screen().startup_destination, None);
+        assert_eq!(flow.screen().completed_destination_handoff, None);
     }
 
     #[test]
@@ -1046,6 +1150,12 @@ mod tests {
             Some(StartupDestination::TitleMenu)
         );
         assert_eq!(
+            screen.completed_destination_handoff,
+            Some(StartupDestinationHandoffView::TitleMenu(
+                StartupTitleMenuView::vanilla_initial()
+            ))
+        );
+        assert_eq!(
             screen.title_menu,
             Some(StartupTitleMenuView::vanilla_initial())
         );
@@ -1063,6 +1173,12 @@ mod tests {
             .title_menu
             .expect("normal startup completion should expose the title menu view");
         assert_eq!(title_menu.destination, StartupDestination::TitleMenu);
+        assert!(title_menu.requires_title_menu);
+        assert!(!title_menu.requires_external_action);
+        assert_eq!(
+            title_menu.action_kind,
+            StartupDestinationActionKind::ShowTitleMenu
+        );
         assert!(title_menu.fading);
         assert_eq!(
             title_menu.assets,
@@ -1088,6 +1204,29 @@ mod tests {
     }
 
     #[test]
+    fn startup_destination_handoff_exposes_default_title_menu_completion() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.finish_loading();
+
+        let handoff = flow
+            .screen()
+            .completed_destination_handoff
+            .expect("completed title startup should expose a destination handoff");
+        assert_eq!(handoff.destination(), StartupDestination::TitleMenu);
+        assert!(handoff.requires_title_menu());
+        assert!(!handoff.requires_external_action());
+        assert_eq!(
+            handoff.action_kind(),
+            StartupDestinationActionKind::ShowTitleMenu
+        );
+        assert_eq!(
+            handoff,
+            StartupDestinationHandoffView::TitleMenu(StartupTitleMenuView::vanilla_initial())
+        );
+    }
+
+    #[test]
     fn finish_loading_can_target_quick_play_without_changing_account_flow() {
         let mut flow = StartupFlow::new(vec![StoredLauncherAccount::offline("Alex")]);
         flow.begin_loading();
@@ -1105,8 +1244,59 @@ mod tests {
             screen.startup_destination,
             Some(StartupDestination::QuickPlay)
         );
+        assert_eq!(
+            screen.completed_destination_handoff,
+            Some(StartupDestinationHandoffView::QuickPlay(
+                StartupQuickPlayHandoffView::external_launcher_action()
+            ))
+        );
         assert_eq!(screen.title_menu, None);
         assert_eq!(screen.account_screen, &AccountFlowScreen::AccountSelection);
+    }
+
+    #[test]
+    fn startup_destination_handoff_exposes_quick_play_external_action() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        flow.finish_loading_to(StartupDestination::QuickPlay);
+
+        let handoff = flow
+            .screen()
+            .completed_destination_handoff
+            .expect("completed quickplay startup should expose a destination handoff");
+        assert_eq!(handoff.destination(), StartupDestination::QuickPlay);
+        assert!(!handoff.requires_title_menu());
+        assert!(handoff.requires_external_action());
+        assert_eq!(
+            handoff.action_kind(),
+            StartupDestinationActionKind::WaitForExternalQuickPlayAction
+        );
+        assert_eq!(
+            handoff,
+            StartupDestinationHandoffView::QuickPlay(
+                StartupQuickPlayHandoffView::external_launcher_action()
+            )
+        );
+    }
+
+    #[test]
+    fn startup_destination_handoff_is_absent_while_loading_is_in_progress() {
+        let mut flow = StartupFlow::new(Vec::new());
+
+        assert_eq!(flow.screen().completed_destination_handoff, None);
+
+        flow.begin_loading();
+        assert_eq!(flow.screen().completed_destination_handoff, None);
+
+        flow.show_mojang_loading_overlay();
+        assert_eq!(flow.screen().completed_destination_handoff, None);
+
+        flow.upsert_loading_task(LoadingTask::new(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            0.5,
+        ));
+        assert_eq!(flow.screen().completed_destination_handoff, None);
     }
 
     #[test]
