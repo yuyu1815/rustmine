@@ -27046,6 +27046,7 @@ mod tests {
                 "waypoint_style_manifests",
                 "waypoint_style_sprite_assets",
                 "waypoint_style_manager_candidates",
+                "waypoint_style_runtime_candidates",
                 "cloud_texture",
                 "cloud_renderer_rebuild_candidates",
                 "gpu_warnlist",
