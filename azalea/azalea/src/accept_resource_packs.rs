@@ -11,7 +11,7 @@ use azalea_client::{
     packet::{
         config::SendConfigPacketEvent,
         death_event_on_0_health,
-        game::{ResourcePackEvent, SendGamePacketEvent},
+        game::{ResourcePackEvent, ResourcePackPopEvent, SendGamePacketEvent},
     },
     resources::{
         ServerResourcePackAck, ServerResourcePackAckAction, ServerResourcePackApplyModel,
@@ -44,6 +44,7 @@ impl Plugin for AcceptResourcePacksPlugin {
                 .after(InventorySystems)
                 .after(send_client_information),
         );
+        app.add_systems(Update, discard_resource_pack);
 
         #[cfg(feature = "online-mode")]
         app.add_systems(Update, poll_accept_resource_pack_tasks);
@@ -171,6 +172,55 @@ fn accepted_resource_pack_reload_stack(
     let mut packs = base_stack.packs().to_vec();
     packs.push(pack);
     ClientResourceStack::new(packs)
+}
+
+fn discard_resource_pack(
+    mut events: MessageReader<ResourcePackPopEvent>,
+    mut commands: Commands,
+    mut query: Query<(
+        Option<&InConfigState>,
+        Option<&mut ServerResourcePackApplyModel>,
+    )>,
+) {
+    for event in events.read() {
+        let Ok((in_config_state_option, server_resource_packs)) = query.get_mut(event.entity)
+        else {
+            continue;
+        };
+        let Some(mut server_resource_packs) = server_resource_packs else {
+            continue;
+        };
+
+        for discarded_id in discard_resource_pack_from_model(&mut server_resource_packs, event.id) {
+            send_resource_pack_ack(
+                &mut commands,
+                event.entity,
+                in_config_state_option.is_some(),
+                ServerResourcePackAck {
+                    id: discarded_id,
+                    action: ServerResourcePackAckAction::Discarded,
+                },
+            );
+        }
+    }
+}
+
+fn discard_resource_pack_from_model(
+    model: &mut ServerResourcePackApplyModel,
+    id: Option<uuid::Uuid>,
+) -> Vec<uuid::Uuid> {
+    match id {
+        Some(id) if model.pop(id) => vec![id],
+        Some(_) => Vec::new(),
+        None => {
+            let ids = model
+                .packs()
+                .iter()
+                .map(|pack| pack.request().id())
+                .collect::<Vec<_>>();
+            if model.pop_all() { ids } else { Vec::new() }
+        }
+    }
 }
 
 #[cfg(feature = "online-mode")]
@@ -551,6 +601,99 @@ mod tests {
     }
 
     #[test]
+    fn server_pack_pop_by_id_removes_only_matching_applied_pack_from_stack() {
+        let removed_id = Uuid::from_u128(9);
+        let kept_id = Uuid::from_u128(10);
+        let removed = TempPack::new();
+        let kept = TempPack::new();
+        write_valid_pack(&removed);
+        write_valid_pack(&kept);
+        removed.write(
+            "assets/minecraft/lang/removed.json",
+            r#"{"pack":"removed"}"#,
+        );
+        kept.write("assets/minecraft/lang/kept.json", r#"{"pack":"kept"}"#);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+        model.record(applied_test_pack(removed_id, removed.path()));
+        model.record(applied_test_pack(kept_id, kept.path()));
+
+        let discarded_ids = discard_resource_pack_from_model(&mut model, Some(removed_id));
+
+        assert_eq!(discarded_ids, [removed_id]);
+        assert!(
+            model
+                .resource_stack()
+                .find_resource("assets/minecraft/lang/removed.json")
+                .is_none()
+        );
+        assert_eq!(
+            model
+                .resource_stack()
+                .find_resource("assets/minecraft/lang/kept.json")
+                .expect("kept server resource should stay applied")
+                .pack_id,
+            format!("server:{kept_id}")
+        );
+    }
+
+    #[test]
+    fn server_pack_pop_all_keeps_vanilla_stack_only() {
+        let first_id = Uuid::from_u128(11);
+        let second_id = Uuid::from_u128(12);
+        let first = TempPack::new();
+        let second = TempPack::new();
+        write_valid_pack(&first);
+        write_valid_pack(&second);
+        first.write("assets/minecraft/lang/first.json", r#"{"pack":"first"}"#);
+        second.write("assets/minecraft/lang/second.json", r#"{"pack":"second"}"#);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+        model.record(applied_test_pack(first_id, first.path()));
+        model.record(applied_test_pack(second_id, second.path()));
+
+        let discarded_ids = discard_resource_pack_from_model(&mut model, None);
+
+        assert_eq!(discarded_ids, [first_id, second_id]);
+        assert_eq!(model.packs(), []);
+        assert_eq!(model.resource_stack(), ClientResourceStack::vanilla());
+    }
+
+    #[test]
+    fn server_pack_pop_missing_id_is_no_op() {
+        let kept_id = Uuid::from_u128(13);
+        let missing_id = Uuid::from_u128(14);
+        let kept = TempPack::new();
+        write_valid_pack(&kept);
+        kept.write("assets/minecraft/lang/kept.json", r#"{"pack":"kept"}"#);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+        model.record(applied_test_pack(kept_id, kept.path()));
+
+        let discarded_ids = discard_resource_pack_from_model(&mut model, Some(missing_id));
+
+        assert!(discarded_ids.is_empty());
+        assert_eq!(model.packs().len(), 1);
+        assert_eq!(
+            model
+                .resource_stack()
+                .find_resource("assets/minecraft/lang/kept.json")
+                .expect("kept server resource should stay applied")
+                .pack_id,
+            format!("server:{kept_id}")
+        );
+    }
+
+    #[test]
+    fn discarded_ack_action_mapping_supports_config_and_game_packet_paths() {
+        assert_eq!(
+            config_resource_pack_ack_action(ServerResourcePackAckAction::Discarded),
+            config::s_resource_pack::Action::Discarded
+        );
+        assert_eq!(
+            game_resource_pack_ack_action(ServerResourcePackAckAction::Discarded),
+            s_resource_pack::Action::Discarded
+        );
+    }
+
+    #[test]
     fn ack_action_mapping_supports_config_and_game_packet_paths() {
         assert_eq!(
             config_resource_pack_ack_action(ServerResourcePackAckAction::SuccessfullyLoaded),
@@ -596,6 +739,25 @@ mod tests {
             true,
             None,
         ))
+    }
+
+    fn applied_test_pack(id: Uuid, path: &Path) -> ServerResourcePackApplyState {
+        let mut pack = test_pack(id);
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(path)
+            .expect("directory pack should download");
+        pack.open_downloaded()
+            .expect("valid directory pack should open");
+        pack.apply_opened();
+        pack
+    }
+
+    fn write_valid_pack(pack: &TempPack) {
+        pack.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"test"}}"#,
+        );
     }
 
     fn ack_actions(acks: &[ServerResourcePackAck]) -> Vec<ServerResourcePackAckAction> {
