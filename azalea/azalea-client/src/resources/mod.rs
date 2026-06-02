@@ -111,6 +111,7 @@ const PACK_MCMETA_RESOURCE: &str = "pack.mcmeta";
 const CLIENT_RESOURCE_PACK_FORMAT: u32 = 84;
 const SOUND_FILE_RESOURCE_GLOB: &str = "assets/*/sounds/**/*.ogg";
 const PARTICLE_SPRITE_SET_BOUNDARY: &str = "sprite_decode_complete_particle_engine_pending";
+const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -1975,6 +1976,7 @@ impl ResourceReloadManager {
             .with_listener(ParticleSpriteSetCandidateReloadListener::default())
             .with_listener(WaypointStyleManifestReloadListener::default())
             .with_listener(WaypointStyleAssetReloadListener::default())
+            .with_listener(WaypointStyleManagerCandidateReloadListener::default())
             .with_listener(CloudTextureReloadListener::default())
             .with_listener(GpuWarnlistReloadListener::default())
             .with_listener(RegionalComplianciesReloadListener::default())
@@ -3828,6 +3830,360 @@ impl ClientWaypointStyleAssetReport {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleManagerCandidateSet {
+    styles: Vec<ClientWaypointStyleManagerCandidate>,
+}
+
+impl ClientWaypointStyleManagerCandidateSet {
+    pub fn styles(&self) -> &[ClientWaypointStyleManagerCandidate] {
+        &self.styles
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientWaypointStyleManagerCandidateReport> + '_ {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleManagerCandidate::report)
+    }
+
+    pub fn style_count(&self) -> usize {
+        self.styles.len()
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleManagerCandidate::sprite_count)
+            .sum()
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleManagerCandidate::available_resource_count)
+            .sum()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleManagerCandidate::decoded_resource_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleManagerCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleManagerCandidate::byte_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "waypoint_style_manager_candidates:styles:{} sprites:{} available:{} decoded:{} blocked:{} bytes:{} boundary:{}",
+            self.style_count(),
+            self.sprite_count(),
+            self.available_resource_count(),
+            self.decoded_resource_count(),
+            self.blocker_count(),
+            self.byte_count(),
+            WAYPOINT_STYLE_MANAGER_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| waypoint_style_manager_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleManagerCandidate {
+    style_id: String,
+    resource: String,
+    pack_id: String,
+    sprites: Vec<String>,
+    sprite_locations: Vec<String>,
+    available_resource_count: usize,
+    decoded_sprite_resources: Vec<ClientWaypointStyleManagerSpriteResource>,
+    blockers: Vec<ClientWaypointStyleManagerBlocker>,
+}
+
+impl ClientWaypointStyleManagerCandidate {
+    pub fn style_id(&self) -> &str {
+        &self.style_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn sprite_locations(&self) -> &[String] {
+        &self.sprite_locations
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn decoded_sprite_resources(&self) -> &[ClientWaypointStyleManagerSpriteResource] {
+        &self.decoded_sprite_resources
+    }
+
+    pub fn blockers(&self) -> &[ClientWaypointStyleManagerBlocker] {
+        &self.blockers
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprites.len()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_sprite_resources.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.decoded_sprite_resources
+            .iter()
+            .map(ClientWaypointStyleManagerSpriteResource::byte_count)
+            .sum()
+    }
+
+    pub fn manager_boundary(&self) -> &'static str {
+        WAYPOINT_STYLE_MANAGER_BOUNDARY
+    }
+
+    pub fn report(&self) -> ClientWaypointStyleManagerCandidateReport {
+        ClientWaypointStyleManagerCandidateReport {
+            style_id: self.style_id.clone(),
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            sprite_count: self.sprite_count(),
+            sprites: self.sprites.clone(),
+            sprite_locations: self.sprite_locations.clone(),
+            available_resource_count: self.available_resource_count,
+            decoded_resource_count: self.decoded_resource_count(),
+            byte_count: self.byte_count(),
+            blocker_count: self.blocker_count(),
+            decoded_sprite_resources: self.decoded_sprite_resources.clone(),
+            blockers: self.blockers.clone(),
+            manager_boundary: self.manager_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleManagerSpriteResource {
+    sprite_location: String,
+    resource: String,
+    pack_id: String,
+    byte_count: usize,
+    width: u32,
+    height: u32,
+}
+
+impl ClientWaypointStyleManagerSpriteResource {
+    pub fn sprite_location(&self) -> &str {
+        &self.sprite_location
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    fn item_fragment(&self) -> String {
+        format!(
+            "{}={}@{}:{} bytes:png:{}x{}",
+            self.sprite_location,
+            self.resource,
+            self.pack_id,
+            self.byte_count,
+            self.width,
+            self.height
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleManagerBlocker {
+    sprite_location: String,
+    resource: String,
+    selected_pack_id: Option<String>,
+    byte_count: Option<usize>,
+    reason: ClientWaypointStyleManagerBlockerReason,
+}
+
+impl ClientWaypointStyleManagerBlocker {
+    pub fn sprite_location(&self) -> &str {
+        &self.sprite_location
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn selected_pack_id(&self) -> Option<&str> {
+        self.selected_pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn reason(&self) -> &ClientWaypointStyleManagerBlockerReason {
+        &self.reason
+    }
+
+    fn item_fragment(&self) -> String {
+        let selected_pack = self.selected_pack_id.as_deref().unwrap_or("none");
+        let byte_count = self
+            .byte_count
+            .map(|byte_count| byte_count.to_string())
+            .unwrap_or_else(|| "unknown".to_owned());
+        format!(
+            "{}:{}={}@{} bytes:{}",
+            self.reason.report_fragment(),
+            self.sprite_location,
+            self.resource,
+            selected_pack,
+            byte_count
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientWaypointStyleManagerBlockerReason {
+    MissingTextureResource,
+    ReadTextureResource,
+    InvalidPngSignature,
+    InvalidPngMetadata { reason: String },
+}
+
+impl ClientWaypointStyleManagerBlockerReason {
+    fn report_fragment(&self) -> String {
+        match self {
+            Self::MissingTextureResource => "missing".to_owned(),
+            Self::ReadTextureResource => "read_error".to_owned(),
+            Self::InvalidPngSignature => "invalid_png_signature".to_owned(),
+            Self::InvalidPngMetadata { reason } => format!("invalid_png_metadata:{reason}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleManagerCandidateReport {
+    style_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    sprites: Vec<String>,
+    sprite_locations: Vec<String>,
+    available_resource_count: usize,
+    decoded_resource_count: usize,
+    byte_count: usize,
+    blocker_count: usize,
+    decoded_sprite_resources: Vec<ClientWaypointStyleManagerSpriteResource>,
+    blockers: Vec<ClientWaypointStyleManagerBlocker>,
+    manager_boundary: &'static str,
+}
+
+impl ClientWaypointStyleManagerCandidateReport {
+    pub fn style_id(&self) -> &str {
+        &self.style_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn sprites(&self) -> &[String] {
+        &self.sprites
+    }
+
+    pub fn sprite_locations(&self) -> &[String] {
+        &self.sprite_locations
+    }
+
+    pub fn available_resource_count(&self) -> usize {
+        self.available_resource_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn decoded_sprite_resources(&self) -> &[ClientWaypointStyleManagerSpriteResource] {
+        &self.decoded_sprite_resources
+    }
+
+    pub fn blockers(&self) -> &[ClientWaypointStyleManagerBlocker] {
+        &self.blockers
+    }
+
+    pub fn manager_boundary(&self) -> &'static str {
+        self.manager_boundary
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientWaypointStyle {
     id: String,
@@ -5310,6 +5666,60 @@ impl ResourceReloadListener for WaypointStyleAssetReloadListener {
                 .reports()
                 .map(|report| waypoint_style_asset_report_item(&report)),
         ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaypointStyleManagerCandidateReloadListener {
+    ids: Vec<String>,
+}
+
+impl WaypointStyleManagerCandidateReloadListener {
+    pub fn new(ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn ids(&self) -> &[String] {
+        &self.ids
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientWaypointStyleManagerCandidateSet> {
+        load_client_waypoint_style_manager_candidates(stack, &self.ids)
+    }
+}
+
+impl Default for WaypointStyleManagerCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for WaypointStyleManagerCandidateReloadListener {
+    fn name(&self) -> &str {
+        "waypoint_style_manager_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(available_manifest_paths(
+            stack,
+            WAYPOINT_STYLE_MANIFEST_DIR,
+            &self.ids,
+        )))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
     }
 }
 
@@ -8931,6 +9341,16 @@ pub fn load_client_waypoint_style_assets(
     Ok(build_client_waypoint_style_asset_set(stack, &styles))
 }
 
+pub fn load_client_waypoint_style_manager_candidates(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<ClientWaypointStyleManagerCandidateSet> {
+    let assets = load_client_waypoint_style_assets(stack, ids)?;
+    Ok(build_client_waypoint_style_manager_candidate_set(
+        stack, &assets,
+    ))
+}
+
 pub fn load_client_equipment_assets(
     stack: &ClientResourceStack,
     directory: &str,
@@ -9347,6 +9767,131 @@ fn build_client_waypoint_style_asset_candidate(
 fn waypoint_style_sprite_resource_path_for_location(location: &str) -> String {
     let (namespace, path) = resource_identifier_parts(location);
     format!("assets/{namespace}/textures/gui/sprites/{path}.png")
+}
+
+fn build_client_waypoint_style_manager_candidate_set(
+    stack: &ClientResourceStack,
+    assets: &ClientWaypointStyleAssetSet,
+) -> ClientWaypointStyleManagerCandidateSet {
+    ClientWaypointStyleManagerCandidateSet {
+        styles: assets
+            .styles()
+            .iter()
+            .map(|style| build_client_waypoint_style_manager_candidate(stack, style))
+            .collect(),
+    }
+}
+
+fn build_client_waypoint_style_manager_candidate(
+    stack: &ClientResourceStack,
+    style: &ClientWaypointStyleAssetCandidate,
+) -> ClientWaypointStyleManagerCandidate {
+    let mut decoded_sprite_resources = Vec::new();
+    let mut blockers = style
+        .blockers()
+        .iter()
+        .map(|blocker| ClientWaypointStyleManagerBlocker {
+            sprite_location: blocker.sprite_location().to_owned(),
+            resource: blocker.resource().to_owned(),
+            selected_pack_id: None,
+            byte_count: None,
+            reason: ClientWaypointStyleManagerBlockerReason::MissingTextureResource,
+        })
+        .collect::<Vec<_>>();
+
+    for available in style.available_resources() {
+        let resource = available.resource();
+        let Some(location) = stack.find_resource(resource) else {
+            blockers.push(ClientWaypointStyleManagerBlocker {
+                sprite_location: available.sprite_location().to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: None,
+                byte_count: None,
+                reason: ClientWaypointStyleManagerBlockerReason::MissingTextureResource,
+            });
+            continue;
+        };
+
+        match load_waypoint_style_manager_sprite_resource(
+            available.sprite_location(),
+            resource,
+            location,
+        ) {
+            Ok(sprite_resource) => decoded_sprite_resources.push(sprite_resource),
+            Err(blocker) => blockers.push(blocker),
+        }
+    }
+
+    ClientWaypointStyleManagerCandidate {
+        style_id: style.style_id().to_owned(),
+        resource: style.resource().to_owned(),
+        pack_id: style.pack_id().to_owned(),
+        sprites: style.sprites().to_vec(),
+        sprite_locations: style.sprite_locations().to_vec(),
+        available_resource_count: style.available_resource_count(),
+        decoded_sprite_resources,
+        blockers,
+    }
+}
+
+fn load_waypoint_style_manager_sprite_resource(
+    sprite_location: &str,
+    resource: &str,
+    location: ResourceLocation,
+) -> Result<ClientWaypointStyleManagerSpriteResource, ClientWaypointStyleManagerBlocker> {
+    let pack_id = location.pack_id.clone();
+    let bytes = match read_resource_bytes(resource, &location) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Err(ClientWaypointStyleManagerBlocker {
+                sprite_location: sprite_location.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: None,
+                reason: ClientWaypointStyleManagerBlockerReason::ReadTextureResource,
+            });
+        }
+    };
+    let byte_count = bytes.len();
+    let image = match decode_png_dimensions(resource, &location, &bytes) {
+        Ok(image) => image,
+        Err(ResourceReloadError::InvalidPngSignature { .. }) => {
+            return Err(ClientWaypointStyleManagerBlocker {
+                sprite_location: sprite_location.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                reason: ClientWaypointStyleManagerBlockerReason::InvalidPngSignature,
+            });
+        }
+        Err(ResourceReloadError::InvalidPngMetadata { reason, .. }) => {
+            return Err(ClientWaypointStyleManagerBlocker {
+                sprite_location: sprite_location.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                reason: ClientWaypointStyleManagerBlockerReason::InvalidPngMetadata { reason },
+            });
+        }
+        Err(_) => {
+            return Err(ClientWaypointStyleManagerBlocker {
+                sprite_location: sprite_location.to_owned(),
+                resource: resource.to_owned(),
+                selected_pack_id: Some(pack_id),
+                byte_count: Some(byte_count),
+                reason: ClientWaypointStyleManagerBlockerReason::ReadTextureResource,
+            });
+        }
+    };
+
+    Ok(ClientWaypointStyleManagerSpriteResource {
+        sprite_location: sprite_location.to_owned(),
+        resource: resource.to_owned(),
+        pack_id: location.pack_id,
+        byte_count,
+        width: image.width,
+        height: image.height,
+    })
 }
 
 fn is_valid_vanilla_resource_identifier(value: &str) -> bool {
@@ -9857,6 +10402,54 @@ fn waypoint_style_asset_blockers_fragment(blockers: &[ClientWaypointStyleAssetBl
         })
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn waypoint_style_manager_candidate_report_item(
+    report: &ClientWaypointStyleManagerCandidateReport,
+) -> String {
+    format!(
+        "{} id:{} sprites:{}:{} locations:{} available:{} decoded:{} bytes:{} blockers:{} resources:{} blocker_details:{} boundary:{}",
+        report.loaded_resource_pack(),
+        report.style_id(),
+        report.sprite_count(),
+        particle_sprite_ids_fragment(report.sprites()),
+        waypoint_style_sprite_locations_fragment(report.sprite_locations()),
+        report.available_resource_count(),
+        report.decoded_resource_count(),
+        report.byte_count(),
+        report.blocker_count(),
+        waypoint_style_manager_resources_fragment(report.decoded_sprite_resources()),
+        waypoint_style_manager_blockers_fragment(report.blockers()),
+        report.manager_boundary()
+    )
+}
+
+fn waypoint_style_manager_resources_fragment(
+    resources: &[ClientWaypointStyleManagerSpriteResource],
+) -> String {
+    if resources.is_empty() {
+        return "none".to_owned();
+    }
+
+    resources
+        .iter()
+        .map(ClientWaypointStyleManagerSpriteResource::item_fragment)
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn waypoint_style_manager_blockers_fragment(
+    blockers: &[ClientWaypointStyleManagerBlocker],
+) -> String {
+    if blockers.is_empty() {
+        return "none".to_owned();
+    }
+
+    blockers
+        .iter()
+        .map(ClientWaypointStyleManagerBlocker::item_fragment)
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 fn waypoint_style_report_item(report: &ClientWaypointStyleReloadReport) -> String {
@@ -18149,6 +18742,7 @@ mod tests {
                 "particle_sprite_set_candidates",
                 "waypoint_style_manifests",
                 "waypoint_style_sprite_assets",
+                "waypoint_style_manager_candidates",
                 "cloud_texture",
                 "gpu_warnlist",
                 "regional_compliancies",
@@ -20916,6 +21510,132 @@ mod tests {
     }
 
     #[test]
+    fn waypoint_manager_candidates_decode_available_pngs_and_report_boundary() {
+        let temp = TempPack::new();
+        let default_png = encode_test_rgba_png(2, 3, &[0, 0, 0, 255].repeat(6));
+        let custom_png = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0","custom:pin"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &default_png,
+        );
+        temp.write_bytes(
+            "assets/custom/textures/gui/sprites/hud/locator_bar_dot/pin.png",
+            &custom_png,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(WaypointStyleManagerCandidateReloadListener::new([
+                "default",
+            ]))
+            .run()
+            .expect("waypoint manager candidates should decode without HUD rendering");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "waypoint_style_manager_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            format!(
+                "waypoint_style_manager_candidates:styles:1 sprites:2 available:2 decoded:2 blocked:0 bytes:{} boundary:sprite_decode_complete_waypoint_manager_pending",
+                default_png.len() + custom_png.len()
+            )
+        );
+        assert!(
+            listener.reload.items()[1].contains(
+                "resources:minecraft:hud/locator_bar_dot/default_0=assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png@test:"
+            ) && listener.reload.items()[1].contains(" bytes:png:2x3|custom:hud/locator_bar_dot/pin=assets/custom/textures/gui/sprites/hud/locator_bar_dot/pin.png@test:")
+                && listener.reload.items()[1].contains(" bytes:png:1x1")
+                && listener.reload.items()[1].contains("blocker_details:none")
+                && listener.reload.items()[1]
+                    .ends_with("boundary:sprite_decode_complete_waypoint_manager_pending")
+        );
+    }
+
+    #[test]
+    fn waypoint_manager_candidates_report_missing_and_invalid_blockers() {
+        let temp = TempPack::new();
+        let valid_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0","minecraft:missing","minecraft:corrupt"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &valid_png,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/corrupt.png",
+            b"not a png",
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(WaypointStyleManagerCandidateReloadListener::new([
+                "default",
+            ]))
+            .run()
+            .expect("missing and invalid waypoint manager resources should be blockers");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "waypoint_style_manager_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            format!(
+                "waypoint_style_manager_candidates:styles:1 sprites:3 available:2 decoded:1 blocked:2 bytes:{} boundary:sprite_decode_complete_waypoint_manager_pending",
+                valid_png.len()
+            )
+        );
+        assert!(listener.reload.items()[1].contains(
+            "resources:minecraft:hud/locator_bar_dot/default_0=assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png@test:"
+        ));
+        assert!(
+            listener.reload.items()[1].contains(
+                "missing:minecraft:hud/locator_bar_dot/missing=assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/missing.png@none bytes:unknown"
+            ) && listener.reload.items()[1].contains(
+                "invalid_png_signature:minecraft:hud/locator_bar_dot/corrupt=assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/corrupt.png@test bytes:9"
+            )
+        );
+    }
+
+    #[test]
+    fn waypoint_manager_candidates_use_stack_priority_for_decode() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let base_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let override_png = encode_test_rgba_png(2, 2, &[255, 0, 0, 255].repeat(4));
+        base.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0"]}"#,
+        );
+        base.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &base_png,
+        );
+        override_pack.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &override_png,
+        );
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+
+        let candidates = WaypointStyleManagerCandidateReloadListener::new(["default"])
+            .load(&stack)
+            .expect("waypoint manager candidate should load");
+        let decoded = &candidates.styles()[0].decoded_sprite_resources()[0];
+
+        assert_eq!(decoded.pack_id(), "override");
+        assert_eq!(decoded.byte_count(), override_png.len());
+        assert_eq!(decoded.width(), 2);
+        assert_eq!(decoded.height(), 2);
+    }
+
+    #[test]
     fn waypoint_style_manifest_reload_rejects_invalid_sprite_shape() {
         let temp = TempPack::new();
         temp.write(
@@ -22328,6 +23048,42 @@ mod tests {
                             == "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png"
                         && availability.pack_id() == VANILLA_PACK_ID
                 })
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_waypoint_manager_candidates_report_nonzero_surface() {
+        let candidates = WaypointStyleManagerCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla waypoint manager candidates should load");
+        let total_sprites = candidates.sprite_count();
+        let total_available = candidates.available_resource_count();
+        let total_decoded = candidates.decoded_resource_count();
+
+        assert_eq!(candidates.styles().len(), 2);
+        assert!(total_sprites > 0);
+        assert_eq!(total_sprites, total_available);
+        assert_eq!(total_available, total_decoded);
+        assert_eq!(candidates.blocker_count(), 0);
+        assert!(candidates.byte_count() > PNG_SIGNATURE.len());
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:sprite_decode_complete_waypoint_manager_pending")
+        );
+        assert!(candidates.styles().iter().any(|style| {
+            style.style_id() == "default"
+                && style
+                    .decoded_sprite_resources()
+                    .iter()
+                    .any(|resource| {
+                        resource.sprite_location() == "minecraft:hud/locator_bar_dot/default_0"
+                            && resource.resource()
+                                == "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png"
+                            && resource.pack_id() == VANILLA_PACK_ID
+                            && resource.width() > 0
+                            && resource.height() > 0
+                    })
         }));
     }
 
