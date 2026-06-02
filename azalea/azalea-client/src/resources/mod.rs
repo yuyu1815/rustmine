@@ -1210,6 +1210,17 @@ fn validate_client_resource_pack_metadata(
     Ok(metadata)
 }
 
+fn parse_client_resource_pack_metadata_report(
+    metadata: &str,
+) -> Result<ClientResourcePackMetadata, ClientResourcePackMetadataError> {
+    let metadata = serde_json::from_str::<ClientResourcePackMetadata>(metadata)?;
+    let _ = &metadata.pack.description;
+    if metadata.pack.min_format > metadata.pack.max_format {
+        return Err(ClientResourcePackMetadataError::UnsupportedFormat);
+    }
+    Ok(metadata)
+}
+
 #[derive(Debug)]
 enum ClientResourcePackMetadataError {
     Json,
@@ -1651,6 +1662,10 @@ impl ClientResourceRepository {
         ClientPackRepositoryState::from_repository(self)
     }
 
+    pub fn metadata_report(&self) -> ClientResourceRepositoryMetadataReport {
+        ClientResourceRepositoryMetadataReport::from_repository(self)
+    }
+
     pub fn default_client_resource_reload_manager(&self) -> ResourceReloadManager {
         self.rebuild_stack()
             .into_default_client_resource_reload_manager()
@@ -1791,6 +1806,93 @@ impl ClientPackRepositoryState {
 
     pub fn server_resource_packs_included(&self) -> bool {
         self.server_resource_packs_included
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientResourceRepositoryMetadataReport {
+    available_packs: Vec<AvailableClientResourcePackMetadataReport>,
+    missing_selected_pack_ids: Vec<String>,
+    compatible_count: usize,
+    incompatible_count: usize,
+    selected_count: usize,
+    stacked_count: usize,
+}
+
+impl ClientResourceRepositoryMetadataReport {
+    fn from_repository(repository: &ClientResourceRepository) -> Self {
+        let stack_report = repository.rebuild_stack();
+        let selected_ids = stack_report
+            .selected_pack_ids()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let stacked_ids = stack_report
+            .stack()
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<BTreeSet<_>>();
+        let missing_ids = stack_report
+            .missing_selected_pack_ids()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let available_packs = repository
+            .available_packs
+            .values()
+            .map(|pack| {
+                pack.metadata_report_with_stack_state(
+                    selected_ids.contains(pack.id()),
+                    stacked_ids.contains(pack.id()),
+                    missing_ids.contains(pack.id()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let compatible_count = available_packs
+            .iter()
+            .filter(|pack| pack.compatibility().is_compatible())
+            .count();
+        let incompatible_count = available_packs.len() - compatible_count;
+        let selected_count = available_packs
+            .iter()
+            .filter(|pack| pack.selected())
+            .count();
+        let stacked_count = available_packs.iter().filter(|pack| pack.stacked()).count();
+
+        Self {
+            available_packs,
+            missing_selected_pack_ids: stack_report.missing_selected_pack_ids().to_vec(),
+            compatible_count,
+            incompatible_count,
+            selected_count,
+            stacked_count,
+        }
+    }
+
+    pub fn available_packs(&self) -> &[AvailableClientResourcePackMetadataReport] {
+        &self.available_packs
+    }
+
+    pub fn missing_selected_pack_ids(&self) -> &[String] {
+        &self.missing_selected_pack_ids
+    }
+
+    pub fn compatible_count(&self) -> usize {
+        self.compatible_count
+    }
+
+    pub fn incompatible_count(&self) -> usize {
+        self.incompatible_count
+    }
+
+    pub fn selected_count(&self) -> usize {
+        self.selected_count
+    }
+
+    pub fn stacked_count(&self) -> usize {
+        self.stacked_count
     }
 }
 
@@ -1947,6 +2049,208 @@ impl AvailableClientResourcePack {
 
     pub fn known_pack_id(&self) -> Option<&KnownPackId> {
         self.known_pack_id.as_ref()
+    }
+
+    pub fn metadata_report(&self) -> AvailableClientResourcePackMetadataReport {
+        self.metadata_report_with_stack_state(false, false, false)
+    }
+
+    fn metadata_report_with_stack_state(
+        &self,
+        selected: bool,
+        stacked: bool,
+        missing: bool,
+    ) -> AvailableClientResourcePackMetadataReport {
+        let missing = missing || self.source_is_missing();
+
+        if self.id() == VANILLA_PACK_ID {
+            return AvailableClientResourcePackMetadataReport {
+                pack_id: self.id().to_owned(),
+                path: self.pack.root().to_path_buf(),
+                description: Some("Vanilla client resources".to_owned()),
+                min_format: Some(CLIENT_RESOURCE_PACK_FORMAT),
+                max_format: Some(CLIENT_RESOURCE_PACK_FORMAT),
+                compatibility: ClientResourcePackCompatibility::Compatible,
+                selected,
+                stacked,
+                missing,
+                known_pack_id: self.known_pack_id.clone(),
+            };
+        }
+
+        let metadata = self.read_metadata_report();
+        let (description, min_format, max_format, compatibility) = match metadata {
+            Ok(metadata) => {
+                let compatibility = ClientResourcePackCompatibility::from_formats(
+                    metadata.pack.min_format,
+                    metadata.pack.max_format,
+                );
+                (
+                    Some(client_resource_pack_description_fragment(
+                        &metadata.pack.description,
+                    )),
+                    Some(metadata.pack.min_format),
+                    Some(metadata.pack.max_format),
+                    compatibility,
+                )
+            }
+            Err(error) => (None, None, None, error),
+        };
+
+        AvailableClientResourcePackMetadataReport {
+            pack_id: self.id().to_owned(),
+            path: self.pack.root().to_path_buf(),
+            description,
+            min_format,
+            max_format,
+            compatibility,
+            selected,
+            stacked,
+            missing,
+            known_pack_id: self.known_pack_id.clone(),
+        }
+    }
+
+    fn read_metadata_report(
+        &self,
+    ) -> Result<ClientResourcePackMetadata, ClientResourcePackCompatibility> {
+        match &self.pack.source {
+            ClientResourcePackSource::Directory(root) => {
+                fs::read_to_string(root.join(PACK_MCMETA_RESOURCE))
+                    .map_err(|_| ClientResourcePackCompatibility::MissingMetadata)
+                    .and_then(|metadata| {
+                        parse_client_resource_pack_metadata_report(&metadata)
+                            .map_err(ClientResourcePackCompatibility::from)
+                    })
+            }
+            ClientResourcePackSource::RootZip(root) => read_client_resource_pack_zip_metadata(root)
+                .map_err(|_| ClientResourcePackCompatibility::MissingMetadata)
+                .and_then(|metadata| {
+                    parse_client_resource_pack_metadata_report(&metadata)
+                        .map_err(ClientResourcePackCompatibility::from)
+                }),
+            ClientResourcePackSource::Unavailable(_) => {
+                Err(ClientResourcePackCompatibility::MissingMetadata)
+            }
+        }
+    }
+
+    fn source_is_missing(&self) -> bool {
+        match &self.pack.source {
+            ClientResourcePackSource::Directory(root) => !root.is_dir(),
+            ClientResourcePackSource::RootZip(root) => !root.is_file(),
+            ClientResourcePackSource::Unavailable(_) => true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AvailableClientResourcePackMetadataReport {
+    pack_id: String,
+    path: PathBuf,
+    description: Option<String>,
+    min_format: Option<u32>,
+    max_format: Option<u32>,
+    compatibility: ClientResourcePackCompatibility,
+    selected: bool,
+    stacked: bool,
+    missing: bool,
+    known_pack_id: Option<KnownPackId>,
+}
+
+impl AvailableClientResourcePackMetadataReport {
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    pub fn min_format(&self) -> Option<u32> {
+        self.min_format
+    }
+
+    pub fn max_format(&self) -> Option<u32> {
+        self.max_format
+    }
+
+    pub fn compatibility(&self) -> ClientResourcePackCompatibility {
+        self.compatibility
+    }
+
+    pub fn selected(&self) -> bool {
+        self.selected
+    }
+
+    pub fn stacked(&self) -> bool {
+        self.stacked
+    }
+
+    pub fn missing(&self) -> bool {
+        self.missing
+    }
+
+    pub fn known_pack_id(&self) -> Option<&KnownPackId> {
+        self.known_pack_id.as_ref()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientResourcePackCompatibility {
+    Compatible,
+    TooOld,
+    TooNew,
+    InvalidMetadata,
+    MissingMetadata,
+}
+
+impl ClientResourcePackCompatibility {
+    fn from_formats(min_format: u32, max_format: u32) -> Self {
+        if min_format > max_format {
+            Self::InvalidMetadata
+        } else if min_format > CLIENT_RESOURCE_PACK_FORMAT {
+            Self::TooNew
+        } else if max_format < CLIENT_RESOURCE_PACK_FORMAT {
+            Self::TooOld
+        } else {
+            Self::Compatible
+        }
+    }
+
+    pub fn is_compatible(self) -> bool {
+        self == Self::Compatible
+    }
+}
+
+impl From<ClientResourcePackMetadataError> for ClientResourcePackCompatibility {
+    fn from(error: ClientResourcePackMetadataError) -> Self {
+        match error {
+            ClientResourcePackMetadataError::Json
+            | ClientResourcePackMetadataError::UnsupportedFormat => Self::InvalidMetadata,
+        }
+    }
+}
+
+fn read_client_resource_pack_zip_metadata(path: &Path) -> io::Result<String> {
+    let file = fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(io::Error::other)?;
+    let mut metadata_file = archive
+        .by_name(PACK_MCMETA_RESOURCE)
+        .map_err(io::Error::other)?;
+    let mut metadata = String::new();
+    metadata_file.read_to_string(&mut metadata)?;
+    Ok(metadata)
+}
+
+fn client_resource_pack_description_fragment(description: &serde_json::Value) -> String {
+    match description {
+        serde_json::Value::String(description) => description.clone(),
+        description => description.to_string(),
     }
 }
 
@@ -33072,6 +33376,187 @@ mod tests {
     }
 
     #[test]
+    fn client_pack_metadata_reports_compatible_directory_pack_metadata() {
+        let custom = TempPack::new();
+        custom.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"custom resources"}}"#,
+        );
+
+        let repository = ClientResourceRepository::committed_vanilla().with_available_pack(
+            AvailableClientResourcePack::new(ClientResourcePack::new("custom", custom.path()))
+                .with_known_pack_id(KnownPackId::new("example", "custom", "1")),
+        );
+        let report = repository.metadata_report();
+        let vanilla = metadata_report_pack(&report, VANILLA_PACK_ID);
+        let custom = metadata_report_pack(&report, "custom");
+
+        assert_eq!(
+            vanilla.compatibility(),
+            ClientResourcePackCompatibility::Compatible
+        );
+        assert_eq!(vanilla.min_format(), Some(CLIENT_RESOURCE_PACK_FORMAT));
+        assert_eq!(vanilla.max_format(), Some(CLIENT_RESOURCE_PACK_FORMAT));
+        assert_eq!(
+            custom.compatibility(),
+            ClientResourcePackCompatibility::Compatible
+        );
+        assert_eq!(custom.description(), Some("custom resources"));
+        assert_eq!(custom.min_format(), Some(84));
+        assert_eq!(custom.max_format(), Some(84));
+        assert_eq!(
+            custom.known_pack_id(),
+            Some(&KnownPackId::new("example", "custom", "1"))
+        );
+        assert_eq!(report.compatible_count(), 2);
+        assert_eq!(report.incompatible_count(), 0);
+    }
+
+    #[test]
+    fn client_pack_metadata_reports_too_old_and_too_new_pack_formats() {
+        let old = TempPack::new();
+        let new = TempPack::new();
+        old.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":1,"max_format":83,"description":"old"}}"#,
+        );
+        new.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":85,"max_format":85,"description":"new"}}"#,
+        );
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "old",
+                old.path(),
+            )))
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "new",
+                new.path(),
+            )));
+        let report = repository.metadata_report();
+
+        assert_eq!(
+            metadata_report_pack(&report, "old").compatibility(),
+            ClientResourcePackCompatibility::TooOld
+        );
+        assert_eq!(metadata_report_pack(&report, "old").min_format(), Some(1));
+        assert_eq!(metadata_report_pack(&report, "old").max_format(), Some(83));
+        assert_eq!(
+            metadata_report_pack(&report, "new").compatibility(),
+            ClientResourcePackCompatibility::TooNew
+        );
+        assert_eq!(metadata_report_pack(&report, "new").min_format(), Some(85));
+        assert_eq!(metadata_report_pack(&report, "new").max_format(), Some(85));
+        assert_eq!(report.compatible_count(), 1);
+        assert_eq!(report.incompatible_count(), 2);
+    }
+
+    #[test]
+    fn client_pack_metadata_reports_invalid_and_missing_metadata_without_stack_change() {
+        let invalid = TempPack::new();
+        let missing = TempPack::new();
+        invalid.write("pack.mcmeta", r#"{"pack":"not an object"}"#);
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "invalid",
+                invalid.path(),
+            )))
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "missing",
+                missing.path(),
+            )))
+            .with_selected_pack_ids(["invalid", "missing"]);
+        let report = repository.metadata_report();
+
+        assert_eq!(
+            metadata_report_pack(&report, "invalid").compatibility(),
+            ClientResourcePackCompatibility::InvalidMetadata
+        );
+        assert_eq!(metadata_report_pack(&report, "invalid").min_format(), None);
+        assert_eq!(
+            metadata_report_pack(&report, "missing").compatibility(),
+            ClientResourcePackCompatibility::MissingMetadata
+        );
+        assert_eq!(
+            repository
+                .stack()
+                .packs()
+                .iter()
+                .map(ClientResourcePack::id)
+                .collect::<Vec<_>>(),
+            [VANILLA_PACK_ID, "invalid", "missing"]
+        );
+        assert_eq!(report.selected_count(), 2);
+        assert_eq!(report.stacked_count(), 3);
+    }
+
+    #[test]
+    fn client_pack_metadata_reports_selected_and_stacked_flags() {
+        let selected = TempPack::new();
+        let unselected = TempPack::new();
+        selected.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"selected"}}"#,
+        );
+        unselected.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"unselected"}}"#,
+        );
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "selected",
+                selected.path(),
+            )))
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "unselected",
+                unselected.path(),
+            )))
+            .with_selected_pack_ids(["selected"]);
+        let report = repository.metadata_report();
+        let vanilla = metadata_report_pack(&report, VANILLA_PACK_ID);
+        let selected = metadata_report_pack(&report, "selected");
+        let unselected = metadata_report_pack(&report, "unselected");
+
+        assert!(!vanilla.selected());
+        assert!(vanilla.stacked());
+        assert!(selected.selected());
+        assert!(selected.stacked());
+        assert!(!selected.missing());
+        assert!(!unselected.selected());
+        assert!(!unselected.stacked());
+        assert_eq!(report.selected_count(), 1);
+        assert_eq!(report.stacked_count(), 2);
+    }
+
+    #[test]
+    fn client_pack_metadata_report_retains_missing_selected_ids() {
+        let present = TempPack::new();
+        present.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"present"}}"#,
+        );
+
+        let repository = ClientResourceRepository::committed_vanilla()
+            .with_available_pack(AvailableClientResourcePack::new(ClientResourcePack::new(
+                "present",
+                present.path(),
+            )))
+            .with_selected_pack_ids(["missing", "present"]);
+        let report = repository.metadata_report();
+
+        assert_eq!(report.missing_selected_pack_ids(), ["missing".to_owned()]);
+        assert!(metadata_report_pack(&report, "present").selected());
+        assert!(metadata_report_pack(&report, "present").stacked());
+        assert_eq!(
+            repository.state().missing_selected_pack_ids(),
+            ["missing".to_owned()]
+        );
+    }
+
+    #[test]
     fn client_resource_repository_preserves_selected_pack_order_above_vanilla() {
         let low = TempPack::new();
         let high = TempPack::new();
@@ -46490,6 +46975,17 @@ mod tests {
             required,
             None,
         )
+    }
+
+    fn metadata_report_pack<'a>(
+        report: &'a ClientResourceRepositoryMetadataReport,
+        id: &str,
+    ) -> &'a AvailableClientResourcePackMetadataReport {
+        report
+            .available_packs()
+            .iter()
+            .find(|pack| pack.pack_id() == id)
+            .unwrap_or_else(|| panic!("metadata report should include pack {id}"))
     }
 
     fn server_pack_zip_bytes(pack_metadata: &str) -> Vec<u8> {
