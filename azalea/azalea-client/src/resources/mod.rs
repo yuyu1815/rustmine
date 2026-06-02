@@ -13637,6 +13637,13 @@ impl ShaderManagerRuntimeCandidateReloadListener {
     ) -> ResourceReloadResult<ShaderManagerRuntimeCandidateReport> {
         load_shader_manager_runtime_candidates(stack, &self.requested_post_chain_ids)
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientShaderManagerState> {
+        self.load(stack).map(ClientShaderManagerState::from_report)
+    }
 }
 
 impl ResourceReloadListener for ShaderManagerRuntimeCandidateReloadListener {
@@ -13712,6 +13719,378 @@ impl ShaderManagerRuntimeCandidateReport {
         );
         items
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientShaderManagerState {
+    status: ClientShaderManagerStateStatus,
+    shader_source_count: usize,
+    post_chain_count: usize,
+    ready_program_count: usize,
+    blocked_program_count: usize,
+    manager_blockers: Vec<ClientShaderManagerBlockerState>,
+    program_candidates_by_id: BTreeMap<String, ClientShaderProgramCandidateState>,
+    runtime_candidates_by_id: BTreeMap<String, ShaderManagerRuntimeCandidate>,
+    pending_boundary: String,
+    items: Vec<String>,
+}
+
+impl ClientShaderManagerState {
+    pub fn from_report(report: ShaderManagerRuntimeCandidateReport) -> Self {
+        let pending_boundary = report.boundary().to_owned();
+        let shader_source_count = report.shader_manager.shader_source_count();
+        let post_chain_count = report.shader_manager.post_chain_count();
+        let ready_program_count = report.shader_manager.ready_candidate_count();
+        let blocked_program_count = report.shader_manager.blocked_candidate_count();
+        let manager_blockers = report
+            .shader_manager
+            .blockers()
+            .iter()
+            .map(ClientShaderManagerBlockerState::from_blocker)
+            .collect::<Vec<_>>();
+        let program_candidates_by_id = report
+            .shader_manager
+            .program_candidates()
+            .iter()
+            .map(|candidate| {
+                let entry =
+                    ClientShaderProgramCandidateState::from_candidate(candidate, &pending_boundary);
+                (entry.id.clone(), entry)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let runtime_candidates_by_id = report
+            .candidates
+            .into_iter()
+            .map(|candidate| (candidate.id.clone(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        let status = client_shader_manager_status(
+            &manager_blockers,
+            &program_candidates_by_id,
+            &runtime_candidates_by_id,
+        );
+        let items = client_shader_manager_state_items(
+            status,
+            shader_source_count,
+            post_chain_count,
+            ready_program_count,
+            blocked_program_count,
+            &manager_blockers,
+            &program_candidates_by_id,
+            &runtime_candidates_by_id,
+            &pending_boundary,
+        );
+
+        Self {
+            status,
+            shader_source_count,
+            post_chain_count,
+            ready_program_count,
+            blocked_program_count,
+            manager_blockers,
+            program_candidates_by_id,
+            runtime_candidates_by_id,
+            pending_boundary,
+            items,
+        }
+    }
+
+    pub fn status(&self) -> ClientShaderManagerStateStatus {
+        self.status
+    }
+
+    pub fn shader_source_count(&self) -> usize {
+        self.shader_source_count
+    }
+
+    pub fn program_candidate_count(&self) -> usize {
+        self.program_candidates_by_id.len()
+    }
+
+    pub fn post_chain_count(&self) -> usize {
+        self.post_chain_count
+    }
+
+    pub fn ready_program_count(&self) -> usize {
+        self.ready_program_count
+    }
+
+    pub fn blocked_program_count(&self) -> usize {
+        self.blocked_program_count
+    }
+
+    pub fn manager_blocker_count(&self) -> usize {
+        self.manager_blockers.len()
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidates_by_id.len()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_candidates_by_id
+            .values()
+            .map(|candidate| candidate.blockers().len())
+            .sum()
+    }
+
+    pub fn pending_boundary(&self) -> &str {
+        &self.pending_boundary
+    }
+
+    pub fn manager_blockers(&self) -> &[ClientShaderManagerBlockerState] {
+        &self.manager_blockers
+    }
+
+    pub fn program_candidates(&self) -> &BTreeMap<String, ClientShaderProgramCandidateState> {
+        &self.program_candidates_by_id
+    }
+
+    pub fn program_candidate(&self, id: &str) -> Option<&ClientShaderProgramCandidateState> {
+        self.program_candidates_by_id.get(id)
+    }
+
+    pub fn runtime_candidates(&self) -> &BTreeMap<String, ShaderManagerRuntimeCandidate> {
+        &self.runtime_candidates_by_id
+    }
+
+    pub fn runtime_candidate(&self, id: &str) -> Option<&ShaderManagerRuntimeCandidate> {
+        self.runtime_candidates_by_id.get(id)
+    }
+
+    pub fn items(&self) -> &[String] {
+        &self.items
+    }
+
+    pub fn summary_fragment(&self) -> &str {
+        &self.items[0]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientShaderManagerStateStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientShaderManagerStateStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientShaderProgramCandidateState {
+    id: String,
+    status: ClientShaderManagerStateStatus,
+    vertex_shader_id: String,
+    fragment_shader_id: String,
+    vertex_resource: Option<String>,
+    fragment_resource: Option<String>,
+    import_count: usize,
+    blockers: Vec<ClientShaderManagerBlockerState>,
+    runtime_blockers: Vec<String>,
+    pending_boundary: String,
+}
+
+impl ClientShaderProgramCandidateState {
+    fn from_candidate(
+        candidate: &HeadlessShaderProgramCompileCandidateReport,
+        pending_boundary: &str,
+    ) -> Self {
+        let blockers = candidate
+            .blockers()
+            .iter()
+            .map(ClientShaderManagerBlockerState::from_blocker)
+            .collect::<Vec<_>>();
+        let status = if blockers
+            .iter()
+            .any(ClientShaderManagerBlockerState::is_missing)
+        {
+            ClientShaderManagerStateStatus::Missing
+        } else {
+            ClientShaderManagerStateStatus::Blocked
+        };
+
+        Self {
+            id: candidate.id().to_owned(),
+            status,
+            vertex_shader_id: candidate.vertex_shader_id().to_owned(),
+            fragment_shader_id: candidate.fragment_shader_id().to_owned(),
+            vertex_resource: candidate.vertex_resource().map(str::to_owned),
+            fragment_resource: candidate.fragment_resource().map(str::to_owned),
+            import_count: candidate.imports().len(),
+            blockers,
+            runtime_blockers: vec![pending_boundary.to_owned()],
+            pending_boundary: pending_boundary.to_owned(),
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn status(&self) -> ClientShaderManagerStateStatus {
+        self.status
+    }
+
+    pub fn vertex_shader_id(&self) -> &str {
+        &self.vertex_shader_id
+    }
+
+    pub fn fragment_shader_id(&self) -> &str {
+        &self.fragment_shader_id
+    }
+
+    pub fn vertex_resource(&self) -> Option<&str> {
+        self.vertex_resource.as_deref()
+    }
+
+    pub fn fragment_resource(&self) -> Option<&str> {
+        self.fragment_resource.as_deref()
+    }
+
+    pub fn import_count(&self) -> usize {
+        self.import_count
+    }
+
+    pub fn blockers(&self) -> &[ClientShaderManagerBlockerState] {
+        &self.blockers
+    }
+
+    pub fn runtime_blockers(&self) -> &[String] {
+        &self.runtime_blockers
+    }
+
+    pub fn pending_boundary(&self) -> &str {
+        &self.pending_boundary
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len() + self.runtime_blockers.len()
+    }
+
+    fn item_string(&self) -> String {
+        format!(
+            "client_shader_program_candidate:{} status:{} vertex:{} fragment:{} resources:{},{} imports:{} blockers:{} boundary:{}",
+            self.id,
+            self.status.as_str(),
+            self.vertex_shader_id,
+            self.fragment_shader_id,
+            self.vertex_resource.as_deref().unwrap_or("<missing>"),
+            self.fragment_resource.as_deref().unwrap_or("<missing>"),
+            self.import_count,
+            self.blocker_count(),
+            self.pending_boundary,
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientShaderManagerBlockerState {
+    resource: String,
+    reason: String,
+}
+
+impl ClientShaderManagerBlockerState {
+    fn from_blocker(blocker: &HeadlessShaderManagerReloadBlocker) -> Self {
+        Self {
+            resource: blocker.resource().to_owned(),
+            reason: blocker.reason().to_owned(),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    pub fn is_missing(&self) -> bool {
+        self.reason.contains("missing")
+    }
+
+    fn item_string(&self, pending_boundary: &str) -> String {
+        format!(
+            "client_shader_manager_blocker:{} reason:{} boundary:{}",
+            self.resource, self.reason, pending_boundary
+        )
+    }
+}
+
+fn client_shader_manager_status(
+    manager_blockers: &[ClientShaderManagerBlockerState],
+    program_candidates: &BTreeMap<String, ClientShaderProgramCandidateState>,
+    runtime_candidates: &BTreeMap<String, ShaderManagerRuntimeCandidate>,
+) -> ClientShaderManagerStateStatus {
+    if manager_blockers
+        .iter()
+        .any(ClientShaderManagerBlockerState::is_missing)
+        || program_candidates
+            .values()
+            .any(|candidate| candidate.status() == ClientShaderManagerStateStatus::Missing)
+    {
+        ClientShaderManagerStateStatus::Missing
+    } else if !program_candidates.is_empty()
+        || runtime_candidates
+            .values()
+            .any(|candidate| !candidate.blockers().is_empty())
+    {
+        ClientShaderManagerStateStatus::Blocked
+    } else {
+        ClientShaderManagerStateStatus::Loaded
+    }
+}
+
+fn client_shader_manager_state_items(
+    status: ClientShaderManagerStateStatus,
+    shader_source_count: usize,
+    post_chain_count: usize,
+    ready_program_count: usize,
+    blocked_program_count: usize,
+    manager_blockers: &[ClientShaderManagerBlockerState],
+    program_candidates: &BTreeMap<String, ClientShaderProgramCandidateState>,
+    runtime_candidates: &BTreeMap<String, ShaderManagerRuntimeCandidate>,
+    pending_boundary: &str,
+) -> Vec<String> {
+    let mut items = vec![format!(
+        "client_shader_manager_state:status:{} shader_sources:{} program_candidates:{} ready_programs:{} blocked_programs:{} post_chains:{} manager_blockers:{} runtime_candidates:{} runtime_blockers:{} boundary:{}",
+        status.as_str(),
+        shader_source_count,
+        program_candidates.len(),
+        ready_program_count,
+        blocked_program_count,
+        post_chain_count,
+        manager_blockers.len(),
+        runtime_candidates.len(),
+        runtime_candidates
+            .values()
+            .map(|candidate| candidate.blockers().len())
+            .sum::<usize>(),
+        pending_boundary
+    )];
+    items.extend(
+        program_candidates
+            .values()
+            .map(ClientShaderProgramCandidateState::item_string),
+    );
+    items.extend(
+        manager_blockers
+            .iter()
+            .map(|blocker| blocker.item_string(pending_boundary)),
+    );
+    items.extend(
+        runtime_candidates
+            .values()
+            .map(ShaderManagerRuntimeCandidate::item_string),
+    );
+    items
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13802,6 +14181,7 @@ impl ShaderManagerRuntimeCandidateCategory {
 pub struct HeadlessShaderManagerReloadReport {
     program_candidates: Vec<HeadlessShaderProgramCompileCandidateReport>,
     blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+    shader_source_count: usize,
     post_chain_count: usize,
 }
 
@@ -13809,11 +14189,13 @@ impl HeadlessShaderManagerReloadReport {
     fn new(
         program_candidates: Vec<HeadlessShaderProgramCompileCandidateReport>,
         blockers: Vec<HeadlessShaderManagerReloadBlocker>,
+        shader_source_count: usize,
         post_chain_count: usize,
     ) -> Self {
         Self {
             program_candidates,
             blockers,
+            shader_source_count,
             post_chain_count,
         }
     }
@@ -13824,6 +14206,10 @@ impl HeadlessShaderManagerReloadReport {
 
     pub fn blockers(&self) -> &[HeadlessShaderManagerReloadBlocker] {
         &self.blockers
+    }
+
+    pub fn shader_source_count(&self) -> usize {
+        self.shader_source_count
     }
 
     pub fn post_chain_count(&self) -> usize {
@@ -13850,7 +14236,8 @@ impl HeadlessShaderManagerReloadReport {
 
     pub fn summary_fragment(&self) -> String {
         format!(
-            "shader_manager:program_candidates:{} ready:{} blocked:{} blockers:{} imports:{} post_chains:{}",
+            "shader_manager:shader_sources:{} program_candidates:{} ready:{} blocked:{} blockers:{} imports:{} post_chains:{}",
+            self.shader_source_count,
             self.program_candidates.len(),
             self.ready_candidate_count(),
             self.blocked_candidate_count(),
@@ -14831,6 +15218,7 @@ pub fn load_headless_shader_manager_reload(
     Ok(HeadlessShaderManagerReloadReport::new(
         program_candidates,
         blockers,
+        shader_sources.len(),
         post_chain_count,
     ))
 }
@@ -32252,7 +32640,7 @@ mod tests {
             ["shader_sources:79", "includes:9", "post_chains:6"]
         );
         assert!(
-            listener.reload.items()[0].starts_with("shader_manager:program_candidates:"),
+            listener.reload.items()[0].starts_with("shader_manager:shader_sources:"),
             "reload summary should be first for smoke output"
         );
         assert!(
@@ -32319,6 +32707,149 @@ mod tests {
                 .items()
                 .iter()
                 .all(|item| item.contains(SHADER_MANAGER_RUNTIME_BOUNDARY))
+        );
+    }
+
+    #[test]
+    fn shader_manager_state_retains_successful_stacked_shader_pair_as_runtime_blocked() {
+        let base = TempPack::new();
+        let overlay = TempPack::new();
+        base.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        base.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        overlay.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\n#moj_import <minecraft:common.glsl>\nvoid main() {}\n",
+        );
+        overlay.write(
+            "assets/minecraft/shaders/include/common.glsl",
+            "#define COMMON 1\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("overlay", overlay.path()),
+        ]);
+        let state = ShaderManagerRuntimeCandidateReloadListener::default()
+            .load_state(&stack)
+            .expect("shader manager state should retain runtime candidates");
+
+        assert_eq!(state.status(), ClientShaderManagerStateStatus::Blocked);
+        assert_eq!(state.shader_source_count(), 2);
+        assert_eq!(state.program_candidate_count(), 1);
+        assert_eq!(state.ready_program_count(), 1);
+        assert_eq!(state.blocked_program_count(), 0);
+        assert_eq!(state.manager_blocker_count(), 0);
+        assert_eq!(state.runtime_candidate_count(), 5);
+        assert_eq!(state.pending_boundary(), SHADER_MANAGER_RUNTIME_BOUNDARY);
+        let program = state
+            .program_candidate("shader_pair:minecraft:core/example")
+            .expect("shader pair should be indexed by program candidate id");
+        assert_eq!(program.status(), ClientShaderManagerStateStatus::Blocked);
+        assert_eq!(
+            program.runtime_blockers(),
+            [SHADER_MANAGER_RUNTIME_BOUNDARY.to_owned()]
+        );
+        assert_eq!(
+            program.fragment_resource(),
+            Some("assets/minecraft/shaders/core/example.fsh@overlay")
+        );
+        assert!(
+            state
+                .runtime_candidate("shader_manager:render_pipeline_precompile")
+                .is_some(),
+            "runtime candidates should be indexed by id"
+        );
+        assert!(
+            state
+                .items()
+                .iter()
+                .all(|item| { item.contains(SHADER_MANAGER_RUNTIME_BOUNDARY) })
+        );
+    }
+
+    #[test]
+    fn shader_manager_state_retains_missing_include_and_source_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:missing.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/post_effect/missing_shader.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:core/not_present","fragment_shader":"minecraft:core/example","output":"minecraft:main"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = ShaderManagerRuntimeCandidateReloadListener::default()
+            .load_state(&stack)
+            .expect("shader manager state should retain blockers");
+
+        assert_eq!(state.status(), ClientShaderManagerStateStatus::Missing);
+        assert_eq!(state.shader_source_count(), 2);
+        assert_eq!(state.program_candidate_count(), 2);
+        assert_eq!(state.ready_program_count(), 0);
+        assert_eq!(state.blocked_program_count(), 2);
+        assert!(state.manager_blockers().iter().any(|blocker| {
+            blocker.resource() == "assets/minecraft/shaders/include/missing.glsl"
+                && blocker.reason() == "missing shader include"
+        }));
+        let post_chain_program = state
+            .program_candidate("post_chain:minecraft:missing_shader:pass:0")
+            .expect("post-chain program candidate should be indexed");
+        assert_eq!(
+            post_chain_program.status(),
+            ClientShaderManagerStateStatus::Missing
+        );
+        assert!(post_chain_program.blockers().iter().any(|blocker| {
+            blocker.resource() == "shader:minecraft:core/not_present/vertex"
+                && blocker.reason() == "missing shader source"
+        }));
+        let cache = state
+            .runtime_candidate("shader_manager:compilation_cache")
+            .expect("runtime cache candidate should be indexed");
+        assert!(cache.blockers().iter().any(|blocker| {
+            blocker == "assets/minecraft/shaders/include/missing.glsl:missing shader include"
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_shader_manager_state_retains_pending_runtime_boundary() {
+        let state = ShaderManagerRuntimeCandidateReloadListener::default()
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla shader manager state should load");
+
+        assert_eq!(state.status(), ClientShaderManagerStateStatus::Blocked);
+        assert_eq!(state.shader_source_count(), 79);
+        assert_eq!(state.post_chain_count(), 6);
+        assert_eq!(state.manager_blocker_count(), 0);
+        assert_eq!(state.runtime_candidate_count(), 5);
+        assert!(state.program_candidate_count() >= state.ready_program_count());
+        assert!(state.ready_program_count() > 0);
+        assert_eq!(state.pending_boundary(), SHADER_MANAGER_RUNTIME_BOUNDARY);
+        assert!(
+            state
+                .summary_fragment()
+                .contains("client_shader_manager_state:status:blocked")
+        );
+        assert!(
+            state
+                .program_candidate("shader_pair:minecraft:core/position_tex")
+                .is_some()
+        );
+        assert!(
+            state
+                .runtime_candidate("shader_manager:ui_shader_preload_recovery")
+                .is_some()
         );
     }
 
