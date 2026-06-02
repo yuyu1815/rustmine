@@ -11211,6 +11211,15 @@ impl ModelManagerRuntimeCandidateReloadListener {
     ) -> ResourceReloadResult<ModelManagerRuntimeCandidateSet> {
         build_model_manager_runtime_candidate_set(stack)
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientModelManagerState> {
+        let bake = ModelBakeCandidateReloadListener.load(stack)?;
+        let runtime = build_model_manager_runtime_candidate_set_from_bake(stack, &bake)?;
+        Ok(ClientModelManagerState::from_reports(bake, runtime))
+    }
 }
 
 impl ResourceReloadListener for ModelManagerRuntimeCandidateReloadListener {
@@ -11510,6 +11519,34 @@ pub struct ModelManagerRuntimeCandidateSet {
 }
 
 impl ModelManagerRuntimeCandidateSet {
+    pub fn model_definition_count(&self) -> usize {
+        self.model_definition_count
+    }
+
+    pub fn blockstate_candidate_count(&self) -> usize {
+        self.blockstate_candidate_count
+    }
+
+    pub fn item_root_count(&self) -> usize {
+        self.item_root_count
+    }
+
+    pub fn valid_unbaked_model_count(&self) -> usize {
+        self.valid_unbaked_model_count
+    }
+
+    pub fn missing_model_blocker_count(&self) -> usize {
+        self.missing_model_blocker_count
+    }
+
+    pub fn cyclic_model_blocker_count(&self) -> usize {
+        self.cyclic_model_blocker_count
+    }
+
+    pub fn item_resolver_property_group_count(&self) -> usize {
+        self.item_resolver_property_group_count
+    }
+
     pub fn candidates(&self) -> &[ModelManagerRuntimeCandidate] {
         &self.candidates
     }
@@ -11604,6 +11641,429 @@ impl ModelManagerRuntimeCandidateSet {
                 .iter()
                 .map(model_manager_runtime_candidate_report_item),
         );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientModelManagerLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientModelManagerModelEntry {
+    id: String,
+    resource: String,
+    pack_id: String,
+    status: ClientModelManagerLoadStatus,
+    parent: Option<String>,
+    texture_count: usize,
+    element_count: usize,
+    shape: ModelBakeModelShape,
+}
+
+impl ClientModelManagerModelEntry {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn status(&self) -> ClientModelManagerLoadStatus {
+        self.status
+    }
+
+    pub fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.texture_count
+    }
+
+    pub fn element_count(&self) -> usize {
+        self.element_count
+    }
+
+    pub fn shape(&self) -> ModelBakeModelShape {
+        self.shape
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientModelManagerBlockstateEntry {
+    resource: String,
+    pack_id: String,
+    status: ClientModelManagerLoadStatus,
+    variant_definition_count: usize,
+    multipart_definition_count: usize,
+    model_candidate_count: usize,
+    model_references: BTreeSet<String>,
+}
+
+impl ClientModelManagerBlockstateEntry {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn status(&self) -> ClientModelManagerLoadStatus {
+        self.status
+    }
+
+    pub fn variant_definition_count(&self) -> usize {
+        self.variant_definition_count
+    }
+
+    pub fn multipart_definition_count(&self) -> usize {
+        self.multipart_definition_count
+    }
+
+    pub fn model_candidate_count(&self) -> usize {
+        self.model_candidate_count
+    }
+
+    pub fn model_references(&self) -> &BTreeSet<String> {
+        &self.model_references
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientModelManagerItemRootEntry {
+    resource: String,
+    pack_id: String,
+    status: ClientModelManagerLoadStatus,
+    root_type: String,
+    model_type_counts: BTreeMap<String, usize>,
+    model_references: BTreeSet<String>,
+}
+
+impl ClientModelManagerItemRootEntry {
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn status(&self) -> ClientModelManagerLoadStatus {
+        self.status
+    }
+
+    pub fn root_type(&self) -> &str {
+        &self.root_type
+    }
+
+    pub fn model_type_counts(&self) -> &BTreeMap<String, usize> {
+        &self.model_type_counts
+    }
+
+    pub fn model_references(&self) -> &BTreeSet<String> {
+        &self.model_references
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientModelManagerBlockerEntry {
+    model_id: String,
+    status: ClientModelManagerLoadStatus,
+    reason: String,
+}
+
+impl ClientModelManagerBlockerEntry {
+    pub fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
+    pub fn status(&self) -> ClientModelManagerLoadStatus {
+        self.status
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientModelManagerState {
+    status: ClientModelManagerLoadStatus,
+    model_definitions_by_id: BTreeMap<String, ClientModelManagerModelEntry>,
+    model_definition_id_by_resource: BTreeMap<String, String>,
+    blockstates_by_resource: BTreeMap<String, ClientModelManagerBlockstateEntry>,
+    item_roots_by_resource: BTreeMap<String, ClientModelManagerItemRootEntry>,
+    missing_model_blockers: Vec<ClientModelManagerBlockerEntry>,
+    cyclic_model_blockers: Vec<ClientModelManagerBlockerEntry>,
+    runtime: ModelManagerRuntimeCandidateSet,
+}
+
+impl ClientModelManagerState {
+    pub fn from_reports(
+        bake: ModelBakeCandidateReport,
+        runtime: ModelManagerRuntimeCandidateSet,
+    ) -> Self {
+        let status = if !bake.missing_model_blockers().is_empty() {
+            ClientModelManagerLoadStatus::Missing
+        } else if !bake.cyclic_model_blockers().is_empty() || runtime.blocker_count() > 0 {
+            ClientModelManagerLoadStatus::Blocked
+        } else {
+            ClientModelManagerLoadStatus::Loaded
+        };
+        let mut model_definitions_by_id = BTreeMap::new();
+        let mut model_definition_id_by_resource = BTreeMap::new();
+        for model in bake.model_shapes() {
+            let model_status = if bake.cyclic_model_blockers().contains(model.id()) {
+                ClientModelManagerLoadStatus::Blocked
+            } else if bake.valid_unbaked_models().contains(model.id()) {
+                ClientModelManagerLoadStatus::Blocked
+            } else {
+                ClientModelManagerLoadStatus::Missing
+            };
+            let entry = ClientModelManagerModelEntry {
+                id: model.id().to_owned(),
+                resource: model.resource().to_owned(),
+                pack_id: model.pack_id().to_owned(),
+                status: model_status,
+                parent: model.parent().map(str::to_owned),
+                texture_count: model.texture_count(),
+                element_count: model.element_count(),
+                shape: model.shape(),
+            };
+            model_definition_id_by_resource.insert(entry.resource.clone(), entry.id.clone());
+            model_definitions_by_id.insert(entry.id.clone(), entry);
+        }
+
+        let blockstates_by_resource = bake
+            .blockstates()
+            .iter()
+            .map(|blockstate| {
+                (
+                    blockstate.resource().to_owned(),
+                    ClientModelManagerBlockstateEntry {
+                        resource: blockstate.resource().to_owned(),
+                        pack_id: blockstate.pack_id().to_owned(),
+                        status: ClientModelManagerLoadStatus::Blocked,
+                        variant_definition_count: blockstate.variant_definition_count(),
+                        multipart_definition_count: blockstate.multipart_definition_count(),
+                        model_candidate_count: blockstate.model_candidate_count(),
+                        model_references: blockstate.model_references().clone(),
+                    },
+                )
+            })
+            .collect();
+
+        let item_roots_by_resource = bake
+            .item_roots()
+            .iter()
+            .map(|item_root| {
+                (
+                    item_root.resource().to_owned(),
+                    ClientModelManagerItemRootEntry {
+                        resource: item_root.resource().to_owned(),
+                        pack_id: item_root.pack_id().to_owned(),
+                        status: ClientModelManagerLoadStatus::Blocked,
+                        root_type: item_root.root_type().to_owned(),
+                        model_type_counts: item_root.model_type_counts().clone(),
+                        model_references: item_root.model_references().clone(),
+                    },
+                )
+            })
+            .collect();
+
+        let missing_model_blockers = bake
+            .missing_model_blockers()
+            .iter()
+            .map(|model_id| ClientModelManagerBlockerEntry {
+                model_id: model_id.clone(),
+                status: ClientModelManagerLoadStatus::Missing,
+                reason: "missing_model_definition".to_owned(),
+            })
+            .collect();
+        let cyclic_model_blockers = bake
+            .cyclic_model_blockers()
+            .iter()
+            .map(|model_id| ClientModelManagerBlockerEntry {
+                model_id: model_id.clone(),
+                status: ClientModelManagerLoadStatus::Blocked,
+                reason: "cyclic_model_parent_dependency".to_owned(),
+            })
+            .collect();
+
+        Self {
+            status,
+            model_definitions_by_id,
+            model_definition_id_by_resource,
+            blockstates_by_resource,
+            item_roots_by_resource,
+            missing_model_blockers,
+            cyclic_model_blockers,
+            runtime,
+        }
+    }
+
+    pub fn status(&self) -> ClientModelManagerLoadStatus {
+        self.status
+    }
+
+    pub fn model_definition_count(&self) -> usize {
+        self.model_definitions_by_id.len()
+    }
+
+    pub fn blockstate_count(&self) -> usize {
+        self.blockstates_by_resource.len()
+    }
+
+    pub fn blockstate_model_candidate_count(&self) -> usize {
+        self.blockstates_by_resource
+            .values()
+            .map(ClientModelManagerBlockstateEntry::model_candidate_count)
+            .sum()
+    }
+
+    pub fn item_root_count(&self) -> usize {
+        self.item_roots_by_resource.len()
+    }
+
+    pub fn valid_unbaked_model_count(&self) -> usize {
+        self.runtime.valid_unbaked_model_count()
+    }
+
+    pub fn missing_model_blocker_count(&self) -> usize {
+        self.missing_model_blockers.len()
+    }
+
+    pub fn cyclic_model_blocker_count(&self) -> usize {
+        self.cyclic_model_blockers.len()
+    }
+
+    pub fn item_resolver_property_group_count(&self) -> usize {
+        self.runtime.item_resolver_property_group_count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.blockers().len())
+            .sum()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.runtime_blocker_count()
+            + self.missing_model_blocker_count()
+            + self.cyclic_model_blocker_count()
+    }
+
+    pub fn runtime_candidates(&self) -> &ModelManagerRuntimeCandidateSet {
+        &self.runtime
+    }
+
+    pub fn model_definition_by_id(&self, id: &str) -> Option<&ClientModelManagerModelEntry> {
+        self.model_definitions_by_id.get(id)
+    }
+
+    pub fn model_definition_by_resource(
+        &self,
+        resource: &str,
+    ) -> Option<&ClientModelManagerModelEntry> {
+        self.model_definition_id_by_resource
+            .get(resource)
+            .and_then(|id| self.model_definitions_by_id.get(id))
+    }
+
+    pub fn blockstate_by_resource(
+        &self,
+        resource: &str,
+    ) -> Option<&ClientModelManagerBlockstateEntry> {
+        self.blockstates_by_resource.get(resource)
+    }
+
+    pub fn item_root_by_resource(
+        &self,
+        resource: &str,
+    ) -> Option<&ClientModelManagerItemRootEntry> {
+        self.item_roots_by_resource.get(resource)
+    }
+
+    pub fn model_definitions(&self) -> impl Iterator<Item = &ClientModelManagerModelEntry> + '_ {
+        self.model_definitions_by_id.values()
+    }
+
+    pub fn blockstates(&self) -> impl Iterator<Item = &ClientModelManagerBlockstateEntry> + '_ {
+        self.blockstates_by_resource.values()
+    }
+
+    pub fn item_roots(&self) -> impl Iterator<Item = &ClientModelManagerItemRootEntry> + '_ {
+        self.item_roots_by_resource.values()
+    }
+
+    pub fn missing_model_blockers(&self) -> &[ClientModelManagerBlockerEntry] {
+        &self.missing_model_blockers
+    }
+
+    pub fn cyclic_model_blockers(&self) -> &[ClientModelManagerBlockerEntry] {
+        &self.cyclic_model_blockers
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "model_manager_state:status:{:?} model_definitions:{} blockstates:{} blockstate_model_candidates:{} item_roots:{} valid_unbaked:{} missing_model_blockers:{} cyclic_model_blockers:{} item_resolver_property_groups:{} runtime_blockers:{} total_blockers:{} boundary:{}",
+            self.status(),
+            self.model_definition_count(),
+            self.blockstate_count(),
+            self.blockstate_model_candidate_count(),
+            self.item_root_count(),
+            self.valid_unbaked_model_count(),
+            self.missing_model_blocker_count(),
+            self.cyclic_model_blocker_count(),
+            self.item_resolver_property_group_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            MODEL_MANAGER_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        if let Some(blocker) = self.missing_model_blockers.first() {
+            items.push(format!(
+                "model_manager_state:missing_model_blocker:{} reason:{} status:{:?} boundary:{}",
+                blocker.model_id(),
+                blocker.reason(),
+                blocker.status(),
+                MODEL_MANAGER_RUNTIME_BOUNDARY
+            ));
+        }
+        if let Some(blocker) = self.cyclic_model_blockers.first() {
+            items.push(format!(
+                "model_manager_state:cyclic_model_blocker:{} reason:{} status:{:?} boundary:{}",
+                blocker.model_id(),
+                blocker.reason(),
+                blocker.status(),
+                MODEL_MANAGER_RUNTIME_BOUNDARY
+            ));
+        }
+        items.push(format!(
+            "model_manager_state:runtime_pending_surfaces:{} boundary:{}",
+            self.runtime
+                .candidates()
+                .iter()
+                .map(ModelManagerRuntimeCandidate::id)
+                .collect::<Vec<_>>()
+                .join(","),
+            MODEL_MANAGER_RUNTIME_BOUNDARY
+        ));
         items
     }
 }
@@ -14913,6 +15373,13 @@ fn build_model_manager_runtime_candidate_set(
     stack: &ClientResourceStack,
 ) -> ResourceReloadResult<ModelManagerRuntimeCandidateSet> {
     let bake = ModelBakeCandidateReloadListener.load(stack)?;
+    build_model_manager_runtime_candidate_set_from_bake(stack, &bake)
+}
+
+fn build_model_manager_runtime_candidate_set_from_bake(
+    stack: &ClientResourceStack,
+    bake: &ModelBakeCandidateReport,
+) -> ResourceReloadResult<ModelManagerRuntimeCandidateSet> {
     let item_properties = ItemModelResolverPropertyCandidateReloadListener.load(stack)?;
     let representative_models = bake
         .valid_unbaked_models()
@@ -35300,6 +35767,189 @@ mod tests {
             item.contains("model_manager_runtime_candidate:player_skin_model_special_consumers")
                 && item.contains("ModelBakery.<init>(...,PlayerSkinRenderCache)")
                 && item.contains("player_head_special_model_consumer_unavailable")
+        }));
+    }
+
+    #[test]
+    fn model_manager_state_stacked_simple_lookup_is_deterministic() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"":{"model":"minecraft:block/test"}}}"#,
+        );
+        base.write(
+            "assets/minecraft/models/block/test.json",
+            r#"{"textures":{"all":"minecraft:block/base_test"}}"#,
+        );
+        base.write(
+            "assets/minecraft/items/test.json",
+            r#"{"model":{"type":"minecraft:model","model":"minecraft:block/test"}}"#,
+        );
+        override_pack.write(
+            "assets/minecraft/models/block/test.json",
+            r#"{"textures":{"all":"minecraft:block/override_test"},"elements":[{"from":[0,0,0],"to":[16,16,16],"faces":{}}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let state = ModelManagerRuntimeCandidateReloadListener
+            .load_state(&stack)
+            .expect("model manager state should load from stacked packs");
+
+        assert_eq!(state.status(), ClientModelManagerLoadStatus::Blocked);
+        assert_eq!(state.model_definition_count(), 1);
+        assert_eq!(state.blockstate_count(), 1);
+        assert_eq!(state.blockstate_model_candidate_count(), 1);
+        assert_eq!(state.item_root_count(), 1);
+        assert!(state.valid_unbaked_model_count() >= 1);
+        assert_eq!(state.missing_model_blocker_count(), 0);
+        assert_eq!(state.cyclic_model_blocker_count(), 0);
+        assert_eq!(state.item_resolver_property_group_count(), 5);
+        assert_eq!(state.total_blocker_count(), state.runtime_blocker_count());
+
+        let model_by_id = state
+            .model_definition_by_id("minecraft:block/test")
+            .expect("model id lookup should be present");
+        let model_by_resource = state
+            .model_definition_by_resource("assets/minecraft/models/block/test.json")
+            .expect("model resource lookup should be present");
+        assert_eq!(model_by_id, model_by_resource);
+        assert_eq!(model_by_id.pack_id(), "override");
+        assert_eq!(model_by_id.status(), ClientModelManagerLoadStatus::Blocked);
+        assert_eq!(model_by_id.shape(), ModelBakeModelShape::ElementContaining);
+
+        let blockstate = state
+            .blockstate_by_resource("assets/minecraft/blockstates/test.json")
+            .expect("blockstate resource lookup should be present");
+        assert_eq!(blockstate.pack_id(), "base");
+        assert_eq!(blockstate.status(), ClientModelManagerLoadStatus::Blocked);
+        assert!(
+            blockstate
+                .model_references()
+                .contains("minecraft:block/test")
+        );
+
+        let item_root = state
+            .item_root_by_resource("assets/minecraft/items/test.json")
+            .expect("item root resource lookup should be present");
+        assert_eq!(item_root.root_type(), "model");
+        assert!(
+            item_root
+                .model_references()
+                .contains("minecraft:block/test")
+        );
+    }
+
+    #[test]
+    fn model_manager_state_missing_and_cyclic_model_blockers_are_retained() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"missing_parent":{"model":"minecraft:block/stone"},"cycle":{"model":"minecraft:block/cycle_a"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/stone.json",
+            r#"{"parent":"minecraft:block/missing_parent","textures":{"all":"minecraft:block/stone"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cycle_a.json",
+            r#"{"parent":"minecraft:block/cycle_b","textures":{"all":"minecraft:block/a"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cycle_b.json",
+            r#"{"parent":"minecraft:block/cycle_a","textures":{"all":"minecraft:block/b"}}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = ModelManagerRuntimeCandidateReloadListener
+            .load_state(&stack)
+            .expect("model manager state should retain graph blockers");
+
+        assert_eq!(state.status(), ClientModelManagerLoadStatus::Missing);
+        assert_eq!(state.missing_model_blocker_count(), 1);
+        assert_eq!(state.cyclic_model_blocker_count(), 2);
+        assert_eq!(
+            state
+                .missing_model_blockers()
+                .iter()
+                .map(ClientModelManagerBlockerEntry::model_id)
+                .collect::<Vec<_>>(),
+            ["minecraft:block/missing_parent"]
+        );
+        assert!(
+            state
+                .cyclic_model_blockers()
+                .iter()
+                .any(|blocker| blocker.model_id() == "minecraft:block/cycle_a"
+                    && blocker.status() == ClientModelManagerLoadStatus::Blocked)
+        );
+        assert_eq!(
+            state
+                .model_definition_by_id("minecraft:block/stone")
+                .map(ClientModelManagerModelEntry::status),
+            Some(ClientModelManagerLoadStatus::Blocked)
+        );
+        assert_eq!(
+            state
+                .model_definition_by_id("minecraft:block/cycle_a")
+                .map(ClientModelManagerModelEntry::status),
+            Some(ClientModelManagerLoadStatus::Blocked)
+        );
+        assert_eq!(
+            state.total_blocker_count(),
+            state.runtime_blocker_count() + 3
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains(
+                "model_manager_state:missing_model_blocker:minecraft:block/missing_parent",
+            ) && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        }));
+        assert!(state.items().iter().any(|item| {
+            item.contains("model_manager_state:cyclic_model_blocker:minecraft:block/cycle_a")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_model_manager_state_loads_and_reports_boundary() {
+        let state = ModelManagerRuntimeCandidateReloadListener
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("committed vanilla model manager state should load");
+
+        assert_eq!(state.status(), ClientModelManagerLoadStatus::Blocked);
+        assert!(state.model_definition_count() > 3_000);
+        assert!(state.blockstate_count() > 1_000);
+        assert!(state.blockstate_model_candidate_count() > 1_000);
+        assert!(state.item_root_count() > 1_000);
+        assert!(state.valid_unbaked_model_count() > 1_000);
+        assert_eq!(state.item_resolver_property_group_count(), 5);
+        assert!(state.runtime_blocker_count() > 0);
+        assert!(
+            state
+                .model_definition_by_id("minecraft:block/stone")
+                .is_some()
+        );
+        assert!(
+            state
+                .blockstate_by_resource("assets/minecraft/blockstates/stone.json")
+                .is_some()
+        );
+        assert!(
+            state
+                .item_root_by_resource("assets/minecraft/items/stone.json")
+                .is_some()
+        );
+        assert!(
+            state
+                .summary_fragment()
+                .contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("model_manager_state:runtime_pending_surfaces:model_manager_cache_swap")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
         }));
     }
 
