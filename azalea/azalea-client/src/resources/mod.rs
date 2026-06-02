@@ -16665,6 +16665,13 @@ impl ModelManagerRuntimeCandidateReloadListener {
         let runtime = build_model_manager_runtime_candidate_set_from_bake(stack, &bake)?;
         Ok(ClientModelManagerState::from_reports(bake, runtime))
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientModelRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientModelRuntimeReport::from_state(&state),
+            Err(error) => ClientModelRuntimeReport::from_failure(&error),
+        }
+    }
 }
 
 impl ResourceReloadListener for ModelManagerRuntimeCandidateReloadListener {
@@ -16687,7 +16694,11 @@ impl ResourceReloadListener for ModelManagerRuntimeCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientModelRuntimeReport::from_state(&state);
+        let mut items = state.runtime_candidates().items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -17380,6 +17391,18 @@ impl ClientModelManagerState {
         self.item_roots_by_resource.len()
     }
 
+    pub fn model_shape_count(&self) -> usize {
+        self.model_definitions_by_id.len()
+    }
+
+    pub fn shape_counts(&self) -> ModelBakeShapeCounts {
+        let mut counts = ModelBakeShapeCounts::default();
+        for model in self.model_definitions() {
+            counts.increment(model.shape());
+        }
+        counts
+    }
+
     pub fn valid_unbaked_model_count(&self) -> usize {
         self.runtime.valid_unbaked_model_count()
     }
@@ -17511,6 +17534,313 @@ impl ClientModelManagerState {
         ));
         items
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientModelRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientModelRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientModelRuntimeReport {
+    status: ClientModelRuntimeStatus,
+    blockstate_count: usize,
+    item_root_count: usize,
+    model_shape_count: usize,
+    shape_counts: ModelBakeShapeCounts,
+    runtime_candidate_count: usize,
+    runtime_blocker_count: usize,
+    missing_model_blocker_count: usize,
+    cyclic_model_blocker_count: usize,
+    representative_model_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_candidate_ids: Vec<String>,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientModelRuntimeReport {
+    pub fn from_state(state: &ClientModelManagerState) -> Self {
+        Self {
+            status: model_runtime_status_from_state(state),
+            blockstate_count: state.blockstate_count(),
+            item_root_count: state.item_root_count(),
+            model_shape_count: state.model_shape_count(),
+            shape_counts: state.shape_counts(),
+            runtime_candidate_count: state.runtime_candidates().candidate_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            missing_model_blocker_count: state.missing_model_blocker_count(),
+            cyclic_model_blocker_count: state.cyclic_model_blocker_count(),
+            representative_model_ids: representative_model_ids_from_manager_state(state),
+            representative_resources: representative_resources_from_model_manager_state(state),
+            representative_candidate_ids: state
+                .runtime_candidates()
+                .candidates()
+                .iter()
+                .take(6)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            blockers: model_runtime_representative_blockers(state),
+            runtime_boundary: MODEL_MANAGER_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientModelRuntimeStatus::Missing
+            } else {
+                ClientModelRuntimeStatus::Failed
+            },
+            blockstate_count: 0,
+            item_root_count: 0,
+            model_shape_count: 0,
+            shape_counts: ModelBakeShapeCounts::default(),
+            runtime_candidate_count: 0,
+            runtime_blocker_count: 0,
+            missing_model_blocker_count: 0,
+            cyclic_model_blocker_count: 0,
+            representative_model_ids: Vec::new(),
+            representative_resources: Vec::new(),
+            representative_candidate_ids: Vec::new(),
+            blockers: Vec::new(),
+            runtime_boundary: MODEL_MANAGER_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientModelRuntimeStatus {
+        self.status
+    }
+
+    pub fn blockstate_count(&self) -> usize {
+        self.blockstate_count
+    }
+
+    pub fn item_root_count(&self) -> usize {
+        self.item_root_count
+    }
+
+    pub fn model_shape_count(&self) -> usize {
+        self.model_shape_count
+    }
+
+    pub fn shape_counts(&self) -> ModelBakeShapeCounts {
+        self.shape_counts
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidate_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn missing_model_blocker_count(&self) -> usize {
+        self.missing_model_blocker_count
+    }
+
+    pub fn cyclic_model_blocker_count(&self) -> usize {
+        self.cyclic_model_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+            + self.missing_model_blocker_count
+            + self.cyclic_model_blocker_count
+    }
+
+    pub fn representative_model_ids(&self) -> &[String] {
+        &self.representative_model_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_candidate_ids(&self) -> &[String] {
+        &self.representative_candidate_ids
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        let shape_counts = self.shape_counts();
+        format!(
+            "client_model_runtime:status:{} blockstates:{} item_roots:{} model_shapes:{} shape_buckets:parented:{} generated:{} cube_like:{} elements:{} root:{} empty:{} runtime_candidates:{} runtime_blockers:{} missing_model_blockers:{} cyclic_model_blockers:{} total_blockers:{} representative_models:{} representative_resources:{} representative_candidates:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.blockstate_count(),
+            self.item_root_count(),
+            self.model_shape_count(),
+            shape_counts.parented,
+            shape_counts.generated,
+            shape_counts.cube_like,
+            shape_counts.element_containing,
+            shape_counts.root,
+            shape_counts.empty,
+            self.runtime_candidate_count(),
+            self.runtime_blocker_count(),
+            self.missing_model_blocker_count(),
+            self.cyclic_model_blocker_count(),
+            self.total_blocker_count(),
+            model_runtime_list_fragment(self.representative_model_ids()),
+            model_runtime_list_fragment(self.representative_resources()),
+            model_runtime_list_fragment(self.representative_candidate_ids()),
+            model_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.representative_model_ids
+                .iter()
+                .take(5)
+                .map(|model_id| {
+                    format!(
+                        "client_model_runtime_model:{model_id} boundary:{}",
+                        self.runtime_boundary()
+                    )
+                }),
+        );
+        items.extend(
+            self.representative_resources
+                .iter()
+                .take(5)
+                .map(|resource| {
+                    format!(
+                        "client_model_runtime_resource:{resource} boundary:{}",
+                        self.runtime_boundary()
+                    )
+                }),
+        );
+        items.extend(
+            self.representative_candidate_ids
+                .iter()
+                .take(6)
+                .map(|candidate_id| {
+                    format!(
+                        "client_model_runtime_candidate:{candidate_id} boundary:{}",
+                        self.runtime_boundary()
+                    )
+                }),
+        );
+        items.extend(self.blockers.iter().take(8).map(|blocker| {
+            format!(
+                "client_model_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_model_runtime_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        items
+    }
+}
+
+fn model_runtime_status_from_state(state: &ClientModelManagerState) -> ClientModelRuntimeStatus {
+    match state.status() {
+        ClientModelManagerLoadStatus::Loaded => ClientModelRuntimeStatus::Loaded,
+        ClientModelManagerLoadStatus::Blocked => ClientModelRuntimeStatus::Blocked,
+        ClientModelManagerLoadStatus::Missing => ClientModelRuntimeStatus::Missing,
+    }
+}
+
+fn representative_model_ids_from_manager_state(state: &ClientModelManagerState) -> Vec<String> {
+    state
+        .model_definitions()
+        .take(5)
+        .map(|model| model.id().to_owned())
+        .collect()
+}
+
+fn representative_resources_from_model_manager_state(
+    state: &ClientModelManagerState,
+) -> Vec<String> {
+    let mut resources = state
+        .model_definitions()
+        .take(3)
+        .map(|model| model.resource().to_owned())
+        .collect::<Vec<_>>();
+    resources.extend(
+        state
+            .blockstates()
+            .take(2)
+            .map(|blockstate| blockstate.resource().to_owned()),
+    );
+    resources.extend(
+        state
+            .item_roots()
+            .take(2)
+            .map(|item_root| item_root.resource().to_owned()),
+    );
+    resources.truncate(5);
+    resources
+}
+
+fn model_runtime_representative_blockers(state: &ClientModelManagerState) -> Vec<String> {
+    let mut blockers = state
+        .runtime_candidates()
+        .candidates()
+        .iter()
+        .flat_map(ModelManagerRuntimeCandidate::blockers)
+        .map(|blocker| format!("runtime:{blocker}"))
+        .collect::<BTreeSet<_>>();
+
+    blockers.extend(
+        state
+            .missing_model_blockers()
+            .iter()
+            .map(|blocker| format!("missing:{}:{}", blocker.model_id(), blocker.reason())),
+    );
+    blockers.extend(
+        state
+            .cyclic_model_blockers()
+            .iter()
+            .map(|blocker| format!("cyclic:{}:{}", blocker.model_id(), blocker.reason())),
+    );
+
+    blockers.into_iter().take(8).collect()
+}
+
+fn model_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+
+    items.iter().take(8).cloned().collect::<Vec<_>>().join("|")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46396,6 +46726,159 @@ mod tests {
             item.contains("model_manager_runtime_candidate:player_skin_model_special_consumers")
                 && item.contains("ModelBakery.<init>(...,PlayerSkinRenderCache)")
                 && item.contains("player_head_special_model_consumer_unavailable")
+        }));
+    }
+
+    #[test]
+    fn model_runtime_report_reports_blocked_shape_and_runtime_surface() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"":{"model":"minecraft:block/test"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/test.json",
+            r#"{"textures":{"all":"minecraft:block/test"},"elements":[{"from":[0,0,0],"to":[16,16,16],"faces":{}}]}"#,
+        );
+        temp.write(
+            "assets/minecraft/items/test.json",
+            r#"{"model":{"type":"minecraft:model","model":"minecraft:block/test"}}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ModelManagerRuntimeCandidateReloadListener.runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientModelRuntimeStatus::Blocked);
+        assert_eq!(report.blockstate_count(), 1);
+        assert_eq!(report.item_root_count(), 1);
+        assert_eq!(report.model_shape_count(), 1);
+        assert_eq!(report.shape_counts().element_containing, 1);
+        assert_eq!(report.runtime_candidate_count(), 6);
+        assert!(report.runtime_blocker_count() > 0);
+        assert_eq!(report.missing_model_blocker_count(), 0);
+        assert_eq!(report.cyclic_model_blocker_count(), 0);
+        assert!(
+            report
+                .representative_model_ids()
+                .contains(&"minecraft:block/test".to_owned())
+        );
+        assert!(
+            report
+                .representative_resources()
+                .contains(&"assets/minecraft/models/block/test.json".to_owned())
+        );
+        assert!(
+            report
+                .representative_candidate_ids()
+                .contains(&"model_manager_cache_swap".to_owned())
+        );
+        assert!(
+            report
+                .blockers()
+                .iter()
+                .any(|blocker| blocker.starts_with("runtime:"))
+        );
+        assert_eq!(report.runtime_boundary(), MODEL_MANAGER_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+        assert!(report.summary_fragment().contains(
+            "client_model_runtime:status:blocked blockstates:1 item_roots:1 model_shapes:1"
+        ));
+        assert!(report.summary_fragment().contains(
+            "shape_buckets:parented:0 generated:0 cube_like:0 elements:1 root:0 empty:0"
+        ));
+    }
+
+    #[test]
+    fn model_runtime_report_reports_missing_and_cyclic_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"missing_parent":{"model":"minecraft:block/stone"},"cycle":{"model":"minecraft:block/cycle_a"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/stone.json",
+            r#"{"parent":"minecraft:block/missing_parent","textures":{"all":"minecraft:block/stone"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cycle_a.json",
+            r#"{"parent":"minecraft:block/cycle_b","textures":{"all":"minecraft:block/a"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/cycle_b.json",
+            r#"{"parent":"minecraft:block/cycle_a","textures":{"all":"minecraft:block/b"}}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ModelManagerRuntimeCandidateReloadListener.runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientModelRuntimeStatus::Missing);
+        assert_eq!(report.missing_model_blocker_count(), 1);
+        assert_eq!(report.cyclic_model_blocker_count(), 2);
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker == "missing:minecraft:block/missing_parent:missing_model_definition"
+        }));
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker == "cyclic:minecraft:block/cycle_a:cyclic_model_parent_dependency"
+        }));
+        assert!(report.summary_fragment().contains("status:missing"));
+        assert!(
+            report
+                .summary_fragment()
+                .contains("missing_model_blockers:1 cyclic_model_blockers:2")
+        );
+    }
+
+    #[test]
+    fn model_runtime_report_reports_failed_error_without_panicking() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"":{"model":"minecraft:block/test"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/test.json",
+            r#"{"parent":42,"textures":{"all":"minecraft:block/test"}}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ModelManagerRuntimeCandidateReloadListener.runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientModelRuntimeStatus::Failed);
+        assert_eq!(report.blockstate_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 0);
+        assert!(report.error().is_some());
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_model_runtime_failure:error:")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        }));
+    }
+
+    #[test]
+    fn model_runtime_report_committed_vanilla_reload_appends_report_rows() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ModelManagerRuntimeCandidateReloadListener)
+            .run()
+            .expect("committed vanilla model runtime report should load");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "model_manager_runtime_candidates");
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("model_manager_runtime_candidates:candidates:6")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_model_runtime:status:blocked")
+                && item.contains("blockstates:")
+                && item.contains("item_roots:")
+                && item.contains("model_shapes:")
+                && item.contains("shape_buckets:")
+                && item.contains("runtime_candidates:6")
+                && item.contains("representative_candidates:model_manager_cache_swap")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_model_runtime_candidate:model_manager_cache_swap")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
         }));
     }
 
