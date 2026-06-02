@@ -17001,7 +17001,9 @@ impl ResourceReloadListener for SoundManagerRuntimeCandidateReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let report = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new(report.items()))
+        let mut items = report.items();
+        items.extend(self.runtime_report(stack).items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -51558,6 +51560,71 @@ mod tests {
     }
 
     #[test]
+    fn sound_manager_runtime_candidate_reload_appends_runtime_report_after_candidate_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu","preload":true},{"name":"music.stream","stream":true},{"name":"music.parent","type":"event"}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+        temp.write_bytes("assets/minecraft/sounds/music.stream.ogg", b"stream");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = SoundManagerRuntimeCandidateReloadListener::default();
+
+        let candidate_items = listener
+            .load(&stack)
+            .expect("candidate report should load")
+            .items();
+        let runtime_items = listener.runtime_report(&stack).items();
+        let reload = listener
+            .reload(&stack)
+            .expect("candidate reload should include runtime report rows");
+        let items = reload.items();
+
+        assert_eq!(&items[..candidate_items.len()], candidate_items.as_slice());
+        assert_eq!(&items[candidate_items.len()..], runtime_items.as_slice());
+        assert!(items[candidate_items.len()..].iter().any(|item| {
+            item.contains("sound_runtime_report:")
+                && item.contains("runtime_candidates:5")
+                && item.contains("runtime_blockers:10")
+        }));
+        assert!(
+            items[candidate_items.len()..]
+                .iter()
+                .any(|item| item.contains("sound_runtime_candidate_sources:")
+                    && item.contains("SoundManager prepares sounds.json registrations"))
+        );
+    }
+
+    #[test]
+    fn sound_manager_runtime_candidate_reload_keeps_candidate_rows_stable() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu","preload":true},{"name":"music.stream","stream":true},{"name":"music.parent","type":"event"}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+        temp.write_bytes("assets/minecraft/sounds/music.stream.ogg", b"stream");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let reload = SoundManagerRuntimeCandidateReloadListener::default()
+            .reload(&stack)
+            .expect("candidate reload should load");
+        let items = reload.items();
+
+        assert_eq!(
+            items[0],
+            "sound_manager_runtime_candidates:5 blockers:10 boundary:sound_events_loaded_audio_runtime_pending categories:audio_device_engine_initialization,sound_registry_to_weighed_events,preload_buffer_upload_queue,streaming_source_runtime,playback_channel_tick_update"
+        );
+        assert!(items[1].starts_with("candidate:sound_engine_device "));
+        assert!(items[2].starts_with("candidate:sound_registry "));
+        assert!(items[3].starts_with("candidate:preload_buffers "));
+        assert!(items[4].starts_with("candidate:streaming_sources "));
+        assert!(items[5].starts_with("candidate:playback_tick "));
+        assert!(items[6].starts_with("sound_runtime_report:"));
+    }
+
+    #[test]
     fn sound_runtime_report_candidate_listener_includes_runtime_candidate_evidence() {
         let temp = TempPack::new();
         temp.write(
@@ -51819,6 +51886,46 @@ mod tests {
                 .iter()
                 .any(|item| item.contains("sound_runtime_report:"))
         );
+    }
+
+    #[test]
+    fn sound_manager_runtime_candidate_reload_committed_vanilla_includes_runtime_report_or_missing()
+    {
+        let reload = SoundManagerRuntimeCandidateReloadListener::default()
+            .reload(&ClientResourceStack::vanilla());
+
+        match reload {
+            Ok(report) => {
+                let items = report.items();
+                let runtime_report_index = items
+                    .iter()
+                    .position(|item| item.contains("sound_runtime_report:"))
+                    .expect("vanilla candidate reload should append runtime report rows");
+
+                assert!(items[0].starts_with("sound_manager_runtime_candidates:"));
+                assert!(
+                    items[..runtime_report_index]
+                        .iter()
+                        .any(|item| item.starts_with("candidate:sound_registry "))
+                );
+                assert!(
+                    items[runtime_report_index..]
+                        .iter()
+                        .any(|item| item.contains("runtime_candidates:5"))
+                );
+                assert!(
+                    items[runtime_report_index..]
+                        .iter()
+                        .any(|item| item.contains("sound_runtime_candidate_sources:"))
+                );
+            }
+            Err(ResourceReloadError::MissingResource(resource)) => {
+                assert_eq!(resource, SOUND_EVENTS_RESOURCE_GLOB);
+            }
+            Err(error) => panic!(
+                "vanilla candidate reload should append runtime report rows or report missing fixture sounds.json: {error:?}"
+            ),
+        }
     }
 
     #[test]
