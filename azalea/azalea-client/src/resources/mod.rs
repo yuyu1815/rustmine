@@ -178,6 +178,8 @@ const REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY: &str =
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
 const CLIENT_LANGUAGE_RUNTIME_BOUNDARY: &str =
     "client_language_assets_loaded_runtime_lookup_pending";
+const CLIENT_COLORMAP_RUNTIME_BOUNDARY: &str = "colormap_pixels_loaded_biome_tint_runtime_pending";
+const CLIENT_COLORMAP_RUNTIME_SAMPLE_LIMIT: usize = 3;
 const CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY: &str =
     "client_resources_reloaded_runtime_application_pending";
 const DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE: &str = "ZZZ";
@@ -31200,6 +31202,10 @@ impl ColormapReloadListener {
     pub fn load_state(&self, stack: &ClientResourceStack) -> ClientColormapState {
         ClientColormapState::from_stack(stack, &self.colormaps)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientColormapRuntimeReport {
+        ClientColormapRuntimeReport::from_state(&self.load_state(stack))
+    }
 }
 
 impl Default for ColormapReloadListener {
@@ -31255,6 +31261,178 @@ pub enum ClientColormapLoadStatus {
     Loaded,
     Blocked,
     Missing,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientColormapRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientColormapRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientColormapRuntimeReport {
+    status: ClientColormapRuntimeStatus,
+    requested_count: usize,
+    loaded_count: usize,
+    byte_count: usize,
+    pixel_count: u64,
+    representative_colormap_resources: Vec<String>,
+    blockers: Vec<String>,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientColormapRuntimeReport {
+    pub fn from_state(state: &ClientColormapState) -> Self {
+        let status = match state.status() {
+            ClientColormapLoadStatus::Loaded => ClientColormapRuntimeStatus::Loaded,
+            ClientColormapLoadStatus::Blocked => ClientColormapRuntimeStatus::Blocked,
+            ClientColormapLoadStatus::Missing => ClientColormapRuntimeStatus::Missing,
+        };
+        let representative_colormap_resources = state
+            .loaded_resources()
+            .iter()
+            .take(CLIENT_COLORMAP_RUNTIME_SAMPLE_LIMIT)
+            .cloned()
+            .collect();
+        let blockers = state
+            .colormaps()
+            .iter()
+            .filter_map(ClientColormapStateItem::runtime_blocker_fragment)
+            .collect();
+
+        Self {
+            status,
+            requested_count: state.requested_count(),
+            loaded_count: state.loaded_count(),
+            byte_count: state.byte_count(),
+            pixel_count: state.pixel_count(),
+            representative_colormap_resources,
+            blockers,
+            boundary: CLIENT_COLORMAP_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(
+        requested_count: usize,
+        error: &ResourceReloadError,
+    ) -> ClientColormapRuntimeReport {
+        Self {
+            status: ClientColormapRuntimeStatus::Failed,
+            requested_count,
+            loaded_count: 0,
+            byte_count: 0,
+            pixel_count: 0,
+            representative_colormap_resources: Vec::new(),
+            blockers: Vec::new(),
+            boundary: CLIENT_COLORMAP_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientColormapRuntimeStatus {
+        self.status
+    }
+
+    pub fn requested_count(&self) -> usize {
+        self.requested_count
+    }
+
+    pub fn loaded_count(&self) -> usize {
+        self.loaded_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn pixel_count(&self) -> u64 {
+        self.pixel_count
+    }
+
+    pub fn representative_colormap_resources(&self) -> &[String] {
+        &self.representative_colormap_resources
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_colormap_runtime:status:{} requested:{} loaded:{} bytes:{} pixels:{} representatives:{} blockers:{} boundary:{} error:{}",
+            self.status.as_str(),
+            self.requested_count(),
+            self.loaded_count(),
+            self.byte_count(),
+            self.pixel_count(),
+            colormap_runtime_list_fragment(self.representative_colormap_resources()),
+            self.blocker_count(),
+            self.boundary(),
+            self.error().unwrap_or("none")
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.representative_colormap_resources
+                .iter()
+                .map(|resource| {
+                    format!(
+                        "client_colormap_runtime_colormap:{resource} boundary:{}",
+                        self.boundary()
+                    )
+                }),
+        );
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_colormap_runtime_blocker:{blocker} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_colormap_runtime_failure:error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
+        items
+    }
+}
+
+fn colormap_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+
+    items.join("|")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31518,6 +31696,16 @@ impl ClientColormapStateItem {
             self.pixel_count(),
             reason
         )
+    }
+
+    fn runtime_blocker_fragment(&self) -> Option<String> {
+        self.blocker.as_ref().map(|blocker| {
+            format!(
+                "{}:{}",
+                self.loaded_resource_pack(),
+                blocker.reason_fragment()
+            )
+        })
     }
 }
 
@@ -47184,6 +47372,114 @@ mod tests {
     }
 
     #[test]
+    fn colormap_runtime_report_loaded_counts_representatives_and_boundary() {
+        let pack = TempPack::new();
+        let grass_png = encode_test_rgba_png(2, 1, &[1, 2, 3, 255, 4, 5, 6, 128]);
+        let foliage_png = encode_test_rgba_png(1, 1, &[7, 8, 9, 255]);
+        pack.write_bytes(GRASS_COLORMAP_RESOURCE, &grass_png);
+        pack.write_bytes(FOLIAGE_COLORMAP_RESOURCE, &foliage_png);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", pack.path())]);
+        let report =
+            ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE, FOLIAGE_COLORMAP_RESOURCE])
+                .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientColormapRuntimeStatus::Loaded);
+        assert_eq!(report.requested_count(), 2);
+        assert_eq!(report.loaded_count(), 2);
+        assert_eq!(report.byte_count(), grass_png.len() + foliage_png.len());
+        assert_eq!(report.pixel_count(), 3);
+        assert_eq!(
+            report.representative_colormap_resources(),
+            [
+                format!("{GRASS_COLORMAP_RESOURCE}@test"),
+                format!("{FOLIAGE_COLORMAP_RESOURCE}@test")
+            ]
+        );
+        assert!(report.blockers().is_empty());
+        assert_eq!(report.boundary(), CLIENT_COLORMAP_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+        assert!(report.summary_fragment().contains("status:loaded"));
+        assert!(report.items().iter().any(|item| {
+            item == &format!(
+                "client_colormap_runtime_colormap:{GRASS_COLORMAP_RESOURCE}@test boundary:{CLIENT_COLORMAP_RUNTIME_BOUNDARY}"
+            )
+        }));
+    }
+
+    #[test]
+    fn colormap_runtime_report_blocked_status_keeps_blockers() {
+        let pack = TempPack::new();
+        pack.write_bytes(GRASS_COLORMAP_RESOURCE, b"not a png");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", pack.path())]);
+        let report = ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE]).runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientColormapRuntimeStatus::Blocked);
+        assert_eq!(report.requested_count(), 1);
+        assert_eq!(report.loaded_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.pixel_count(), 0);
+        assert_eq!(
+            report.blockers(),
+            [format!(
+                "{GRASS_COLORMAP_RESOURCE}@test:invalid_png_signature"
+            )]
+        );
+        assert!(report.representative_colormap_resources().is_empty());
+        assert_eq!(report.error(), None);
+        assert!(report.items().iter().any(|item| {
+            item == &format!(
+                "client_colormap_runtime_blocker:{GRASS_COLORMAP_RESOURCE}@test:invalid_png_signature boundary:{CLIENT_COLORMAP_RUNTIME_BOUNDARY}"
+            )
+        }));
+    }
+
+    #[test]
+    fn colormap_runtime_report_missing_status_keeps_missing_blocker() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report =
+            ColormapReloadListener::new([FOLIAGE_COLORMAP_RESOURCE]).runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientColormapRuntimeStatus::Missing);
+        assert_eq!(report.requested_count(), 1);
+        assert_eq!(report.loaded_count(), 0);
+        assert_eq!(report.blocker_count(), 1);
+        assert_eq!(
+            report.blockers(),
+            [format!(
+                "{FOLIAGE_COLORMAP_RESOURCE}@missing:missing_resource"
+            )]
+        );
+        assert_eq!(report.boundary(), CLIENT_COLORMAP_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+        assert!(report.summary_fragment().contains("status:missing"));
+    }
+
+    #[test]
+    fn colormap_runtime_report_failed_status_is_non_panicking_surface() {
+        let error = ResourceReloadError::MissingResource(GRASS_COLORMAP_RESOURCE.to_owned());
+        let report = ClientColormapRuntimeReport::from_failure(1, &error);
+
+        assert_eq!(report.status(), ClientColormapRuntimeStatus::Failed);
+        assert_eq!(report.requested_count(), 1);
+        assert_eq!(report.loaded_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.pixel_count(), 0);
+        assert!(report.representative_colormap_resources().is_empty());
+        assert!(report.blockers().is_empty());
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains(GRASS_COLORMAP_RESOURCE))
+        );
+        assert!(report.summary_fragment().contains("status:failed"));
+        assert!(report.items().iter().any(|item| {
+            item.starts_with("client_colormap_runtime_failure:error:missing client resource")
+        }));
+    }
+
+    #[test]
     fn texture_metadata_listener_reports_highest_priority_pack_bytes_and_mcmeta_shape() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
@@ -48168,6 +48464,37 @@ mod tests {
                 65_536
             );
         }
+    }
+
+    #[test]
+    fn colormap_runtime_report_committed_vanilla_default_set_is_loaded() {
+        let report =
+            ColormapReloadListener::default().runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientColormapRuntimeStatus::Loaded);
+        assert_eq!(report.requested_count(), 3);
+        assert_eq!(report.loaded_count(), 3);
+        assert!(report.byte_count() > PNG_SIGNATURE.len() * 3);
+        assert_eq!(report.pixel_count(), 196_608);
+        assert_eq!(
+            report.representative_colormap_resources(),
+            DEFAULT_COLORMAPS
+                .iter()
+                .map(|resource| format!("{resource}@{VANILLA_PACK_ID}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(report.blockers().is_empty());
+        assert_eq!(report.boundary(), CLIENT_COLORMAP_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+
+        let items = report.items();
+        assert_eq!(items[0], report.summary_fragment());
+        assert!(items[0].contains("status:loaded requested:3 loaded:3"));
+        assert!(
+            items
+                .iter()
+                .all(|item| item.contains(CLIENT_COLORMAP_RUNTIME_BOUNDARY))
+        );
     }
 
     #[test]
