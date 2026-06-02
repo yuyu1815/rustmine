@@ -180,6 +180,8 @@ const REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY: &str =
     "regional_compliance_notifications_scheduled_runtime_ui_pending";
 const SHADER_SOURCE_INVENTORY_RUNTIME_BOUNDARY: &str =
     "shader_sources_loaded_manager_reload_pending";
+const HEADLESS_SHADER_MANAGER_RELOAD_RUNTIME_BOUNDARY: &str =
+    "shader_manager_reload_loaded_runtime_compile_pending";
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
 const CLIENT_LANGUAGE_RUNTIME_BOUNDARY: &str =
     "client_language_assets_loaded_runtime_lookup_pending";
@@ -22905,6 +22907,16 @@ impl HeadlessShaderManagerReloadListener {
     ) -> ResourceReloadResult<HeadlessShaderManagerReloadReport> {
         load_headless_shader_manager_reload(stack, &self.requested_post_chain_ids)
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientHeadlessShaderManagerReloadRuntimeReport {
+        ClientHeadlessShaderManagerReloadRuntimeReport::from_stack(
+            stack,
+            &self.requested_post_chain_ids,
+        )
+    }
 }
 
 impl ResourceReloadListener for HeadlessShaderManagerReloadListener {
@@ -22928,7 +22940,298 @@ impl ResourceReloadListener for HeadlessShaderManagerReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        let mut items = self.load(stack)?.items();
+        items.extend(self.runtime_report(stack).items());
+        Ok(ResourceReloadTaskReport::new(items))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientHeadlessShaderManagerReloadRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientHeadlessShaderManagerReloadRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientHeadlessShaderManagerReloadRuntimeReport {
+    status: ClientHeadlessShaderManagerReloadRuntimeStatus,
+    shader_source_count: usize,
+    program_candidate_count: usize,
+    ready_program_count: usize,
+    blocked_program_count: usize,
+    post_chain_count: usize,
+    manager_blocker_count: usize,
+    import_count: usize,
+    representative_program_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_imports: Vec<String>,
+    representative_post_chains: Vec<String>,
+    representative_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientHeadlessShaderManagerReloadRuntimeReport {
+    fn from_stack(stack: &ClientResourceStack, requested_post_chain_ids: &[String]) -> Self {
+        let representative_post_chains = match discover_headless_shader_manager_resources(stack) {
+            Ok(resources) => selected_headless_post_chain_resources(
+                stack,
+                resources.post_chains,
+                requested_post_chain_ids,
+            )
+            .resources
+            .into_iter()
+            .take(3)
+            .collect(),
+            Err(error) => return Self::from_failure(error.to_string()),
+        };
+
+        match load_headless_shader_manager_reload(stack, requested_post_chain_ids) {
+            Ok(report) => Self::from_reload_report(&report, representative_post_chains),
+            Err(error) => Self::from_failure(error.to_string()),
+        }
+    }
+
+    fn from_reload_report(
+        report: &HeadlessShaderManagerReloadReport,
+        representative_post_chains: Vec<String>,
+    ) -> Self {
+        let representative_program_ids = report
+            .program_candidates()
+            .iter()
+            .take(3)
+            .map(|candidate| candidate.id().to_owned())
+            .collect::<Vec<_>>();
+        let representative_resources = report
+            .program_candidates()
+            .iter()
+            .flat_map(|candidate| [candidate.vertex_resource(), candidate.fragment_resource()])
+            .flatten()
+            .take(3)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let representative_imports = report
+            .program_candidates()
+            .iter()
+            .flat_map(HeadlessShaderProgramCompileCandidateReport::imports)
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut representative_blockers = report
+            .blockers()
+            .iter()
+            .take(5)
+            .map(HeadlessShaderManagerReloadBlocker::short_string)
+            .collect::<Vec<_>>();
+        if representative_blockers.len() < 5 {
+            representative_blockers.extend(
+                report
+                    .program_candidates()
+                    .iter()
+                    .flat_map(HeadlessShaderProgramCompileCandidateReport::blockers)
+                    .map(HeadlessShaderManagerReloadBlocker::short_string)
+                    .take(5 - representative_blockers.len()),
+            );
+        }
+        if report.shader_source_count() == 0
+            && report.program_candidates().is_empty()
+            && report.blockers().is_empty()
+        {
+            representative_blockers
+                .push("shader_manager:no shader manager inputs discovered".to_owned());
+        }
+
+        let status =
+            headless_shader_manager_reload_runtime_status(report, &representative_blockers);
+
+        Self {
+            status,
+            shader_source_count: report.shader_source_count(),
+            program_candidate_count: report.program_candidates().len(),
+            ready_program_count: report.ready_candidate_count(),
+            blocked_program_count: report.blocked_candidate_count(),
+            post_chain_count: report.post_chain_count(),
+            manager_blocker_count: report.blockers().len(),
+            import_count: report.import_count(),
+            representative_program_ids,
+            representative_resources,
+            representative_imports,
+            representative_post_chains,
+            representative_blockers,
+            runtime_boundary: HEADLESS_SHADER_MANAGER_RELOAD_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    fn from_failure(error: impl Into<String>) -> Self {
+        Self {
+            status: ClientHeadlessShaderManagerReloadRuntimeStatus::Failed,
+            shader_source_count: 0,
+            program_candidate_count: 0,
+            ready_program_count: 0,
+            blocked_program_count: 0,
+            post_chain_count: 0,
+            manager_blocker_count: 0,
+            import_count: 0,
+            representative_program_ids: Vec::new(),
+            representative_resources: Vec::new(),
+            representative_imports: Vec::new(),
+            representative_post_chains: Vec::new(),
+            representative_blockers: Vec::new(),
+            runtime_boundary: HEADLESS_SHADER_MANAGER_RELOAD_RUNTIME_BOUNDARY,
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn status(&self) -> ClientHeadlessShaderManagerReloadRuntimeStatus {
+        self.status
+    }
+
+    pub fn shader_source_count(&self) -> usize {
+        self.shader_source_count
+    }
+
+    pub fn program_candidate_count(&self) -> usize {
+        self.program_candidate_count
+    }
+
+    pub fn ready_program_count(&self) -> usize {
+        self.ready_program_count
+    }
+
+    pub fn blocked_program_count(&self) -> usize {
+        self.blocked_program_count
+    }
+
+    pub fn post_chain_count(&self) -> usize {
+        self.post_chain_count
+    }
+
+    pub fn manager_blocker_count(&self) -> usize {
+        self.manager_blocker_count
+    }
+
+    pub fn import_count(&self) -> usize {
+        self.import_count
+    }
+
+    pub fn representative_program_ids(&self) -> &[String] {
+        &self.representative_program_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_imports(&self) -> &[String] {
+        &self.representative_imports
+    }
+
+    pub fn representative_post_chains(&self) -> &[String] {
+        &self.representative_post_chains
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_headless_shader_manager_reload_runtime_report:status:{} shader_sources:{} program_candidates:{} ready_programs:{} blocked_programs:{} post_chains:{} manager_blockers:{} imports:{} representative_programs:{} representative_resources:{} representative_imports:{} representative_post_chains:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.shader_source_count(),
+            self.program_candidate_count(),
+            self.ready_program_count(),
+            self.blocked_program_count(),
+            self.post_chain_count(),
+            self.manager_blocker_count(),
+            self.import_count(),
+            shader_manager_runtime_list_fragment(self.representative_program_ids()),
+            shader_manager_runtime_list_fragment(self.representative_resources()),
+            shader_manager_runtime_list_fragment(self.representative_imports()),
+            shader_manager_runtime_list_fragment(self.representative_post_chains()),
+            shader_manager_runtime_list_fragment(self.representative_blockers()),
+            self.error().unwrap_or("none"),
+            self.runtime_boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_program_ids.iter().map(|program| {
+            format!(
+                "client_headless_shader_manager_reload_runtime_report_program:{program} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_headless_shader_manager_reload_runtime_report_resource:{resource} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_imports.iter().map(|import| {
+            format!(
+                "client_headless_shader_manager_reload_runtime_report_import:{import} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_post_chains.iter().map(|post_chain| {
+            format!(
+                "client_headless_shader_manager_reload_runtime_report_post_chain:{post_chain} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_blockers.iter().map(|blocker| {
+            format!(
+                "client_headless_shader_manager_reload_runtime_report_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_headless_shader_manager_reload_runtime_report_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        items
+    }
+}
+
+fn headless_shader_manager_reload_runtime_status(
+    report: &HeadlessShaderManagerReloadReport,
+    representative_blockers: &[String],
+) -> ClientHeadlessShaderManagerReloadRuntimeStatus {
+    if representative_blockers
+        .iter()
+        .any(|blocker| blocker.contains("missing"))
+    {
+        ClientHeadlessShaderManagerReloadRuntimeStatus::Missing
+    } else if !report.blockers().is_empty() || report.blocked_candidate_count() > 0 {
+        ClientHeadlessShaderManagerReloadRuntimeStatus::Blocked
+    } else {
+        ClientHeadlessShaderManagerReloadRuntimeStatus::Loaded
     }
 }
 
@@ -48594,6 +48897,146 @@ mod tests {
         assert!(listener.reload.items().iter().any(|item| {
             item.starts_with("shader_program_candidate:shader_pair:minecraft:core/position_tex ")
         }));
+    }
+
+    #[test]
+    fn headless_shader_manager_runtime_report_committed_vanilla_exposes_reload_surface() {
+        let report = HeadlessShaderManagerReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientHeadlessShaderManagerReloadRuntimeStatus::Loaded
+        );
+        assert_eq!(report.shader_source_count(), 79);
+        assert_eq!(report.post_chain_count(), 6);
+        assert!(report.program_candidate_count() >= report.ready_program_count());
+        assert!(report.ready_program_count() > 0);
+        assert_eq!(report.manager_blocker_count(), 0);
+        assert!(report.import_count() > 0);
+        assert_eq!(
+            report.runtime_boundary(),
+            HEADLESS_SHADER_MANAGER_RELOAD_RUNTIME_BOUNDARY
+        );
+        assert!(!report.representative_program_ids().is_empty());
+        assert!(!report.representative_resources().is_empty());
+        assert!(!report.representative_post_chains().is_empty());
+        assert!(report.error().is_none());
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_headless_shader_manager_reload_runtime_report:status:loaded")
+        );
+    }
+
+    #[test]
+    fn headless_shader_manager_runtime_report_missing_or_corrupt_inputs_do_not_panic() {
+        let missing_post_chain_report =
+            HeadlessShaderManagerReloadListener::new(["minecraft:missing"])
+                .runtime_report(&ClientResourceStack::new(Vec::new()));
+
+        assert_eq!(
+            missing_post_chain_report.status(),
+            ClientHeadlessShaderManagerReloadRuntimeStatus::Missing
+        );
+        assert_eq!(missing_post_chain_report.program_candidate_count(), 0);
+        assert!(
+            missing_post_chain_report
+                .representative_blockers()
+                .iter()
+                .any(|blocker| blocker.contains("missing post-chain config `minecraft:missing`"))
+        );
+        assert!(missing_post_chain_report.error().is_none());
+
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:missing.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write("assets/minecraft/post_effect/bad.json", "[]");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = HeadlessShaderManagerReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientHeadlessShaderManagerReloadRuntimeStatus::Missing
+        );
+        assert_eq!(report.shader_source_count(), 2);
+        assert!(report.manager_blocker_count() > 0);
+        assert!(report.representative_blockers().iter().any(|blocker| {
+            blocker.contains("assets/minecraft/shaders/include/missing.glsl")
+                && blocker.contains("missing shader include")
+        }));
+        assert!(report.representative_blockers().iter().any(|blocker| {
+            blocker.contains("assets/minecraft/post_effect/bad.json")
+                && blocker.contains("post effect root must be an object")
+        }));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_headless_shader_manager_reload_runtime_report_blocker")
+        }));
+        assert!(report.error().is_none());
+    }
+
+    #[test]
+    fn headless_shader_manager_runtime_report_reload_rows_append_after_manager_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/shaders/core/example.vsh",
+            "#version 150\n#moj_import <minecraft:common.glsl>\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/core/example.fsh",
+            "#version 150\nvoid main() {}\n",
+        );
+        temp.write(
+            "assets/minecraft/shaders/include/common.glsl",
+            "#define COMMON 1\n",
+        );
+        temp.write(
+            "assets/minecraft/post_effect/example.json",
+            r#"{"targets":{},"passes":[{"vertex_shader":"minecraft:core/example","fragment_shader":"minecraft:core/example","output":"minecraft:main"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let reload = HeadlessShaderManagerReloadListener::default()
+            .reload(&stack)
+            .expect("headless shader manager reload should append runtime report rows");
+
+        assert!(reload.items()[0].starts_with("shader_manager:shader_sources:"));
+        let candidate_index = reload
+            .items()
+            .iter()
+            .position(|item| item.starts_with("shader_program_candidate:"))
+            .expect("manager candidate row should be present");
+        let runtime_report_index = reload
+            .items()
+            .iter()
+            .position(|item| {
+                item.starts_with("client_headless_shader_manager_reload_runtime_report:")
+            })
+            .expect("runtime report row should be appended");
+
+        assert!(runtime_report_index > candidate_index);
+        assert!(reload.items()[runtime_report_index].contains(
+            "status:loaded shader_sources:2 program_candidates:2 ready_programs:2 blocked_programs:0"
+        ));
+        assert!(
+            reload.items()[runtime_report_index..]
+                .iter()
+                .all(|item| item.contains(HEADLESS_SHADER_MANAGER_RELOAD_RUNTIME_BOUNDARY))
+        );
+        assert!(
+            reload
+                .items()
+                .iter()
+                .any(|item| item.contains(
+                    "client_headless_shader_manager_reload_runtime_report_import:assets/minecraft/shaders/include/common.glsl"
+                ))
+        );
     }
 
     #[test]
