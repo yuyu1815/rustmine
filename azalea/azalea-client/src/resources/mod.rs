@@ -601,12 +601,42 @@ pub enum ServerResourcePackReloadOutcome {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct ServerResourcePackReloadProgressSnapshot {
+    actual_progress: f32,
+    listener: Option<String>,
+    step: ResourceReloadStep,
+}
+
+impl ServerResourcePackReloadProgressSnapshot {
+    pub fn from_event(event: &ResourceReloadEvent) -> Self {
+        Self {
+            actual_progress: event.progress_snapshot.actual_progress(),
+            listener: (!event.listener.is_empty()).then(|| event.listener.clone()),
+            step: event.step,
+        }
+    }
+
+    pub fn actual_progress(&self) -> f32 {
+        self.actual_progress
+    }
+
+    pub fn listener(&self) -> Option<&str> {
+        self.listener.as_deref()
+    }
+
+    pub fn step(&self) -> ResourceReloadStep {
+        self.step
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ServerResourcePackApplyState {
     request: ServerResourcePackRequest,
     status: ServerResourcePackStatus,
     downloaded: Option<ServerResourcePackDownload>,
     ack_history: Vec<ServerResourcePackAck>,
     reload_outcome: Option<ServerResourcePackReloadOutcome>,
+    reload_progress_snapshots: Vec<ServerResourcePackReloadProgressSnapshot>,
 }
 
 impl ServerResourcePackApplyState {
@@ -617,6 +647,7 @@ impl ServerResourcePackApplyState {
             downloaded: None,
             ack_history: Vec::new(),
             reload_outcome: None,
+            reload_progress_snapshots: Vec::new(),
         }
     }
 
@@ -789,6 +820,21 @@ impl ServerResourcePackApplyState {
 
     pub fn reload_outcome(&self) -> Option<ServerResourcePackReloadOutcome> {
         self.reload_outcome
+    }
+
+    pub fn record_resource_reload_event(&mut self, event: &ResourceReloadEvent) {
+        self.reload_progress_snapshots
+            .push(ServerResourcePackReloadProgressSnapshot::from_event(event));
+    }
+
+    pub fn reload_progress_snapshots(&self) -> &[ServerResourcePackReloadProgressSnapshot] {
+        &self.reload_progress_snapshots
+    }
+
+    pub fn last_reload_progress_snapshot(
+        &self,
+    ) -> Option<&ServerResourcePackReloadProgressSnapshot> {
+        self.reload_progress_snapshots.last()
     }
 
     pub fn runtime_report(&self) -> ServerResourcePackApplyRuntimeReport {
@@ -1750,9 +1796,20 @@ fn server_resource_pack_apply_runtime_report_item(
         .unwrap_or("none");
     let ack_sequence = server_resource_pack_ack_sequence_label(pack.ack_history());
     let enters_resource_stack = pack.status() == ServerResourcePackStatus::Applied;
+    let reload_snapshot_count = pack.reload_progress_snapshots().len();
+    let last_reload_snapshot = pack.last_reload_progress_snapshot();
+    let last_reload_actual_progress = last_reload_snapshot
+        .map(|snapshot| format!("{:.3}", snapshot.actual_progress()))
+        .unwrap_or_else(|| "none".to_owned());
+    let last_reload_listener = last_reload_snapshot
+        .and_then(ServerResourcePackReloadProgressSnapshot::listener)
+        .unwrap_or("none");
+    let last_reload_step = last_reload_snapshot
+        .map(|snapshot| snapshot.step().as_str())
+        .unwrap_or("none");
 
     format!(
-        "server_resource_pack_apply_runtime_report_pack:id:{} status:{} request_url:{} request_hash:{} required:{} selected_pack_id:{} selected_pack_path:{} selected_pack_source:{} ack_sequence:{} reload_outcome:{} stack_pack_count:{} enters_resource_stack:{} download_kind:{} download_len:{} download_sha1:{} failure_reason:{} download_boundary:{} open_boundary:{} reload_boundary:{} apply_boundary:{}",
+        "server_resource_pack_apply_runtime_report_pack:id:{} status:{} request_url:{} request_hash:{} required:{} selected_pack_id:{} selected_pack_path:{} selected_pack_source:{} ack_sequence:{} reload_outcome:{} reload_snapshot_count:{} reload_last_actual_progress:{} reload_last_listener:{} reload_last_step:{} stack_pack_count:{} enters_resource_stack:{} download_kind:{} download_len:{} download_sha1:{} failure_reason:{} download_boundary:{} open_boundary:{} reload_boundary:{} apply_boundary:{}",
         request.id(),
         server_resource_pack_status_label(pack.status()),
         request.url(),
@@ -1763,6 +1820,10 @@ fn server_resource_pack_apply_runtime_report_item(
         selected_pack_source,
         ack_sequence,
         server_resource_pack_reload_outcome_label(pack.reload_outcome()),
+        reload_snapshot_count,
+        last_reload_actual_progress,
+        last_reload_listener,
+        last_reload_step,
         stack_pack_count,
         enters_resource_stack,
         download_kind,
@@ -39894,6 +39955,72 @@ mod tests {
             item.contains("reload_boundary:server_resource_pack_client_resources_reload_boundary")
         );
         assert!(item.contains("apply_boundary:server_resource_pack_apply_resource_stack_boundary"));
+    }
+
+    #[test]
+    fn server_resource_pack_apply_runtime_report_reports_no_reload_progress_before_reload() {
+        let id = resource_pack_id(717);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+
+        let report = pack.runtime_report();
+        let item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("pack report row should exist");
+
+        assert!(pack.reload_progress_snapshots().is_empty());
+        assert!(pack.last_reload_progress_snapshot().is_none());
+        assert!(item.contains("reload_snapshot_count:0"));
+        assert!(item.contains("reload_last_actual_progress:none"));
+        assert!(item.contains("reload_last_listener:none"));
+        assert!(item.contains("reload_last_step:none"));
+    }
+
+    #[test]
+    fn server_resource_pack_apply_runtime_report_reports_successful_reload_progress() {
+        let id = resource_pack_id(718);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+        let stack =
+            ClientResourceStack::new(vec![ClientResourcePack::vanilla(), pack.resource_pack()]);
+        ResourceReloadManager::with_default_client_resources(stack)
+            .run_with_events(|event| pack.record_resource_reload_event(event))
+            .expect("server pack stacked above vanilla should reload");
+        pack.apply_opened();
+
+        let report = pack.runtime_report();
+        let item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("pack report row should exist");
+
+        assert!(!pack.reload_progress_snapshots().is_empty());
+        assert_eq!(
+            pack.last_reload_progress_snapshot()
+                .map(|snapshot| snapshot.actual_progress()),
+            Some(1.0)
+        );
+        assert!(item.contains(&format!(
+            "reload_snapshot_count:{}",
+            pack.reload_progress_snapshots().len()
+        )));
+        assert!(item.contains("reload_last_actual_progress:1.000"));
+        assert!(item.contains("reload_last_step:listener_complete"));
     }
 
     #[test]

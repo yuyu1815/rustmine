@@ -196,12 +196,14 @@ fn push_resource_pack_apply_ack(
 
 #[cfg(any(feature = "online-mode", test))]
 fn reload_accepted_resource_pack(
-    pack: &ServerResourcePackApplyState,
+    pack: &mut ServerResourcePackApplyState,
     base_stack: ClientResourceStack,
 ) -> azalea_client::resources::ResourceReloadResult<azalea_client::resources::ResourceReloadReport>
 {
     let stack = accepted_resource_pack_reload_stack(base_stack, pack.resource_pack());
-    ResourceReloadManager::with_default_client_resources(stack).run()
+    ResourceReloadManager::with_default_client_resources(stack).run_with_events(|event| {
+        pack.record_resource_reload_event(event);
+    })
 }
 
 #[cfg(any(feature = "online-mode", test))]
@@ -586,6 +588,12 @@ mod tests {
             ClientResourceStack::new(Vec::new()),
             Ok(downloaded),
         );
+        let report = pack.runtime_report();
+        let report_item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("pack runtime report row should exist");
 
         assert_eq!(
             ack_actions(&acks),
@@ -605,6 +613,14 @@ mod tests {
             pack.reload_outcome(),
             Some(ServerResourcePackReloadOutcome::Failed)
         );
+        assert!(!pack.reload_progress_snapshots().is_empty());
+        assert!(pack.last_reload_progress_snapshot().is_some());
+        assert!(report_item.contains(&format!(
+            "reload_snapshot_count:{}",
+            pack.reload_progress_snapshots().len()
+        )));
+        assert!(report_item.contains("reload_last_actual_progress:"));
+        assert!(!report_item.contains("reload_last_actual_progress:none"));
     }
 
     #[test]
@@ -637,6 +653,12 @@ mod tests {
             .expect("directory pack with valid metadata should download");
         let acks =
             resource_pack_apply_ack_sequence(&mut pack, model.resource_stack(), Ok(downloaded));
+        assert!(!pack.reload_progress_snapshots().is_empty());
+        assert_eq!(
+            pack.last_reload_progress_snapshot()
+                .map(|snapshot| snapshot.actual_progress()),
+            Some(1.0)
+        );
         model.record(pack);
 
         assert_eq!(
