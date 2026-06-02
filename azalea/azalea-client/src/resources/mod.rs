@@ -3143,6 +3143,107 @@ impl RegionalComplianceNotificationDecisionCandidateReport {
         items.push(self.boundary_marker().to_owned());
         items
     }
+
+    pub fn into_runtime_state(self) -> RegionalComplianceNotificationState {
+        RegionalComplianceNotificationState::from(self)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegionalComplianceNotificationState {
+    report: RegionalComplianceNotificationDecisionCandidateReport,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegionalComplianceNotificationStateStatus {
+    Loaded,
+    Blocked,
+}
+
+impl RegionalComplianceNotificationState {
+    pub fn from_compliancies(
+        country_code: impl AsRef<str>,
+        compliancies: &RegionalCompliancies,
+    ) -> Self {
+        RegionalComplianceNotificationDecisionCandidateReport::loaded(
+            compliancies.report().resource(),
+            normalize_regional_compliance_country_code(country_code.as_ref()),
+            compliancies,
+        )
+        .into_runtime_state()
+    }
+
+    pub fn from_report(report: RegionalComplianceNotificationDecisionCandidateReport) -> Self {
+        Self { report }
+    }
+
+    pub fn status(&self) -> RegionalComplianceNotificationStateStatus {
+        if self.report.loaded_compliancies_report().is_some() && self.report.blockers().is_empty() {
+            RegionalComplianceNotificationStateStatus::Loaded
+        } else {
+            RegionalComplianceNotificationStateStatus::Blocked
+        }
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.status() == RegionalComplianceNotificationStateStatus::Loaded
+    }
+
+    pub fn is_blocked(&self) -> bool {
+        self.status() == RegionalComplianceNotificationStateStatus::Blocked
+    }
+
+    pub fn country_code(&self) -> &str {
+        self.report.country_code()
+    }
+
+    pub fn selected_notifications(&self) -> &[RegionalComplianceNotification] {
+        self.report.selected_notifications()
+    }
+
+    pub fn scheduling_plan(&self) -> RegionalComplianceSchedulingPlan {
+        self.report.scheduling_plan()
+    }
+
+    pub fn notifications_enabled(&self) -> bool {
+        self.is_loaded() && self.scheduling_plan().is_enabled()
+    }
+
+    pub fn next_delay(&self) -> Option<i64> {
+        self.scheduling_plan().initial_delay()
+    }
+
+    pub fn period(&self) -> Option<i64> {
+        self.scheduling_plan().optimal_period()
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        self.report.blockers()
+    }
+
+    pub fn loaded_compliancies_report(&self) -> Option<&RegionalComplianciesReloadReport> {
+        self.report.loaded_compliancies_report()
+    }
+
+    pub fn decision_candidate_report(
+        &self,
+    ) -> &RegionalComplianceNotificationDecisionCandidateReport {
+        &self.report
+    }
+
+    pub fn into_decision_candidate_report(
+        self,
+    ) -> RegionalComplianceNotificationDecisionCandidateReport {
+        self.report
+    }
+}
+
+impl From<RegionalComplianceNotificationDecisionCandidateReport>
+    for RegionalComplianceNotificationState
+{
+    fn from(report: RegionalComplianceNotificationDecisionCandidateReport) -> Self {
+        Self { report }
+    }
 }
 
 impl RegionalComplianceNotificationDecisionCandidateReloadListener {
@@ -3175,6 +3276,10 @@ impl RegionalComplianceNotificationDecisionCandidateReloadListener {
                 error.to_string(),
             ),
         }
+    }
+
+    pub fn state(&self, stack: &ClientResourceStack) -> RegionalComplianceNotificationState {
+        self.report(stack).into_runtime_state()
     }
 }
 
@@ -3364,6 +3469,24 @@ pub enum RegionalComplianceSchedulingPlan {
 }
 
 impl RegionalComplianceSchedulingPlan {
+    pub fn is_enabled(self) -> bool {
+        matches!(self, Self::Enabled { .. })
+    }
+
+    pub fn initial_delay(self) -> Option<i64> {
+        match self {
+            Self::Disabled => None,
+            Self::Enabled { initial_delay, .. } => Some(initial_delay),
+        }
+    }
+
+    pub fn optimal_period(self) -> Option<i64> {
+        match self {
+            Self::Disabled => None,
+            Self::Enabled { optimal_period, .. } => Some(optimal_period),
+        }
+    }
+
     fn kind_fragment(self) -> &'static str {
         match self {
             Self::Disabled => "disabled",
@@ -29630,6 +29753,97 @@ mod tests {
         assert!(report.items().iter().any(|item| {
             item.starts_with("regional_compliance_blocker:invalid regional compliancies")
         }));
+    }
+
+    #[test]
+    fn regional_notification_state_exposes_loaded_schedule() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"KOR":[{"delay":1440,"period":60,"title":"over.24h","message":"playtime.message"},{"period":60,"title":"hours","message":"playtime.message"}],"USA":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("kor")
+            .state(&stack);
+
+        assert_eq!(
+            state.status(),
+            RegionalComplianceNotificationStateStatus::Loaded
+        );
+        assert!(state.is_loaded());
+        assert!(!state.is_blocked());
+        assert_eq!(state.country_code(), "KOR");
+        assert_eq!(state.selected_notifications().len(), 2);
+        assert_eq!(state.scheduling_plan().initial_delay(), Some(0));
+        assert_eq!(state.scheduling_plan().optimal_period(), Some(60));
+        assert!(state.notifications_enabled());
+        assert_eq!(state.next_delay(), Some(0));
+        assert_eq!(state.period(), Some(60));
+        assert!(state.blockers().is_empty());
+        assert_eq!(
+            state
+                .loaded_compliancies_report()
+                .expect("state should retain loaded compliancies report")
+                .pack_id(),
+            "test"
+        );
+    }
+
+    #[test]
+    fn regional_notification_state_loaded_without_schedule_is_disabled() {
+        let temp = TempPack::new();
+        temp.write(REGIONAL_COMPLIANCIES_RESOURCE, r#"{"USA":[]}"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let compliancies = RegionalComplianciesReloadListener::default()
+            .load(&stack)
+            .expect("regional compliancies should parse");
+        let state = RegionalComplianceNotificationState::from_compliancies("usa", &compliancies);
+
+        assert_eq!(
+            state.status(),
+            RegionalComplianceNotificationStateStatus::Loaded
+        );
+        assert_eq!(state.country_code(), "USA");
+        assert!(state.selected_notifications().is_empty());
+        assert_eq!(
+            state.scheduling_plan(),
+            RegionalComplianceSchedulingPlan::Disabled
+        );
+        assert!(!state.notifications_enabled());
+        assert_eq!(state.next_delay(), None);
+        assert_eq!(state.period(), None);
+    }
+
+    #[test]
+    fn regional_notification_state_retains_blocker_status() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let state =
+            RegionalComplianceNotificationDecisionCandidateReloadListener::default().state(&stack);
+
+        assert_eq!(
+            state.status(),
+            RegionalComplianceNotificationStateStatus::Blocked
+        );
+        assert!(!state.is_loaded());
+        assert!(state.is_blocked());
+        assert_eq!(
+            state.country_code(),
+            DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE
+        );
+        assert!(state.selected_notifications().is_empty());
+        assert_eq!(
+            state.scheduling_plan(),
+            RegionalComplianceSchedulingPlan::Disabled
+        );
+        assert!(!state.notifications_enabled());
+        assert_eq!(state.next_delay(), None);
+        assert_eq!(state.period(), None);
+        assert!(state.loaded_compliancies_report().is_none());
+        assert_eq!(state.blockers().len(), 1);
+        assert!(state.blockers()[0].contains("missing client resource"));
     }
 
     #[test]
