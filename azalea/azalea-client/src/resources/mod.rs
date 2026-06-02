@@ -6640,6 +6640,25 @@ impl ClientEquipmentRendererRuntimeCandidateReport {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientEquipmentRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientEquipmentRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientEquipmentRendererLoadStatus {
     Loaded,
     Blocked,
@@ -6796,6 +6815,10 @@ impl ClientEquipmentRendererState {
         &self.runtime_candidates
     }
 
+    pub fn textures(&self) -> &[ClientEquipmentRendererTextureState] {
+        &self.textures
+    }
+
     pub fn equipment_by_id(
         &self,
         equipment_id: &str,
@@ -6885,6 +6908,305 @@ impl ClientEquipmentRendererState {
         );
         items
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientEquipmentRuntimeReport {
+    status: ClientEquipmentRuntimeStatus,
+    equipment_count: usize,
+    layer_count: usize,
+    texture_count: usize,
+    decoded_resource_count: usize,
+    byte_count: usize,
+    runtime_candidate_count: usize,
+    runtime_blocker_count: usize,
+    upload_render_blocker_count: usize,
+    representative_equipment_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    representative_candidate_ids: Vec<String>,
+    blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientEquipmentRuntimeReport {
+    pub fn from_state(state: &ClientEquipmentRendererState) -> Self {
+        Self {
+            status: equipment_runtime_status_from_state(state),
+            equipment_count: state.equipment_count(),
+            layer_count: state.layer_count(),
+            texture_count: state.texture_count(),
+            decoded_resource_count: state.decoded_count(),
+            byte_count: state.byte_count(),
+            runtime_candidate_count: state.runtime_candidates().equipment_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            upload_render_blocker_count: state.upload_render_blocker_count(),
+            representative_equipment_ids: representative_equipment_ids_from_renderer_state(state),
+            representative_resources: representative_resources_from_equipment_renderer_state(state),
+            representative_candidate_ids:
+                representative_equipment_candidate_ids_from_renderer_state(state),
+            blockers: equipment_runtime_representative_blockers(state),
+            runtime_boundary: EQUIPMENT_RENDERER_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientEquipmentRuntimeStatus::Missing
+            } else {
+                ClientEquipmentRuntimeStatus::Failed
+            },
+            equipment_count: 0,
+            layer_count: 0,
+            texture_count: 0,
+            decoded_resource_count: 0,
+            byte_count: 0,
+            runtime_candidate_count: 0,
+            runtime_blocker_count: 0,
+            upload_render_blocker_count: 0,
+            representative_equipment_ids: Vec::new(),
+            representative_resources: Vec::new(),
+            representative_candidate_ids: Vec::new(),
+            blockers: Vec::new(),
+            runtime_boundary: EQUIPMENT_RENDERER_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientEquipmentRuntimeStatus {
+        self.status
+    }
+
+    pub fn equipment_count(&self) -> usize {
+        self.equipment_count
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layer_count
+    }
+
+    pub fn texture_count(&self) -> usize {
+        self.texture_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidate_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn upload_render_blocker_count(&self) -> usize {
+        self.upload_render_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.runtime_blocker_count + self.upload_render_blocker_count
+    }
+
+    pub fn representative_equipment_ids(&self) -> &[String] {
+        &self.representative_equipment_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn representative_candidate_ids(&self) -> &[String] {
+        &self.representative_candidate_ids
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_equipment_runtime:status:{} equipment:{} layers:{} textures:{} decoded:{} bytes:{} runtime_candidates:{} runtime_blockers:{} upload_render_blockers:{} total_blockers:{} representative_equipment:{} representative_resources:{} representative_candidates:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.equipment_count(),
+            self.layer_count(),
+            self.texture_count(),
+            self.decoded_resource_count(),
+            self.byte_count(),
+            self.runtime_candidate_count(),
+            self.runtime_blocker_count(),
+            self.upload_render_blocker_count(),
+            self.total_blocker_count(),
+            equipment_runtime_list_fragment(self.representative_equipment_ids()),
+            equipment_runtime_list_fragment(self.representative_resources()),
+            equipment_runtime_list_fragment(self.representative_candidate_ids()),
+            equipment_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_equipment_ids.iter().take(5).map(|id| {
+            format!(
+                "client_equipment_runtime_equipment:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(
+            self.representative_resources
+                .iter()
+                .take(5)
+                .map(|resource| {
+                    format!(
+                        "client_equipment_runtime_resource:{resource} boundary:{}",
+                        self.runtime_boundary()
+                    )
+                }),
+        );
+        items.extend(self.representative_candidate_ids.iter().take(6).map(|id| {
+            format!(
+                "client_equipment_runtime_candidate:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().take(8).map(|blocker| {
+            format!(
+                "client_equipment_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_equipment_runtime_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+        items
+    }
+}
+
+fn equipment_runtime_status_from_state(
+    state: &ClientEquipmentRendererState,
+) -> ClientEquipmentRuntimeStatus {
+    match state.status() {
+        ClientEquipmentRendererLoadStatus::Loaded => ClientEquipmentRuntimeStatus::Loaded,
+        ClientEquipmentRendererLoadStatus::Blocked => ClientEquipmentRuntimeStatus::Blocked,
+        ClientEquipmentRendererLoadStatus::Missing => ClientEquipmentRuntimeStatus::Missing,
+    }
+}
+
+fn representative_equipment_ids_from_renderer_state(
+    state: &ClientEquipmentRendererState,
+) -> Vec<String> {
+    state
+        .render_candidates()
+        .equipment()
+        .iter()
+        .take(5)
+        .map(|equipment| equipment.equipment_id().to_owned())
+        .collect()
+}
+
+fn representative_resources_from_equipment_renderer_state(
+    state: &ClientEquipmentRendererState,
+) -> Vec<String> {
+    let mut resources = state
+        .render_candidates()
+        .equipment()
+        .iter()
+        .take(5)
+        .map(|equipment| equipment.resource().to_owned())
+        .collect::<Vec<_>>();
+    resources.extend(
+        state
+            .textures()
+            .iter()
+            .take(5)
+            .map(|texture| texture.resource().to_owned()),
+    );
+    resources.sort();
+    resources.dedup();
+    resources.truncate(5);
+    resources
+}
+
+fn representative_equipment_candidate_ids_from_renderer_state(
+    state: &ClientEquipmentRendererState,
+) -> Vec<String> {
+    state
+        .runtime_candidates()
+        .equipment()
+        .iter()
+        .take(6)
+        .map(|candidate| candidate.equipment_id().to_owned())
+        .collect()
+}
+
+fn equipment_runtime_representative_blockers(state: &ClientEquipmentRendererState) -> Vec<String> {
+    let mut blockers = state
+        .textures()
+        .iter()
+        .filter_map(|texture| {
+            if texture.status() == ClientEquipmentRendererLoadStatus::Loaded {
+                return None;
+            }
+
+            Some(format!(
+                "{}:{}:{}:{}",
+                if texture.boundary() == EQUIPMENT_RENDERER_RUNTIME_BOUNDARY {
+                    "runtime"
+                } else {
+                    "asset"
+                },
+                texture.equipment_id(),
+                texture.texture_resource_id(),
+                texture.blocker_reason().unwrap_or("unknown")
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+
+    blockers.extend(
+        state
+            .runtime_candidates()
+            .equipment()
+            .iter()
+            .filter(|candidate| !candidate.is_renderer_binding_ready())
+            .take(8)
+            .map(|candidate| {
+                format!(
+                    "candidate:{}:blockers:{}",
+                    candidate.equipment_id(),
+                    candidate.blocker_count()
+                )
+            }),
+    );
+
+    blockers.into_iter().take(8).collect()
+}
+
+fn equipment_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+
+    items.iter().take(8).cloned().collect::<Vec<_>>().join("|")
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14967,6 +15289,13 @@ impl EquipmentRenderAssetCandidateReloadListener {
             runtime_candidates,
         ))
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientEquipmentRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientEquipmentRuntimeReport::from_state(&state),
+            Err(error) => ClientEquipmentRuntimeReport::from_failure(&error),
+        }
+    }
 }
 
 impl Default for EquipmentRenderAssetCandidateReloadListener {
@@ -15039,6 +15368,13 @@ impl EquipmentRendererRuntimeCandidateReloadListener {
             runtime_candidates,
         ))
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientEquipmentRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientEquipmentRuntimeReport::from_state(&state),
+            Err(error) => ClientEquipmentRuntimeReport::from_failure(&error),
+        }
+    }
 }
 
 impl Default for EquipmentRendererRuntimeCandidateReloadListener {
@@ -15071,7 +15407,11 @@ impl ResourceReloadListener for EquipmentRendererRuntimeCandidateReloadListener 
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientEquipmentRuntimeReport::from_state(&state);
+        let mut items = state.runtime_candidates().items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -43977,6 +44317,180 @@ mod tests {
         assert_eq!(
             equipment.runtime_boundary(),
             EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        );
+    }
+
+    #[test]
+    fn equipment_runtime_report_reports_renderer_pending_surface_without_replacing_candidate_rows()
+    {
+        let temp = TempPack::new();
+        let png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"humanoid":[{"texture":"minecraft:custom"}]}}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/entity/equipment/humanoid/custom.png",
+            &png,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = EquipmentRendererRuntimeCandidateReloadListener::default();
+        let report = listener.runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientEquipmentRuntimeStatus::Blocked);
+        assert_eq!(report.equipment_count(), 1);
+        assert_eq!(report.layer_count(), 1);
+        assert_eq!(report.texture_count(), 1);
+        assert_eq!(report.decoded_resource_count(), 1);
+        assert_eq!(report.byte_count(), png.len());
+        assert_eq!(report.runtime_candidate_count(), 1);
+        assert_eq!(report.runtime_blocker_count(), 1);
+        assert_eq!(report.upload_render_blocker_count(), 0);
+        assert_eq!(report.total_blocker_count(), 1);
+        assert_eq!(
+            report.representative_equipment_ids(),
+            &["custom".to_owned()]
+        );
+        assert_eq!(
+            report.representative_candidate_ids(),
+            &["custom".to_owned()]
+        );
+        assert!(report.representative_resources().iter().any(|resource| {
+            resource == "assets/minecraft/equipment/custom.json"
+                || resource == "assets/minecraft/textures/entity/equipment/humanoid/custom.png"
+        }));
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.contains("runtime:custom")
+                && blocker.contains("minecraft:textures/entity/equipment/humanoid/custom.png")
+                && blocker.contains(EQUIPMENT_RENDERER_RUNTIME_BOUNDARY)
+        }));
+        assert_eq!(
+            report.runtime_boundary(),
+            EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        );
+        assert_eq!(report.error(), None);
+
+        let reload_report = ResourceReloadManager::new(stack)
+            .with_listener(listener)
+            .run()
+            .expect("equipment runtime report should append to candidate report");
+        let items = reload_report.listener_reports()[0].reload.items();
+        assert!(items[0].starts_with("equipment_renderer_runtime_candidates:"));
+        assert!(items[1].starts_with("assets/minecraft/equipment/custom.json@test id:custom"));
+        assert!(items[2].starts_with("client_equipment_runtime:status:blocked"));
+        assert!(items[2].contains("runtime_candidates:1"));
+        assert!(items[2].contains("runtime_blockers:1"));
+        assert!(items[2].contains("upload_render_blockers:0"));
+        assert!(items[2].contains("error:none"));
+    }
+
+    #[test]
+    fn equipment_runtime_report_reports_missing_texture_as_missing_without_panic() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/equipment/custom.json",
+            r#"{"layers":{"horse_body":[{"texture":"minecraft:missing"}]}}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report =
+            EquipmentRendererRuntimeCandidateReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientEquipmentRuntimeStatus::Missing);
+        assert_eq!(report.equipment_count(), 1);
+        assert_eq!(report.layer_count(), 1);
+        assert_eq!(report.texture_count(), 1);
+        assert_eq!(report.decoded_resource_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 1);
+        assert_eq!(report.runtime_blocker_count(), 0);
+        assert_eq!(report.upload_render_blocker_count(), 1);
+        assert_eq!(report.total_blocker_count(), 1);
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.contains("asset:custom")
+                && blocker.contains("minecraft:textures/entity/equipment/horse_body/missing.png")
+                && blocker.contains("missing")
+        }));
+        assert_eq!(report.error(), None);
+    }
+
+    #[test]
+    fn equipment_runtime_report_reports_invalid_asset_failure_without_panic() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/equipment/custom.json", "{not json");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report =
+            EquipmentRendererRuntimeCandidateReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientEquipmentRuntimeStatus::Failed);
+        assert_eq!(report.equipment_count(), 0);
+        assert_eq!(report.layer_count(), 0);
+        assert_eq!(report.texture_count(), 0);
+        assert_eq!(report.decoded_resource_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 0);
+        assert_eq!(report.total_blocker_count(), 0);
+        assert!(report.representative_equipment_ids().is_empty());
+        assert!(report.representative_resources().is_empty());
+        assert!(report.representative_candidate_ids().is_empty());
+        assert!(report.blockers().is_empty());
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| { error.contains("assets/minecraft/equipment/custom.json") })
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_equipment_runtime_failure:error:"))
+        );
+    }
+
+    #[test]
+    fn equipment_runtime_report_committed_vanilla_reports_representatives_and_boundaries() {
+        let report = EquipmentRendererRuntimeCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientEquipmentRuntimeStatus::Blocked);
+        assert!(report.equipment_count() >= 40);
+        assert!(report.layer_count() > report.equipment_count());
+        assert_eq!(report.texture_count(), report.decoded_resource_count());
+        assert!(report.byte_count() > PNG_SIGNATURE.len());
+        assert_eq!(report.runtime_candidate_count(), report.equipment_count());
+        assert_eq!(
+            report.runtime_blocker_count(),
+            report.decoded_resource_count()
+        );
+        assert_eq!(report.upload_render_blocker_count(), 0);
+        assert!(!report.representative_equipment_ids().is_empty());
+        assert_eq!(
+            report.representative_equipment_ids()[0],
+            report.representative_candidate_ids()[0]
+        );
+        assert!(
+            report
+                .representative_resources()
+                .iter()
+                .any(|resource| resource.starts_with("assets/minecraft/equipment/"))
+        );
+        assert!(
+            report
+                .blockers()
+                .iter()
+                .any(|blocker| blocker.contains(EQUIPMENT_RENDERER_RUNTIME_BOUNDARY))
+        );
+        assert_eq!(
+            report.runtime_boundary(),
+            EQUIPMENT_RENDERER_RUNTIME_BOUNDARY
+        );
+        assert_eq!(report.error(), None);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_equipment_runtime:status:blocked")
         );
     }
 
