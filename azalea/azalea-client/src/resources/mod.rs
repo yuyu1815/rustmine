@@ -106,6 +106,9 @@ const DEFAULT_WAYPOINT_STYLE_NEAR_DISTANCE: u32 = 128;
 const DEFAULT_WAYPOINT_STYLE_FAR_DISTANCE: u32 = 332;
 const WAYPOINT_STYLE_SPRITE_LOCATION_PREFIX: &str = "hud/locator_bar_dot";
 const VANILLA_EXCLUDED_SPLASH_JAVA_HASH: i32 = 125_780_783;
+const CLIENT_SPLASH_RUNTIME_BOUNDARY: &str =
+    "splashes_loaded_title_screen_runtime_selection_pending";
+const CLIENT_SPLASH_RUNTIME_SAMPLE_LIMIT: usize = 3;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const PACK_MCMETA_RESOURCE: &str = "pack.mcmeta";
 const CLIENT_RESOURCE_PACK_FORMAT: u32 = 84;
@@ -27583,6 +27586,144 @@ impl ClientSplashesReloadReport {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientSplashRuntimeStatus {
+    Loaded,
+    Empty,
+    Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSplashRuntimeReport {
+    status: ClientSplashRuntimeStatus,
+    resource: String,
+    pack_id: Option<String>,
+    splash_count: usize,
+    non_empty_selectable_count: usize,
+    sample_splashes: Vec<String>,
+    selected_by_index_preview: Option<String>,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientSplashRuntimeReport {
+    pub fn from_splashes(splashes: &ClientSplashes) -> Self {
+        let state = ClientSplashState::new(splashes.clone());
+        Self::from_splash_state(&state)
+    }
+
+    pub fn from_splash_state(state: &ClientSplashState) -> Self {
+        let report = state.report();
+        let sample_splashes = state
+            .lines()
+            .iter()
+            .filter(|line| !line.is_empty())
+            .take(CLIENT_SPLASH_RUNTIME_SAMPLE_LIMIT)
+            .cloned()
+            .collect::<Vec<_>>();
+        let non_empty_selectable_count = state.non_empty_count();
+        let status = if non_empty_selectable_count == 0 {
+            ClientSplashRuntimeStatus::Empty
+        } else {
+            ClientSplashRuntimeStatus::Loaded
+        };
+
+        Self {
+            status,
+            resource: report.resource().to_owned(),
+            pack_id: Some(report.pack_id().to_owned()),
+            splash_count: state.count(),
+            non_empty_selectable_count,
+            sample_splashes,
+            selected_by_index_preview: state.select_by_index(0).map(str::to_owned),
+            boundary: CLIENT_SPLASH_RUNTIME_BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(resource: impl Into<String>, error: &ResourceReloadError) -> Self {
+        Self {
+            status: ClientSplashRuntimeStatus::Failed,
+            resource: resource.into(),
+            pack_id: None,
+            splash_count: 0,
+            non_empty_selectable_count: 0,
+            sample_splashes: Vec::new(),
+            selected_by_index_preview: None,
+            boundary: CLIENT_SPLASH_RUNTIME_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientSplashRuntimeStatus {
+        self.status
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn splash_count(&self) -> usize {
+        self.splash_count
+    }
+
+    pub fn non_empty_selectable_count(&self) -> usize {
+        self.non_empty_selectable_count
+    }
+
+    pub fn sample_splashes(&self) -> &[String] {
+        &self.sample_splashes
+    }
+
+    pub fn selected_by_index_preview(&self) -> Option<&str> {
+        self.selected_by_index_preview.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "splash_runtime_report:{:?} resource:{} pack:{} splashes:{} selectable:{} samples:{} selected_by_index_preview:{} boundary:{} error:{}",
+            self.status,
+            self.resource,
+            self.pack_id.as_deref().unwrap_or("none"),
+            self.splash_count,
+            self.non_empty_selectable_count,
+            self.sample_splashes.len(),
+            self.selected_by_index_preview.as_deref().unwrap_or("none"),
+            self.boundary,
+            self.error.as_deref().unwrap_or("")
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        if !self.sample_splashes.is_empty() {
+            items.push(format!(
+                "splash_runtime_samples:{}",
+                self.sample_splashes.join("|")
+            ));
+        }
+        if let Some(preview) = &self.selected_by_index_preview {
+            items.push(format!("splash_runtime_selected_by_index_0:{preview}"));
+        }
+        if let Some(error) = &self.error {
+            items.push(format!("splash_runtime_error:{error}"));
+        }
+        items
+    }
+}
+
 pub fn load_client_splashes_resource(
     stack: &ClientResourceStack,
     resource: impl AsRef<Path>,
@@ -27646,6 +27787,13 @@ impl SplashesReloadListener {
     ) -> ResourceReloadResult<ClientSplashState> {
         self.load(stack).map(ClientSplashState::from)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientSplashRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientSplashRuntimeReport::from_splash_state(&state),
+            Err(error) => ClientSplashRuntimeReport::from_failure(self.resource.clone(), &error),
+        }
+    }
 }
 
 impl Default for SplashesReloadListener {
@@ -27674,12 +27822,15 @@ impl ResourceReloadListener for SplashesReloadListener {
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let splashes = self.load(stack)?;
         let report = splashes.report();
-
-        Ok(ResourceReloadTaskReport::new([format!(
+        let runtime_report = ClientSplashRuntimeReport::from_splashes(&splashes);
+        let mut items = vec![format!(
             "{}:{} splashes",
             report.loaded_resource_pack(),
             report.splash_count()
-        )]))
+        )];
+        items.extend(runtime_report.items());
+
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -37064,8 +37215,86 @@ mod tests {
         assert_eq!(listener.name, "splashes");
         assert_eq!(listener.preparation.items(), [SPLASHES_RESOURCE.to_owned()]);
         assert_eq!(
-            listener.reload.items(),
-            [format!("{SPLASHES_RESOURCE}@override:4 splashes")]
+            listener.reload.items()[0],
+            format!("{SPLASHES_RESOURCE}@override:4 splashes")
+        );
+        assert!(listener.reload.items()[1].starts_with("splash_runtime_report:Loaded"));
+    }
+
+    #[test]
+    fn splash_runtime_report_successful_highest_priority_pack_load() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        base.write(SPLASHES_RESOURCE, "base one\nbase two\n");
+        override_pack.write(
+            SPLASHES_RESOURCE,
+            "\n custom one \ncustom two\ncustom three\n",
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let report = SplashesReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientSplashRuntimeStatus::Loaded);
+        assert_eq!(report.resource(), SPLASHES_RESOURCE);
+        assert_eq!(report.pack_id(), Some("override"));
+        assert_eq!(report.splash_count(), 4);
+        assert_eq!(report.non_empty_selectable_count(), 3);
+        assert_eq!(
+            report.sample_splashes(),
+            [
+                "custom one".to_owned(),
+                "custom two".to_owned(),
+                "custom three".to_owned()
+            ]
+        );
+        assert_eq!(report.selected_by_index_preview(), Some("custom one"));
+        assert_eq!(report.boundary(), CLIENT_SPLASH_RUNTIME_BOUNDARY);
+        assert_eq!(report.error(), None);
+        assert!(report.summary_fragment().contains("pack:override"));
+    }
+
+    #[test]
+    fn splash_runtime_report_blank_splashes_empty_status() {
+        let pack = TempPack::new();
+        pack.write(SPLASHES_RESOURCE, "\n \n\t\n");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("blank", pack.path())]);
+        let report = SplashesReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientSplashRuntimeStatus::Empty);
+        assert_eq!(report.pack_id(), Some("blank"));
+        assert_eq!(report.splash_count(), 3);
+        assert_eq!(report.non_empty_selectable_count(), 0);
+        assert!(report.sample_splashes().is_empty());
+        assert_eq!(report.selected_by_index_preview(), None);
+        assert!(report.summary_fragment().contains("selectable:0"));
+    }
+
+    #[test]
+    fn splash_runtime_report_missing_resource_failure_report() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report = SplashesReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientSplashRuntimeStatus::Failed);
+        assert_eq!(report.resource(), SPLASHES_RESOURCE);
+        assert_eq!(report.pack_id(), None);
+        assert_eq!(report.splash_count(), 0);
+        assert_eq!(report.non_empty_selectable_count(), 0);
+        assert!(report.sample_splashes().is_empty());
+        assert_eq!(report.selected_by_index_preview(), None);
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("missing client resource"))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("splash_runtime_error:"))
         );
     }
 
@@ -37207,6 +37436,32 @@ mod tests {
             .parse::<usize>()
             .expect("splash count should be numeric");
         assert_eq!(count, splashes.count());
+    }
+
+    #[test]
+    fn splash_runtime_report_committed_vanilla_includes_boundary_items() {
+        let stack = ClientResourceStack::vanilla();
+        let report = SplashesReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientSplashRuntimeStatus::Loaded);
+        assert_eq!(report.pack_id(), Some(VANILLA_PACK_ID));
+        assert!(report.splash_count() > 0);
+        assert!(report.non_empty_selectable_count() > 0);
+        assert_eq!(report.boundary(), CLIENT_SPLASH_RUNTIME_BOUNDARY);
+
+        let items = report.items();
+        assert_eq!(items[0], report.summary_fragment());
+        assert!(items[0].contains(CLIENT_SPLASH_RUNTIME_BOUNDARY));
+        assert!(
+            items
+                .iter()
+                .any(|item| item.starts_with("splash_runtime_samples:"))
+        );
+        assert!(
+            items
+                .iter()
+                .any(|item| item.starts_with("splash_runtime_selected_by_index_0:"))
+        );
     }
 
     #[test]
