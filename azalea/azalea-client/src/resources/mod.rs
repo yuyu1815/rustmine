@@ -14647,6 +14647,10 @@ pub struct ClientSoundRuntimeReport {
     missing_preload_blocker_count: usize,
     runtime_candidate_count: usize,
     runtime_blocker_count: usize,
+    runtime_candidate_categories: Vec<String>,
+    runtime_candidate_sources: Vec<String>,
+    runtime_candidate_dependencies: Vec<String>,
+    runtime_candidate_blockers: Vec<String>,
     boundary: &'static str,
     error: Option<String>,
 }
@@ -14677,6 +14681,7 @@ impl ClientSoundRuntimeReport {
             ClientSoundManagerStatus::Missing => ClientSoundRuntimeStatus::Missing,
             ClientSoundManagerStatus::Blocked => ClientSoundRuntimeStatus::Blocked,
         };
+        let runtime_report = state.runtime_report();
 
         Self {
             status,
@@ -14692,8 +14697,28 @@ impl ClientSoundRuntimeReport {
             preload_candidate_count: state.preload_candidate_count(),
             available_preload_count: state.available_preload_count(),
             missing_preload_blocker_count,
-            runtime_candidate_count: state.runtime_report().candidates().len(),
-            runtime_blocker_count: state.runtime_report().blocker_count(),
+            runtime_candidate_count: runtime_report.candidates().len(),
+            runtime_blocker_count: runtime_report.blocker_count(),
+            runtime_candidate_categories: runtime_report
+                .candidates()
+                .iter()
+                .map(|candidate| candidate.category().to_owned())
+                .collect(),
+            runtime_candidate_sources: runtime_report
+                .candidates()
+                .iter()
+                .flat_map(|candidate| candidate.runtime_sources().iter().cloned())
+                .collect(),
+            runtime_candidate_dependencies: runtime_report
+                .candidates()
+                .iter()
+                .flat_map(|candidate| candidate.dependencies().iter().cloned())
+                .collect(),
+            runtime_candidate_blockers: runtime_report
+                .candidates()
+                .iter()
+                .flat_map(|candidate| candidate.blockers().iter().cloned())
+                .collect(),
             boundary: Self::BOUNDARY,
             error: None,
         }
@@ -14716,6 +14741,10 @@ impl ClientSoundRuntimeReport {
             missing_preload_blocker_count: 0,
             runtime_candidate_count: 0,
             runtime_blocker_count: 0,
+            runtime_candidate_categories: Vec::new(),
+            runtime_candidate_sources: Vec::new(),
+            runtime_candidate_dependencies: Vec::new(),
+            runtime_candidate_blockers: Vec::new(),
             boundary: Self::BOUNDARY,
             error: Some(error.to_string()),
         }
@@ -14781,6 +14810,22 @@ impl ClientSoundRuntimeReport {
         self.runtime_blocker_count
     }
 
+    pub fn runtime_candidate_categories(&self) -> &[String] {
+        &self.runtime_candidate_categories
+    }
+
+    pub fn runtime_candidate_sources(&self) -> &[String] {
+        &self.runtime_candidate_sources
+    }
+
+    pub fn runtime_candidate_dependencies(&self) -> &[String] {
+        &self.runtime_candidate_dependencies
+    }
+
+    pub fn runtime_candidate_blockers(&self) -> &[String] {
+        &self.runtime_candidate_blockers
+    }
+
     pub fn boundary(&self) -> &str {
         self.boundary
     }
@@ -14791,7 +14836,7 @@ impl ClientSoundRuntimeReport {
 
     pub fn summary_fragment(&self) -> String {
         format!(
-            "sound_runtime_report:{:?} resource:{} namespaces:{} sounds_json:{} events:{} entries:{} files:{} missing_files:{} preloads:{} loaded_resources:{} preload_candidates:{} available_preloads:{} missing_preload_blockers:{} runtime_candidates:{} runtime_blockers:{} boundary:{} error:{}",
+            "sound_runtime_report:{:?} resource:{} namespaces:{} sounds_json:{} events:{} entries:{} files:{} missing_files:{} preloads:{} loaded_resources:{} preload_candidates:{} available_preloads:{} missing_preload_blockers:{} runtime_candidates:{} runtime_blockers:{} runtime_categories:{} runtime_sources:{} runtime_dependencies:{} runtime_blockers_detail:{} boundary:{} error:{}",
             self.status,
             self.resource,
             self.namespace_count,
@@ -14807,6 +14852,10 @@ impl ClientSoundRuntimeReport {
             self.missing_preload_blocker_count,
             self.runtime_candidate_count,
             self.runtime_blocker_count,
+            self.runtime_candidate_categories.join(","),
+            self.runtime_candidate_sources.join("|"),
+            self.runtime_candidate_dependencies.join("|"),
+            self.runtime_candidate_blockers.join("|"),
             self.boundary,
             self.error.as_deref().unwrap_or("")
         )
@@ -14817,6 +14866,22 @@ impl ClientSoundRuntimeReport {
         items.push(format!(
             "sound_runtime_loaded_resources:{}",
             self.loaded_resources.join(",")
+        ));
+        items.push(format!(
+            "sound_runtime_candidate_categories:{}",
+            self.runtime_candidate_categories.join(",")
+        ));
+        items.push(format!(
+            "sound_runtime_candidate_sources:{}",
+            self.runtime_candidate_sources.join("|")
+        ));
+        items.push(format!(
+            "sound_runtime_candidate_dependencies:{}",
+            self.runtime_candidate_dependencies.join("|")
+        ));
+        items.push(format!(
+            "sound_runtime_candidate_blockers:{}",
+            self.runtime_candidate_blockers.join("|")
         ));
         if let Some(error) = &self.error {
             items.push(format!("sound_runtime_error:{error}"));
@@ -15409,6 +15474,13 @@ impl SoundManagerRuntimeCandidateReloadListener {
     ) -> ResourceReloadResult<ClientSoundManagerState> {
         load_client_sound_events(stack, &self.resource)
             .map(ClientSoundManagerState::from_sound_events)
+    }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientSoundRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientSoundRuntimeReport::from_sound_manager_state(&self.resource, &state),
+            Err(error) => ClientSoundRuntimeReport::from_failure(&self.resource, &error),
+        }
     }
 }
 
@@ -46208,6 +46280,33 @@ mod tests {
     }
 
     #[test]
+    fn sound_runtime_report_candidate_listener_missing_sounds_json_does_not_panic() {
+        let temp = TempPack::new();
+
+        let report = SoundManagerRuntimeCandidateReloadListener::default().runtime_report(
+            &ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]),
+        );
+
+        assert_eq!(report.status(), ClientSoundRuntimeStatus::Failed);
+        assert_eq!(report.sounds_json_resource_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 0);
+        assert_eq!(report.runtime_blocker_count(), 0);
+        assert!(report.runtime_candidate_categories().is_empty());
+        assert!(
+            report
+                .error()
+                .expect("failed runtime report should capture missing sounds.json")
+                .contains(SOUND_EVENTS_RESOURCE_GLOB)
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("sound_runtime_error:"))
+        );
+    }
+
+    #[test]
     fn sound_preload_excludes_non_preload_file_candidates() {
         let temp = TempPack::new();
         temp.write(
@@ -46538,6 +46637,71 @@ mod tests {
     }
 
     #[test]
+    fn sound_runtime_report_candidate_listener_includes_runtime_candidate_evidence() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu","preload":true},{"name":"music.stream","stream":true},{"name":"music.parent","type":"event"}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+        temp.write_bytes("assets/minecraft/sounds/music.stream.ogg", b"stream");
+
+        let report = SoundManagerRuntimeCandidateReloadListener::default().runtime_report(
+            &ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]),
+        );
+
+        assert_eq!(report.status(), ClientSoundRuntimeStatus::Blocked);
+        assert_eq!(report.sounds_json_resource_count(), 1);
+        assert_eq!(report.event_count(), 1);
+        assert_eq!(report.sound_entry_count(), 3);
+        assert_eq!(report.preload_file_sound_count(), 1);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert_eq!(report.runtime_blocker_count(), 10);
+        assert!(
+            report
+                .runtime_candidate_categories()
+                .iter()
+                .any(|category| category == "audio_device_engine_initialization")
+        );
+        assert!(
+            report
+                .runtime_candidate_sources()
+                .iter()
+                .any(|source| { source == "SoundManager prepares sounds.json registrations" })
+        );
+        assert!(
+            report
+                .runtime_candidate_dependencies()
+                .iter()
+                .any(|dependency| dependency == "preload_buffer_candidates:1")
+        );
+        assert!(
+            report
+                .runtime_candidate_dependencies()
+                .iter()
+                .any(|dependency| dependency == "streaming_file_sounds:1")
+        );
+        assert!(
+            report
+                .runtime_candidate_blockers()
+                .iter()
+                .any(|blocker| blocker == "audio runtime not implemented")
+        );
+        assert!(
+            report.summary_fragment().contains(
+                "runtime_categories:audio_device_engine_initialization,sound_registry_to_weighed_events,preload_buffer_upload_queue,streaming_source_runtime,playback_channel_tick_update"
+            )
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("sound_runtime_candidate_sources:")
+                    && item.contains("SoundManager prepares sounds.json registrations"))
+        );
+    }
+
+    #[test]
     fn sound_manager_state_stacked_pack_lookup_retains_deterministic_counts() {
         let base = TempPack::new();
         let override_pack = TempPack::new();
@@ -46683,6 +46847,51 @@ mod tests {
             "sound_events_loaded_audio_backend_playback_pending_unavailable"
         );
         assert!(!report.items().is_empty());
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("sound_runtime_report:"))
+        );
+    }
+
+    #[test]
+    fn sound_runtime_report_candidate_listener_committed_vanilla_loads_or_reports_missing() {
+        let report = SoundManagerRuntimeCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        match report.status() {
+            ClientSoundRuntimeStatus::Blocked => {
+                assert!(report.sounds_json_resource_count() > 0);
+                assert!(report.event_count() > 0);
+                assert_eq!(report.runtime_candidate_count(), 5);
+                assert!(
+                    report
+                        .runtime_candidate_blockers()
+                        .iter()
+                        .any(|blocker| blocker == "audio runtime not implemented")
+                );
+            }
+            ClientSoundRuntimeStatus::Failed => {
+                assert_eq!(report.sounds_json_resource_count(), 0);
+                assert!(
+                    report
+                        .error()
+                        .expect("failed vanilla report should include missing fixture error")
+                        .contains(SOUND_EVENTS_RESOURCE_GLOB)
+                );
+            }
+            status => {
+                panic!(
+                    "vanilla candidate runtime report should be blocked or failed, got {status:?}"
+                )
+            }
+        }
+
+        assert_eq!(
+            report.boundary(),
+            "sound_events_loaded_audio_backend_playback_pending_unavailable"
+        );
         assert!(
             report
                 .items()
