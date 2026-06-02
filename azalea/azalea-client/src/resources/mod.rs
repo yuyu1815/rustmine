@@ -115,6 +115,7 @@ const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_m
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
 const ITEM_MODEL_RESOLVER_PROPERTIES_BOUNDARY: &str =
     "item_model_resolver_properties_loaded_renderer_pending";
+const MODEL_MANAGER_RUNTIME_BOUNDARY: &str = "model_bake_loaded_runtime_resolver_pending";
 const ENTITY_RENDERER_DISPATCHER_BOUNDARY: &str =
     "entity_renderer_registry_loaded_dispatcher_pending";
 const BLOCK_ENTITY_RENDERER_DISPATCHER_BOUNDARY: &str =
@@ -2191,6 +2192,7 @@ impl ResourceReloadManager {
             .with_listener(ModelDependencyReloadListener::default())
             .with_listener(ModelBakeCandidateReloadListener::default())
             .with_listener(ItemModelResolverPropertyCandidateReloadListener)
+            .with_listener(ModelManagerRuntimeCandidateReloadListener)
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
             .with_listener(DynamicTextureManagerCandidateReloadListener)
@@ -9931,6 +9933,42 @@ impl ResourceReloadListener for ItemModelResolverPropertyCandidateReloadListener
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ModelManagerRuntimeCandidateReloadListener;
+
+impl ModelManagerRuntimeCandidateReloadListener {
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ModelManagerRuntimeCandidateSet> {
+        build_model_manager_runtime_candidate_set(stack)
+    }
+}
+
+impl ResourceReloadListener for ModelManagerRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "model_manager_runtime_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let resources = discover_model_dependency_resources(stack)?;
+        Ok(ResourceReloadTaskReport::new([
+            format!("model_resources:{}", resources.all_resources().len()),
+            format!("boundary:{MODEL_MANAGER_RUNTIME_BOUNDARY}"),
+        ]))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelBakeCandidateReport {
     dependency_report: ModelDependencyReport,
@@ -10189,6 +10227,188 @@ impl ItemModelResolverPropertyCandidate {
             render_boundary: self.render_boundary(),
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelManagerRuntimeCandidateSet {
+    model_definition_count: usize,
+    blockstate_candidate_count: usize,
+    item_root_count: usize,
+    valid_unbaked_model_count: usize,
+    missing_model_blocker_count: usize,
+    cyclic_model_blocker_count: usize,
+    item_resolver_property_group_count: usize,
+    candidates: Vec<ModelManagerRuntimeCandidate>,
+}
+
+impl ModelManagerRuntimeCandidateSet {
+    pub fn candidates(&self) -> &[ModelManagerRuntimeCandidate] {
+        &self.candidates
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(ModelManagerRuntimeCandidate::runtime_source_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(ModelManagerRuntimeCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn model_manager_cache_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.model_manager_cache)
+            .count()
+    }
+
+    pub fn block_model_resolver_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.block_model_resolver)
+            .count()
+    }
+
+    pub fn item_model_resolver_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.item_model_resolver)
+            .count()
+    }
+
+    pub fn atlas_material_lookup_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.atlas_material_lookup)
+            .count()
+    }
+
+    pub fn player_skin_cache_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.player_skin_cache)
+            .count()
+    }
+
+    pub fn special_model_renderer_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.special_model_renderer)
+            .count()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "model_manager_runtime_candidates:candidates:{} model_definitions:{} blockstate_candidates:{} item_roots:{} valid_unbaked:{} missing_model_blockers:{} cyclic_model_blockers:{} item_resolver_property_groups:{} runtime_sources:{} deps:model_manager_cache:{} block_model_resolver:{} item_model_resolver:{} atlas_material_lookup:{} player_skin_cache:{} special_model_renderer:{} blockers:{} boundary:{}",
+            self.candidate_count(),
+            self.model_definition_count,
+            self.blockstate_candidate_count,
+            self.item_root_count,
+            self.valid_unbaked_model_count,
+            self.missing_model_blocker_count,
+            self.cyclic_model_blocker_count,
+            self.item_resolver_property_group_count,
+            self.runtime_source_count(),
+            self.model_manager_cache_dependency_count(),
+            self.block_model_resolver_dependency_count(),
+            self.item_model_resolver_dependency_count(),
+            self.atlas_material_lookup_dependency_count(),
+            self.player_skin_cache_dependency_count(),
+            self.special_model_renderer_dependency_count(),
+            self.blocker_count(),
+            MODEL_MANAGER_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(model_manager_runtime_candidate_report_item),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelManagerRuntimeCandidate {
+    id: String,
+    category: String,
+    representative_models: Vec<String>,
+    representative_items: Vec<String>,
+    representative_blockstates: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: ModelManagerRuntimeDependencyFlags,
+    blocker_count_hint: usize,
+    blockers: Vec<String>,
+}
+
+impl ModelManagerRuntimeCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_models(&self) -> &[String] {
+        &self.representative_models
+    }
+
+    pub fn representative_items(&self) -> &[String] {
+        &self.representative_items
+    }
+
+    pub fn representative_blockstates(&self) -> &[String] {
+        &self.representative_blockstates
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> ModelManagerRuntimeDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len() + self.blocker_count_hint
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        MODEL_MANAGER_RUNTIME_BOUNDARY
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ModelManagerRuntimeDependencyFlags {
+    pub model_manager_cache: bool,
+    pub block_model_resolver: bool,
+    pub item_model_resolver: bool,
+    pub atlas_material_lookup: bool,
+    pub render_type_state: bool,
+    pub player_skin_cache: bool,
+    pub special_model_renderer: bool,
+    pub entity_model_set: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -13169,6 +13389,276 @@ fn build_item_model_resolver_property_candidate(
 }
 
 #[derive(Clone, Copy)]
+struct ModelManagerRuntimeCandidateSpec {
+    id: &'static str,
+    category: &'static str,
+    representative_models: &'static [&'static str],
+    representative_items: &'static [&'static str],
+    representative_blockstates: &'static [&'static str],
+    runtime_sources: &'static [&'static str],
+    dependencies: ModelManagerRuntimeDependencyFlags,
+    blockers: &'static [&'static str],
+}
+
+const fn model_manager_runtime_deps(
+    model_manager_cache: bool,
+    block_model_resolver: bool,
+    item_model_resolver: bool,
+    atlas_material_lookup: bool,
+    render_type_state: bool,
+    player_skin_cache: bool,
+    special_model_renderer: bool,
+    entity_model_set: bool,
+) -> ModelManagerRuntimeDependencyFlags {
+    ModelManagerRuntimeDependencyFlags {
+        model_manager_cache,
+        block_model_resolver,
+        item_model_resolver,
+        atlas_material_lookup,
+        render_type_state,
+        player_skin_cache,
+        special_model_renderer,
+        entity_model_set,
+    }
+}
+
+const MODEL_MANAGER_RUNTIME_CANDIDATE_SPECS: &[ModelManagerRuntimeCandidateSpec] = &[
+    ModelManagerRuntimeCandidateSpec {
+        id: "model_manager_cache_swap",
+        category: "model_manager_cache_replacement",
+        representative_models: &[
+            "ModelManager.bakedItemStackModels",
+            "ModelManager.missingModels",
+        ],
+        representative_items: &["ClientItem.Properties", "DataComponents.ITEM_MODEL"],
+        representative_blockstates: &["BlockStateModelSet", "BlockModelSet", "FluidStateModelSet"],
+        runtime_sources: &[
+            "ModelManager.reload",
+            "ModelManager.loadModels",
+            "ModelManager.apply",
+            "ModelBakery.bakeModels",
+        ],
+        dependencies: model_manager_runtime_deps(
+            true, false, false, true, false, true, false, true,
+        ),
+        blockers: &[
+            "runtime_model_manager_cache_unavailable",
+            "model_bakery_result_cache_swap_unavailable",
+            "missing_model_runtime_fallback_unavailable",
+        ],
+    },
+    ModelManagerRuntimeCandidateSpec {
+        id: "block_model_resolver_shaper",
+        category: "block_model_resolver_shaper",
+        representative_models: &["BlockStateModelSet", "BlockModelSet"],
+        representative_items: &[],
+        representative_blockstates: &["stone", "oak_log", "redstone_torch"],
+        runtime_sources: &[
+            "Minecraft.<init>:new BlockModelResolver(this.modelManager)",
+            "ModelManager.createBlockStateToModelDispatch",
+            "ModelManager.requiresRender",
+        ],
+        dependencies: model_manager_runtime_deps(
+            true, true, false, false, true, false, false, false,
+        ),
+        blockers: &[
+            "block_model_resolver_runtime_unavailable",
+            "block_state_to_model_dispatch_unavailable",
+            "model_group_requires_render_state_unavailable",
+        ],
+    },
+    ModelManagerRuntimeCandidateSpec {
+        id: "item_model_resolver_runtime",
+        category: "item_model_resolver_renderer_binding",
+        representative_models: &[
+            "ModelManager.getItemModel",
+            "ModelManager.getItemProperties",
+        ],
+        representative_items: &["stick", "bow", "shield", "player_head"],
+        representative_blockstates: &[],
+        runtime_sources: &[
+            "Minecraft.<init>:new ItemModelResolver(this.modelManager)",
+            "ItemModelResolver.appendItemLayers",
+            "ItemModelResolver.shouldPlaySwapAnimation",
+            "ItemModelResolver.swapAnimationScale",
+        ],
+        dependencies: model_manager_runtime_deps(
+            true, false, true, false, false, false, false, false,
+        ),
+        blockers: &[
+            "item_model_resolver_runtime_unavailable",
+            "item_renderer_binding_unavailable",
+            "item_stack_render_state_unavailable",
+        ],
+    },
+    ModelManagerRuntimeCandidateSpec {
+        id: "atlas_material_lookup",
+        category: "atlas_material_lookup_render_type_state",
+        representative_models: &["MaterialBaker", "Material.Baked", "SpriteGetter"],
+        representative_items: &["block atlas", "item atlas"],
+        representative_blockstates: &["fluid models", "destroy stages"],
+        runtime_sources: &[
+            "ModelManager.loadModels:pendingStitches.get(AtlasIds.BLOCKS)",
+            "ModelManager.loadModels:pendingStitches.get(AtlasIds.ITEMS)",
+            "ModelBakery.FIRE_0/FIRE_1",
+            "ModelBakery.DESTROY_TYPES",
+        ],
+        dependencies: model_manager_runtime_deps(
+            true, false, false, true, true, false, false, false,
+        ),
+        blockers: &[
+            "material_baker_sprite_lookup_unavailable",
+            "atlas_pending_stitch_binding_unavailable",
+            "render_type_state_unavailable",
+        ],
+    },
+    ModelManagerRuntimeCandidateSpec {
+        id: "special_model_renderer_binding",
+        category: "special_model_renderer_binding",
+        representative_models: &[
+            "SpecialModelRenderers.CODEC",
+            "SpecialModelRenderer.Unbaked",
+        ],
+        representative_items: &["bed", "banner", "chest", "player_head", "shield", "trident"],
+        representative_blockstates: &[],
+        runtime_sources: &[
+            "SpecialModelRenderers.bootstrap",
+            "ModelBakery.bakeModels:ClientItem.model().bake",
+            "ItemModel.BakingContext",
+        ],
+        dependencies: model_manager_runtime_deps(true, false, true, true, false, true, true, true),
+        blockers: &[
+            "special_model_renderer_registry_unavailable",
+            "block_entity_special_renderer_binding_unavailable",
+            "item_special_model_baking_unavailable",
+        ],
+    },
+    ModelManagerRuntimeCandidateSpec {
+        id: "player_skin_model_special_consumers",
+        category: "player_skin_cache_model_special_consumers",
+        representative_models: &[
+            "PlayerSkinRenderCache",
+            "PlayerHeadSpecialRenderer",
+            "SkullSpecialRenderer",
+        ],
+        representative_items: &["player_head", "profile texture"],
+        representative_blockstates: &["skull", "wall_skull"],
+        runtime_sources: &[
+            "Minecraft.<init>:new PlayerSkinRenderCache",
+            "ModelManager.<init>(BlockColors,AtlasManager,PlayerSkinRenderCache)",
+            "ModelBakery.<init>(...,PlayerSkinRenderCache)",
+            "ItemModel.BakingContext(...,PlayerSkinRenderCache,...)",
+        ],
+        dependencies: model_manager_runtime_deps(true, false, true, false, false, true, true, true),
+        blockers: &[
+            "player_skin_render_cache_runtime_unavailable",
+            "player_head_special_model_consumer_unavailable",
+            "skull_model_render_consumer_unavailable",
+        ],
+    },
+];
+
+fn build_model_manager_runtime_candidate_set(
+    stack: &ClientResourceStack,
+) -> ResourceReloadResult<ModelManagerRuntimeCandidateSet> {
+    let bake = ModelBakeCandidateReloadListener.load(stack)?;
+    let item_properties = ItemModelResolverPropertyCandidateReloadListener.load(stack)?;
+    let representative_models = bake
+        .valid_unbaked_models()
+        .iter()
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>();
+    let representative_blockstates = bake
+        .blockstates()
+        .iter()
+        .take(3)
+        .map(|candidate| candidate.resource().to_owned())
+        .collect::<Vec<_>>();
+    let representative_items = bake
+        .item_roots()
+        .iter()
+        .take(4)
+        .map(|candidate| candidate.resource().to_owned())
+        .collect::<Vec<_>>();
+
+    Ok(ModelManagerRuntimeCandidateSet {
+        model_definition_count: bake.model_definition_count(),
+        blockstate_candidate_count: bake.blockstates().len(),
+        item_root_count: bake.item_root_count(),
+        valid_unbaked_model_count: bake.valid_unbaked_models().len(),
+        missing_model_blocker_count: bake.missing_model_blockers().len(),
+        cyclic_model_blocker_count: bake.cyclic_model_blockers().len(),
+        item_resolver_property_group_count: item_properties.candidate_count(),
+        candidates: MODEL_MANAGER_RUNTIME_CANDIDATE_SPECS
+            .iter()
+            .map(|spec| {
+                build_model_manager_runtime_candidate(
+                    spec,
+                    &representative_models,
+                    &representative_items,
+                    &representative_blockstates,
+                    bake.missing_model_blockers().len() + bake.cyclic_model_blockers().len(),
+                )
+            })
+            .collect(),
+    })
+}
+
+fn build_model_manager_runtime_candidate(
+    spec: &ModelManagerRuntimeCandidateSpec,
+    discovered_models: &[String],
+    discovered_items: &[String],
+    discovered_blockstates: &[String],
+    blocker_count_hint: usize,
+) -> ModelManagerRuntimeCandidate {
+    let representative_models = if spec.representative_models.is_empty() {
+        discovered_models.to_vec()
+    } else {
+        spec.representative_models
+            .iter()
+            .map(|model| (*model).to_owned())
+            .collect()
+    };
+    let representative_items = if spec.representative_items.is_empty() {
+        discovered_items.to_vec()
+    } else {
+        spec.representative_items
+            .iter()
+            .map(|item| (*item).to_owned())
+            .collect()
+    };
+    let representative_blockstates = if spec.representative_blockstates.is_empty() {
+        discovered_blockstates.to_vec()
+    } else {
+        spec.representative_blockstates
+            .iter()
+            .map(|blockstate| (*blockstate).to_owned())
+            .collect()
+    };
+
+    ModelManagerRuntimeCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category.to_owned(),
+        representative_models,
+        representative_items,
+        representative_blockstates,
+        runtime_sources: spec
+            .runtime_sources
+            .iter()
+            .map(|source| (*source).to_owned())
+            .collect(),
+        dependencies: spec.dependencies,
+        blocker_count_hint,
+        blockers: spec
+            .blockers
+            .iter()
+            .map(|blocker| (*blocker).to_owned())
+            .collect(),
+    }
+}
+
+#[derive(Clone, Copy)]
 struct EntityRendererDispatcherCandidateSpec {
     id: &'static str,
     category: &'static str,
@@ -14988,6 +15478,30 @@ fn item_model_resolver_property_candidate_report_item(
         report.blocker_count(),
         report.blockers().join(","),
         report.render_boundary()
+    )
+}
+
+fn model_manager_runtime_candidate_report_item(candidate: &ModelManagerRuntimeCandidate) -> String {
+    let dependencies = candidate.dependencies();
+    format!(
+        "model_manager_runtime_candidate:{} category:{} representative_models:{} representative_items:{} representative_blockstates:{} runtime_sources:{} deps:model_manager_cache:{} block_model_resolver:{} item_model_resolver:{} atlas_material_lookup:{} render_type_state:{} player_skin_cache:{} special_model_renderer:{} entity_model_set:{} blockers:{} blocker_details:{} boundary:{}",
+        candidate.id(),
+        candidate.category(),
+        candidate.representative_models().join(","),
+        candidate.representative_items().join(","),
+        candidate.representative_blockstates().join(","),
+        candidate.runtime_sources().join(","),
+        dependencies.model_manager_cache,
+        dependencies.block_model_resolver,
+        dependencies.item_model_resolver,
+        dependencies.atlas_material_lookup,
+        dependencies.render_type_state,
+        dependencies.player_skin_cache,
+        dependencies.special_model_renderer,
+        dependencies.entity_model_set,
+        candidate.blocker_count(),
+        candidate.blockers().join(","),
+        candidate.render_boundary()
     )
 }
 
@@ -25476,6 +25990,7 @@ mod tests {
                 "model_dependencies",
                 "model_bake_candidates",
                 "item_model_resolver_property_candidates",
+                "model_manager_runtime_candidates",
                 "equipment_assets",
                 "equipment_render_asset_candidates",
                 "dynamic_texture_manager_candidates",
@@ -31105,6 +31620,121 @@ mod tests {
             item.contains("item_model_resolver_property_candidate:resolver_runtime_entrypoints")
                 && item.contains("representative_models:DataComponents.ITEM_MODEL")
                 && item.contains("item_model_resolver_model_manager_integration_unavailable")
+        }));
+    }
+
+    #[test]
+    fn model_manager_runtime_candidates_report_cache_resolver_and_material_boundaries() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/blockstates/test.json",
+            r#"{"variants":{"":{"model":"minecraft:block/test"}}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/block/test.json",
+            r#"{"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/test"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/items/test.json",
+            r#"{"model":{"type":"minecraft:model","model":"minecraft:item/test"}}"#,
+        );
+        temp.write(
+            "assets/minecraft/models/item/test.json",
+            r#"{"parent":"minecraft:item/generated","textures":{"layer0":"minecraft:item/test"}}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let candidates = ModelManagerRuntimeCandidateReloadListener
+            .load(&stack)
+            .expect("model manager runtime candidates should load");
+
+        assert_eq!(candidates.candidate_count(), 6);
+        assert_eq!(candidates.model_manager_cache_dependency_count(), 6);
+        assert_eq!(candidates.block_model_resolver_dependency_count(), 1);
+        assert_eq!(candidates.item_model_resolver_dependency_count(), 3);
+        assert_eq!(candidates.atlas_material_lookup_dependency_count(), 3);
+        assert_eq!(candidates.player_skin_cache_dependency_count(), 3);
+        assert_eq!(candidates.special_model_renderer_dependency_count(), 2);
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        );
+
+        let by_id = candidates
+            .candidates()
+            .iter()
+            .map(|candidate| (candidate.id(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        let cache_swap = by_id
+            .get("model_manager_cache_swap")
+            .expect("cache swap candidate should be reported");
+        assert_eq!(cache_swap.category(), "model_manager_cache_replacement");
+        assert!(
+            cache_swap
+                .runtime_sources()
+                .contains(&"ModelManager.apply".to_owned())
+        );
+        assert!(
+            cache_swap
+                .blockers()
+                .contains(&"model_bakery_result_cache_swap_unavailable".to_owned())
+        );
+
+        let block_resolver = by_id
+            .get("block_model_resolver_shaper")
+            .expect("block resolver candidate should be reported");
+        assert!(block_resolver.dependencies().block_model_resolver);
+        assert!(
+            block_resolver
+                .runtime_sources()
+                .contains(&"ModelManager.createBlockStateToModelDispatch".to_owned())
+        );
+
+        let material = by_id
+            .get("atlas_material_lookup")
+            .expect("atlas material lookup candidate should be reported");
+        assert!(material.dependencies().render_type_state);
+        assert!(
+            material
+                .blockers()
+                .contains(&"render_type_state_unavailable".to_owned())
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_model_manager_runtime_candidates_report_boundary_surface() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(ModelManagerRuntimeCandidateReloadListener)
+            .run()
+            .expect("committed vanilla model manager runtime candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "model_manager_runtime_candidates");
+        assert!(
+            listener.preparation.items()[1]
+                .contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("model_manager_runtime_candidates:candidates:6")
+                && item.contains("item_resolver_property_groups:5")
+                && item.contains("boundary:model_bake_loaded_runtime_resolver_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("model_manager_runtime_candidate:item_model_resolver_runtime")
+                && item.contains("category:item_model_resolver_renderer_binding")
+                && item.contains("ItemModelResolver.appendItemLayers")
+                && item.contains("item_renderer_binding_unavailable")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("model_manager_runtime_candidate:special_model_renderer_binding")
+                && item.contains("SpecialModelRenderers.bootstrap")
+                && item.contains("special_model_renderer_registry_unavailable")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("model_manager_runtime_candidate:player_skin_model_special_consumers")
+                && item.contains("ModelBakery.<init>(...,PlayerSkinRenderCache)")
+                && item.contains("player_head_special_model_consumer_unavailable")
         }));
     }
 
