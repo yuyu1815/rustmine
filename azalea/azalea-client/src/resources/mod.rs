@@ -9883,6 +9883,73 @@ fn block_entity_renderer_dispatcher_runtime_representative_blockers(
     blockers.into_iter().take(8).collect()
 }
 
+fn level_renderer_invalidation_runtime_status_from_state(
+    state: &ClientLevelRendererInvalidationState,
+) -> ClientLevelRendererInvalidationRuntimeStatus {
+    match state.status() {
+        ClientLevelRendererInvalidationLoadStatus::Loaded => {
+            ClientLevelRendererInvalidationRuntimeStatus::Loaded
+        }
+        ClientLevelRendererInvalidationLoadStatus::Blocked => {
+            ClientLevelRendererInvalidationRuntimeStatus::Blocked
+        }
+        ClientLevelRendererInvalidationLoadStatus::Missing => {
+            ClientLevelRendererInvalidationRuntimeStatus::Missing
+        }
+    }
+}
+
+fn level_renderer_invalidation_runtime_representative_categories(
+    state: &ClientLevelRendererInvalidationState,
+) -> Vec<String> {
+    let mut categories = BTreeSet::new();
+    for candidate in state.candidates().iter().take(8) {
+        categories.insert(candidate.category().to_owned());
+    }
+    categories.into_iter().take(8).collect()
+}
+
+fn level_renderer_invalidation_runtime_representative_sources(
+    state: &ClientLevelRendererInvalidationState,
+) -> Vec<String> {
+    let mut sources = BTreeSet::new();
+    for candidate in state.candidates().iter().take(8) {
+        sources.extend(candidate.runtime_sources().iter().cloned());
+    }
+    sources.into_iter().take(8).collect()
+}
+
+fn level_renderer_invalidation_runtime_representative_candidate_blockers(
+    state: &ClientLevelRendererInvalidationState,
+) -> Vec<String> {
+    let mut blockers = BTreeSet::new();
+    for candidate in state.candidates().iter().take(8) {
+        blockers.extend(candidate.candidate_blockers().iter().cloned());
+    }
+    blockers.into_iter().take(8).collect()
+}
+
+fn level_renderer_invalidation_runtime_representative_runtime_blockers(
+    state: &ClientLevelRendererInvalidationState,
+) -> Vec<String> {
+    let mut blockers = BTreeSet::new();
+    for candidate in state.candidates().iter().take(8) {
+        blockers.extend(candidate.runtime_blockers().iter().cloned());
+    }
+    blockers.into_iter().take(8).collect()
+}
+
+fn level_renderer_invalidation_runtime_representative_blockers(
+    blockers: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    blockers
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(8)
+        .collect()
+}
+
 fn renderer_dispatcher_runtime_list_fragment(items: &[String]) -> String {
     if items.is_empty() {
         "none".to_owned()
@@ -10211,6 +10278,241 @@ impl ClientLevelRendererInvalidationState {
                 .iter()
                 .map(ClientLevelRendererInvalidationCandidateState::item_string),
         );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientLevelRendererInvalidationRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+impl ClientLevelRendererInvalidationRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLevelRendererInvalidationRuntimeReport {
+    status: ClientLevelRendererInvalidationRuntimeStatus,
+    candidate_count: usize,
+    runtime_source_count: usize,
+    section_render_dispatcher_dependency_count: usize,
+    view_area_dependency_count: usize,
+    model_manager_dependency_count: usize,
+    entity_render_dispatcher_dependency_count: usize,
+    block_entity_render_dispatcher_dependency_count: usize,
+    texture_manager_dependency_count: usize,
+    cloud_renderer_dependency_count: usize,
+    game_renderer_state_dependency_count: usize,
+    candidate_blocker_count: usize,
+    runtime_blocker_count: usize,
+    representative_candidate_ids: Vec<String>,
+    representative_categories: Vec<String>,
+    representative_runtime_sources: Vec<String>,
+    representative_candidate_blockers: Vec<String>,
+    representative_runtime_blockers: Vec<String>,
+    representative_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientLevelRendererInvalidationRuntimeReport {
+    pub fn from_state(state: &ClientLevelRendererInvalidationState) -> Self {
+        let representative_candidate_blockers =
+            level_renderer_invalidation_runtime_representative_candidate_blockers(state);
+        let representative_runtime_blockers =
+            level_renderer_invalidation_runtime_representative_runtime_blockers(state);
+        let representative_blockers = level_renderer_invalidation_runtime_representative_blockers(
+            representative_candidate_blockers
+                .iter()
+                .chain(representative_runtime_blockers.iter())
+                .cloned(),
+        );
+
+        Self {
+            status: level_renderer_invalidation_runtime_status_from_state(state),
+            candidate_count: state.candidate_count(),
+            runtime_source_count: state.runtime_source_count(),
+            section_render_dispatcher_dependency_count: state
+                .section_render_dispatcher_dependency_count(),
+            view_area_dependency_count: state.view_area_dependency_count(),
+            model_manager_dependency_count: state.model_manager_dependency_count(),
+            entity_render_dispatcher_dependency_count: state
+                .entity_render_dispatcher_dependency_count(),
+            block_entity_render_dispatcher_dependency_count: state
+                .block_entity_render_dispatcher_dependency_count(),
+            texture_manager_dependency_count: state.texture_manager_dependency_count(),
+            cloud_renderer_dependency_count: state.cloud_renderer_dependency_count(),
+            game_renderer_state_dependency_count: state.game_renderer_state_dependency_count(),
+            candidate_blocker_count: state.candidate_blocker_count(),
+            runtime_blocker_count: state.runtime_blocker_count(),
+            representative_candidate_ids: state
+                .candidates()
+                .iter()
+                .take(5)
+                .map(|candidate| candidate.id().to_owned())
+                .collect(),
+            representative_categories:
+                level_renderer_invalidation_runtime_representative_categories(state),
+            representative_runtime_sources:
+                level_renderer_invalidation_runtime_representative_sources(state),
+            representative_candidate_blockers,
+            representative_runtime_blockers,
+            representative_blockers,
+            runtime_boundary: state.runtime_boundary(),
+        }
+    }
+
+    pub fn status(&self) -> ClientLevelRendererInvalidationRuntimeStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_count
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_source_count
+    }
+
+    pub fn section_render_dispatcher_dependency_count(&self) -> usize {
+        self.section_render_dispatcher_dependency_count
+    }
+
+    pub fn view_area_dependency_count(&self) -> usize {
+        self.view_area_dependency_count
+    }
+
+    pub fn model_manager_dependency_count(&self) -> usize {
+        self.model_manager_dependency_count
+    }
+
+    pub fn entity_render_dispatcher_dependency_count(&self) -> usize {
+        self.entity_render_dispatcher_dependency_count
+    }
+
+    pub fn block_entity_render_dispatcher_dependency_count(&self) -> usize {
+        self.block_entity_render_dispatcher_dependency_count
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.texture_manager_dependency_count
+    }
+
+    pub fn cloud_renderer_dependency_count(&self) -> usize {
+        self.cloud_renderer_dependency_count
+    }
+
+    pub fn game_renderer_state_dependency_count(&self) -> usize {
+        self.game_renderer_state_dependency_count
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_blocker_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.candidate_blocker_count + self.runtime_blocker_count
+    }
+
+    pub fn representative_candidate_ids(&self) -> &[String] {
+        &self.representative_candidate_ids
+    }
+
+    pub fn representative_categories(&self) -> &[String] {
+        &self.representative_categories
+    }
+
+    pub fn representative_runtime_sources(&self) -> &[String] {
+        &self.representative_runtime_sources
+    }
+
+    pub fn representative_candidate_blockers(&self) -> &[String] {
+        &self.representative_candidate_blockers
+    }
+
+    pub fn representative_runtime_blockers(&self) -> &[String] {
+        &self.representative_runtime_blockers
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_level_renderer_invalidation_runtime:status:{} candidates:{} runtime_sources:{} deps:section_render_dispatcher:{} view_area:{} model_manager:{} entity_render_dispatcher:{} block_entity_render_dispatcher:{} texture_manager:{} cloud_renderer:{} game_renderer_state:{} candidate_blockers:{} runtime_blockers:{} total_blockers:{} representative_candidates:{} representative_categories:{} representative_runtime_sources:{} representative_candidate_blockers:{} representative_runtime_blockers:{} representative_blockers:{} boundary:{}",
+            self.status().as_str(),
+            self.candidate_count(),
+            self.runtime_source_count(),
+            self.section_render_dispatcher_dependency_count(),
+            self.view_area_dependency_count(),
+            self.model_manager_dependency_count(),
+            self.entity_render_dispatcher_dependency_count(),
+            self.block_entity_render_dispatcher_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.cloud_renderer_dependency_count(),
+            self.game_renderer_state_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.total_blocker_count(),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_ids()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_categories()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_sources()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_candidate_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_runtime_blockers()),
+            renderer_dispatcher_runtime_list_fragment(self.representative_blockers()),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.representative_candidate_ids.iter().map(|id| {
+            format!(
+                "client_level_renderer_invalidation_runtime_candidate:{id} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_categories.iter().map(|category| {
+            format!(
+                "client_level_renderer_invalidation_runtime_category:{category} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_sources.iter().map(|source| {
+            format!(
+                "client_level_renderer_invalidation_runtime_source:{source} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_candidate_blockers.iter().map(|blocker| {
+            format!(
+                "client_level_renderer_invalidation_runtime_candidate_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+        items.extend(self.representative_runtime_blockers.iter().map(|blocker| {
+            format!(
+                "client_level_renderer_invalidation_runtime_runtime_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
         items
     }
 }
@@ -17704,6 +18006,20 @@ impl LevelRendererInvalidationCandidateReloadListener {
             self.load(stack)?,
         ))
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientLevelRendererInvalidationRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientLevelRendererInvalidationRuntimeReport::from_state(&state),
+            Err(_) => ClientLevelRendererInvalidationRuntimeReport::from_state(
+                &ClientLevelRendererInvalidationState::from_candidates(
+                    LevelRendererInvalidationCandidateSet::default(),
+                ),
+            ),
+        }
+    }
 }
 
 impl ResourceReloadListener for LevelRendererInvalidationCandidateReloadListener {
@@ -17724,9 +18040,11 @@ impl ResourceReloadListener for LevelRendererInvalidationCandidateReloadListener
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(
-            self.load_state(stack)?.items(),
-        ))
+        let state = self.load_state(stack)?;
+        let runtime_report = ClientLevelRendererInvalidationRuntimeReport::from_state(&state);
+        let mut items = state.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -52658,6 +52976,109 @@ mod tests {
             item.contains("level_renderer_invalidation_state_candidate:cloud_sky_weather_rebuild")
                 && item.contains("CloudRenderer.markForRebuild")
                 && item.contains("cloud_renderer_runtime_rebuild_unavailable")
+        }));
+    }
+
+    #[test]
+    fn level_renderer_runtime_report_committed_vanilla_reports_rebuild_pending_boundary() {
+        let report = LevelRendererInvalidationCandidateReloadListener
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientLevelRendererInvalidationRuntimeStatus::Blocked
+        );
+        assert_eq!(report.candidate_count(), 5);
+        assert_eq!(report.runtime_source_count(), 21);
+        assert_eq!(report.section_render_dispatcher_dependency_count(), 2);
+        assert_eq!(report.view_area_dependency_count(), 1);
+        assert_eq!(report.model_manager_dependency_count(), 2);
+        assert_eq!(report.entity_render_dispatcher_dependency_count(), 1);
+        assert_eq!(report.block_entity_render_dispatcher_dependency_count(), 2);
+        assert_eq!(report.texture_manager_dependency_count(), 2);
+        assert_eq!(report.cloud_renderer_dependency_count(), 1);
+        assert_eq!(report.game_renderer_state_dependency_count(), 4);
+        assert_eq!(report.candidate_blocker_count(), 32);
+        assert_eq!(report.runtime_blocker_count(), 5);
+        assert_eq!(report.total_blocker_count(), 37);
+        assert_eq!(
+            report.runtime_boundary(),
+            LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_level_renderer_invalidation_runtime:status:blocked")
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("representative_runtime_sources:")
+        );
+        assert!(
+            report
+                .representative_candidate_ids()
+                .contains(&"chunk_section_rebuild_invalidation".to_owned())
+        );
+        assert!(
+            report
+                .representative_categories()
+                .contains(&"chunk_section_rebuild".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_sources()
+                .contains(&"LevelRenderer.allChanged".to_owned())
+        );
+        assert!(
+            report
+                .representative_candidate_blockers()
+                .contains(&"chunk_section_mesh_rebuild_unavailable".to_owned())
+        );
+        assert!(
+            report
+                .representative_runtime_blockers()
+                .contains(&LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY.to_owned())
+        );
+        assert!(
+            report
+                .representative_blockers()
+                .contains(&LEVEL_RENDERER_RELOAD_INVALIDATION_BOUNDARY.to_owned())
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains(
+                "client_level_renderer_invalidation_runtime_candidate:chunk_section_rebuild_invalidation",
+            ) && item.contains("boundary:level_renderer_reload_invalidation_loaded_rebuild_pending")
+        }));
+    }
+
+    #[test]
+    fn level_renderer_runtime_report_reload_rows_keep_state_and_runtime_shape() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(LevelRendererInvalidationCandidateReloadListener)
+            .run()
+            .expect("level renderer invalidation runtime report should not panic");
+        let listener = &report.listener_reports()[0];
+
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains(
+                "level_renderer_invalidation_state_candidate:chunk_section_rebuild_invalidation",
+            ) && item.contains("runtime_sources:LevelRenderer.allChanged")
+                && item
+                    .contains("boundary:level_renderer_reload_invalidation_loaded_rebuild_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_level_renderer_invalidation_runtime:status:blocked")
+                && item.contains("candidates:5")
+                && item.contains("runtime_sources:21")
+                && item.contains("candidate_blockers:32")
+                && item.contains("runtime_blockers:5")
+                && item.contains("total_blockers:37")
+                && item.contains("representative_candidates:")
+                && item.contains("representative_categories:")
+                && item.contains("representative_runtime_sources:")
+                && item
+                    .contains("boundary:level_renderer_reload_invalidation_loaded_rebuild_pending")
         }));
     }
 
