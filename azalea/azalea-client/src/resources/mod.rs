@@ -123,6 +123,17 @@ const PARTICLE_ENGINE_RUNTIME_PENDING_SURFACES: &[&str] = &[
     "render_state_extraction",
 ];
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
+const WAYPOINT_STYLE_RUNTIME_BOUNDARY: &str =
+    "waypoint_style_sprites_loaded_runtime_binding_pending";
+const WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES: &[&str] = &[
+    "waypoint_style_manager_runtime_map",
+    "waypoint_style_asset_registry_key_lookup",
+    "client_waypoint_manager_packet_binding",
+    "tracked_waypoint_store",
+    "locator_bar_render_state_extraction",
+    "locator_bar_sprite_lookup",
+    "gui_sprite_blit_submission",
+];
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
 const EQUIPMENT_RENDERER_RUNTIME_BOUNDARY: &str =
     "equipment_textures_loaded_renderer_binding_pending";
@@ -2232,6 +2243,7 @@ impl ResourceReloadManager {
             .with_listener(WaypointStyleManifestReloadListener::default())
             .with_listener(WaypointStyleAssetReloadListener::default())
             .with_listener(WaypointStyleManagerCandidateReloadListener::default())
+            .with_listener(WaypointStyleRuntimeCandidateReloadListener::default())
             .with_listener(CloudTextureReloadListener::default())
             .with_listener(CloudRendererRebuildCandidateReloadListener::default())
             .with_listener(GpuWarnlistReloadListener::default())
@@ -7007,6 +7019,204 @@ impl ClientWaypointStyleManagerCandidateReport {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleRuntimeCandidateSet {
+    styles: Vec<ClientWaypointStyleRuntimeCandidate>,
+}
+
+impl ClientWaypointStyleRuntimeCandidateSet {
+    pub fn styles(&self) -> &[ClientWaypointStyleRuntimeCandidate] {
+        &self.styles
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = ClientWaypointStyleRuntimeCandidateReport> + '_ {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleRuntimeCandidate::report)
+    }
+
+    pub fn style_count(&self) -> usize {
+        self.styles.len()
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleRuntimeCandidate::sprite_count)
+            .sum()
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleRuntimeCandidate::decoded_resource_count)
+            .sum()
+    }
+
+    pub fn runtime_ready_count(&self) -> usize {
+        self.styles
+            .iter()
+            .filter(|candidate| candidate.is_runtime_binding_ready())
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.styles
+            .iter()
+            .map(ClientWaypointStyleRuntimeCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn pending_surface_count(&self) -> usize {
+        WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES.len()
+    }
+
+    pub fn pending_surfaces(&self) -> &'static [&'static str] {
+        WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "waypoint_style_runtime_candidates:styles:{} sprites:{} decoded:{} runtime_ready:{} blocked:{} pending_surfaces:{} surfaces:{} boundary:{}",
+            self.style_count(),
+            self.sprite_count(),
+            self.decoded_resource_count(),
+            self.runtime_ready_count(),
+            self.blocker_count(),
+            self.pending_surface_count(),
+            WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES.join(","),
+            WAYPOINT_STYLE_RUNTIME_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| waypoint_style_runtime_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleRuntimeCandidate {
+    style_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    decoded_resource_count: usize,
+    blocker_count: usize,
+    pending_surfaces: Vec<String>,
+}
+
+impl ClientWaypointStyleRuntimeCandidate {
+    pub fn style_id(&self) -> &str {
+        &self.style_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    pub fn is_runtime_binding_ready(&self) -> bool {
+        self.blocker_count == 0 && self.sprite_count == self.decoded_resource_count
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        WAYPOINT_STYLE_RUNTIME_BOUNDARY
+    }
+
+    pub fn report(&self) -> ClientWaypointStyleRuntimeCandidateReport {
+        ClientWaypointStyleRuntimeCandidateReport {
+            style_id: self.style_id.clone(),
+            resource: self.resource.clone(),
+            pack_id: self.pack_id.clone(),
+            sprite_count: self.sprite_count,
+            decoded_resource_count: self.decoded_resource_count,
+            blocker_count: self.blocker_count,
+            runtime_binding_ready: self.is_runtime_binding_ready(),
+            pending_surfaces: self.pending_surfaces.clone(),
+            runtime_boundary: self.runtime_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientWaypointStyleRuntimeCandidateReport {
+    style_id: String,
+    resource: String,
+    pack_id: String,
+    sprite_count: usize,
+    decoded_resource_count: usize,
+    blocker_count: usize,
+    runtime_binding_ready: bool,
+    pending_surfaces: Vec<String>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientWaypointStyleRuntimeCandidateReport {
+    pub fn style_id(&self) -> &str {
+        &self.style_id
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> &str {
+        &self.pack_id
+    }
+
+    pub fn sprite_count(&self) -> usize {
+        self.sprite_count
+    }
+
+    pub fn decoded_resource_count(&self) -> usize {
+        self.decoded_resource_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn is_runtime_binding_ready(&self) -> bool {
+        self.runtime_binding_ready
+    }
+
+    pub fn pending_surfaces(&self) -> &[String] {
+        &self.pending_surfaces
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientWaypointStyle {
     id: String,
@@ -8842,6 +9052,60 @@ impl Default for WaypointStyleManagerCandidateReloadListener {
 impl ResourceReloadListener for WaypointStyleManagerCandidateReloadListener {
     fn name(&self) -> &str {
         "waypoint_style_manager_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(available_manifest_paths(
+            stack,
+            WAYPOINT_STYLE_MANIFEST_DIR,
+            &self.ids,
+        )))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaypointStyleRuntimeCandidateReloadListener {
+    ids: Vec<String>,
+}
+
+impl WaypointStyleRuntimeCandidateReloadListener {
+    pub fn new(ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            ids: ids.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn ids(&self) -> &[String] {
+        &self.ids
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientWaypointStyleRuntimeCandidateSet> {
+        load_client_waypoint_style_runtime_candidates(stack, &self.ids)
+    }
+}
+
+impl Default for WaypointStyleRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(DEFAULT_WAYPOINT_STYLE_MANIFEST_IDS.iter().copied())
+    }
+}
+
+impl ResourceReloadListener for WaypointStyleRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "waypoint_style_runtime_candidates"
     }
 
     fn prepare(
@@ -13569,6 +13833,16 @@ pub fn load_client_waypoint_style_manager_candidates(
     ))
 }
 
+pub fn load_client_waypoint_style_runtime_candidates(
+    stack: &ClientResourceStack,
+    ids: &[String],
+) -> ResourceReloadResult<ClientWaypointStyleRuntimeCandidateSet> {
+    let candidates = load_client_waypoint_style_manager_candidates(stack, ids)?;
+    Ok(build_client_waypoint_style_runtime_candidate_set(
+        &candidates,
+    ))
+}
+
 pub fn load_client_equipment_assets(
     stack: &ClientResourceStack,
     directory: &str,
@@ -15635,6 +15909,35 @@ fn build_client_waypoint_style_manager_candidate(
     }
 }
 
+fn build_client_waypoint_style_runtime_candidate_set(
+    candidates: &ClientWaypointStyleManagerCandidateSet,
+) -> ClientWaypointStyleRuntimeCandidateSet {
+    ClientWaypointStyleRuntimeCandidateSet {
+        styles: candidates
+            .styles()
+            .iter()
+            .map(build_client_waypoint_style_runtime_candidate)
+            .collect(),
+    }
+}
+
+fn build_client_waypoint_style_runtime_candidate(
+    candidate: &ClientWaypointStyleManagerCandidate,
+) -> ClientWaypointStyleRuntimeCandidate {
+    ClientWaypointStyleRuntimeCandidate {
+        style_id: candidate.style_id().to_owned(),
+        resource: candidate.resource().to_owned(),
+        pack_id: candidate.pack_id().to_owned(),
+        sprite_count: candidate.sprite_count(),
+        decoded_resource_count: candidate.decoded_resource_count(),
+        blocker_count: candidate.blocker_count(),
+        pending_surfaces: WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES
+            .iter()
+            .map(|surface| (*surface).to_owned())
+            .collect(),
+    }
+}
+
 fn load_waypoint_style_manager_sprite_resource(
     sprite_location: &str,
     resource: &str,
@@ -16562,6 +16865,22 @@ fn waypoint_style_manager_blockers_fragment(
         .map(ClientWaypointStyleManagerBlocker::item_fragment)
         .collect::<Vec<_>>()
         .join("|")
+}
+
+fn waypoint_style_runtime_candidate_report_item(
+    report: &ClientWaypointStyleRuntimeCandidateReport,
+) -> String {
+    format!(
+        "{} id:{} sprites:{} decoded:{} runtime_binding_ready:{} blockers:{} pending_surfaces:{} boundary:{}",
+        report.loaded_resource_pack(),
+        report.style_id(),
+        report.sprite_count(),
+        report.decoded_resource_count(),
+        report.is_runtime_binding_ready(),
+        report.blocker_count(),
+        report.pending_surfaces().join(","),
+        report.runtime_boundary()
+    )
 }
 
 fn waypoint_style_report_item(report: &ClientWaypointStyleReloadReport) -> String {
@@ -30354,6 +30673,65 @@ mod tests {
     }
 
     #[test]
+    fn waypoint_style_runtime_candidates_report_pending_surfaces_after_sprite_decode() {
+        let temp = TempPack::new();
+        let default_png = encode_test_rgba_png(2, 3, &[0, 0, 0, 255].repeat(6));
+        let custom_png = encode_test_rgba_png(1, 1, &[255, 0, 0, 255]);
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:default_0","custom:pin"]}"#,
+        );
+        temp.write_bytes(
+            "assets/minecraft/textures/gui/sprites/hud/locator_bar_dot/default_0.png",
+            &default_png,
+        );
+        temp.write_bytes(
+            "assets/custom/textures/gui/sprites/hud/locator_bar_dot/pin.png",
+            &custom_png,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(WaypointStyleRuntimeCandidateReloadListener::new([
+                "default",
+            ]))
+            .run()
+            .expect("waypoint runtime candidates should report without renderer integration");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "waypoint_style_runtime_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            "waypoint_style_runtime_candidates:styles:1 sprites:2 decoded:2 runtime_ready:1 blocked:0 pending_surfaces:7 surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
+        );
+        assert_eq!(
+            listener.reload.items()[1],
+            "assets/minecraft/waypoint_style/default.json@test id:default sprites:2 decoded:2 runtime_binding_ready:true blockers:0 pending_surfaces:waypoint_style_manager_runtime_map,waypoint_style_asset_registry_key_lookup,client_waypoint_manager_packet_binding,tracked_waypoint_store,locator_bar_render_state_extraction,locator_bar_sprite_lookup,gui_sprite_blit_submission boundary:waypoint_style_sprites_loaded_runtime_binding_pending"
+        );
+    }
+
+    #[test]
+    fn waypoint_style_runtime_candidates_preserve_sprite_decode_blockers() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/waypoint_style/default.json",
+            r#"{"sprites":["minecraft:missing"]}"#,
+        );
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+
+        let candidates = WaypointStyleRuntimeCandidateReloadListener::new(["default"])
+            .load(&stack)
+            .expect("waypoint runtime candidates should keep sprite blockers as report data");
+        let style = &candidates.styles()[0];
+
+        assert_eq!(candidates.runtime_ready_count(), 0);
+        assert_eq!(candidates.blocker_count(), 1);
+        assert!(!style.is_runtime_binding_ready());
+        assert_eq!(style.pending_surfaces().len(), 7);
+        assert_eq!(style.runtime_boundary(), WAYPOINT_STYLE_RUNTIME_BOUNDARY);
+    }
+
+    #[test]
     fn waypoint_style_manifest_reload_rejects_invalid_sprite_shape() {
         let temp = TempPack::new();
         temp.write(
@@ -32075,8 +32453,52 @@ mod tests {
                             && resource.pack_id() == VANILLA_PACK_ID
                             && resource.width() > 0
                             && resource.height() > 0
-                    })
+                })
         }));
+    }
+
+    #[test]
+    fn committed_vanilla_waypoint_style_runtime_candidates_report_nonzero_surface() {
+        let candidates = WaypointStyleRuntimeCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla waypoint runtime candidates should load");
+
+        assert_eq!(candidates.styles().len(), 2);
+        assert!(candidates.sprite_count() > 0);
+        assert_eq!(
+            candidates.sprite_count(),
+            candidates.decoded_resource_count()
+        );
+        assert_eq!(candidates.runtime_ready_count(), 2);
+        assert_eq!(candidates.blocker_count(), 0);
+        assert_eq!(
+            candidates.pending_surfaces(),
+            WAYPOINT_STYLE_RUNTIME_PENDING_SURFACES
+        );
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:waypoint_style_sprites_loaded_runtime_binding_pending")
+        );
+    }
+
+    #[test]
+    fn default_client_resources_order_places_waypoint_runtime_after_manager_candidates() {
+        let listeners =
+            ResourceReloadManager::with_default_client_resources(ClientResourceStack::vanilla())
+                .plan()
+                .listeners()
+                .to_vec();
+        let manager_index = listeners
+            .iter()
+            .position(|listener| listener == "waypoint_style_manager_candidates")
+            .expect("default manager should include waypoint style manager candidates");
+        let runtime_index = listeners
+            .iter()
+            .position(|listener| listener == "waypoint_style_runtime_candidates")
+            .expect("default manager should include waypoint style runtime candidates");
+
+        assert_eq!(runtime_index, manager_index + 1);
     }
 
     #[test]
