@@ -19592,6 +19592,72 @@ impl ClientLanguageResources {
     pub fn report(&self) -> &ClientLanguageReloadReport {
         &self.report
     }
+
+    pub fn into_state(self) -> ClientLanguageState {
+        ClientLanguageState::from_resources(self)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLanguageState {
+    selected_language_code: String,
+    fallback_language_code: String,
+    translations: BTreeMap<String, String>,
+    reload_report: ClientLanguageReloadReport,
+}
+
+impl ClientLanguageState {
+    pub fn from_resources(resources: ClientLanguageResources) -> Self {
+        let ClientLanguageResources {
+            translations,
+            report,
+        } = resources;
+        Self {
+            selected_language_code: report.language_code().to_owned(),
+            fallback_language_code: DEFAULT_LANGUAGE_CODE.to_owned(),
+            translations,
+            reload_report: report,
+        }
+    }
+
+    pub fn load(
+        stack: &ClientResourceStack,
+        requested_language_code: &str,
+    ) -> ResourceReloadResult<Self> {
+        load_client_language_resources(stack, requested_language_code).map(Self::from_resources)
+    }
+
+    pub fn selected_language_code(&self) -> &str {
+        &self.selected_language_code
+    }
+
+    pub fn fallback_language_code(&self) -> &str {
+        &self.fallback_language_code
+    }
+
+    pub fn translations(&self) -> &BTreeMap<String, String> {
+        &self.translations
+    }
+
+    pub fn reload_report(&self) -> &ClientLanguageReloadReport {
+        &self.reload_report
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.translations.get(key).map(String::as_str)
+    }
+
+    pub fn get_or_key<'a>(&'a self, key: &'a str) -> &'a str {
+        self.get(key).unwrap_or(key)
+    }
+
+    pub fn has_translation(&self, key: &str) -> bool {
+        self.translations.contains_key(key)
+    }
+
+    pub fn translation_count(&self) -> usize {
+        self.translations.len()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19648,6 +19714,13 @@ impl ClientLanguageReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ClientLanguageResources> {
         load_client_language_resources(stack, &self.requested_language_code)
+    }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientLanguageState> {
+        self.load(stack).map(ClientLanguageResources::into_state)
     }
 }
 
@@ -34832,6 +34905,53 @@ mod tests {
         );
         assert_eq!(resources.report().language_code(), "pirate");
         assert_eq!(resources.report().translation_count(), 2);
+    }
+
+    #[test]
+    fn language_state_retains_selected_fallback_and_deterministic_lookup() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play","menu.quit":"Quit"}"#,
+        );
+        temp.write(
+            "assets/minecraft/lang/pirate.json",
+            r#"{"menu.play":"Sail"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = ClientLanguageState::load(&stack, "PiRaTe")
+            .expect("language state should load from existing language resources");
+
+        assert_eq!(state.selected_language_code(), "pirate");
+        assert_eq!(state.fallback_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(state.get("menu.play"), Some("Sail"));
+        assert_eq!(state.get_or_key("menu.play"), "Sail");
+        assert_eq!(state.get_or_key("menu.quit"), "Quit");
+        assert_eq!(state.get("missing.key"), None);
+        assert_eq!(state.get_or_key("missing.key"), "missing.key");
+        assert!(state.has_translation("menu.play"));
+        assert!(!state.has_translation("missing.key"));
+        assert_eq!(state.translation_count(), 2);
+        assert_eq!(state.reload_report().translation_count(), 2);
+    }
+
+    #[test]
+    fn language_state_loads_from_reload_listener_without_reparsing_api() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE)
+            .load_state(&stack)
+            .expect("language listener should expose retained runtime state");
+
+        assert_eq!(state.selected_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(state.get_or_key("menu.play"), "Play");
+        assert_eq!(state.get_or_key("missing.key"), "missing.key");
     }
 
     #[test]
