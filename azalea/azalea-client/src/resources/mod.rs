@@ -12671,6 +12671,209 @@ pub enum ClientSoundManagerStatus {
     Blocked,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientSoundRuntimeStatus {
+    Loaded,
+    Missing,
+    Blocked,
+    Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientSoundRuntimeReport {
+    status: ClientSoundRuntimeStatus,
+    resource: String,
+    namespace_count: usize,
+    sounds_json_resource_count: usize,
+    event_count: usize,
+    sound_entry_count: usize,
+    file_sound_count: usize,
+    missing_file_sound_count: usize,
+    preload_file_sound_count: usize,
+    loaded_resources: Vec<String>,
+    preload_candidate_count: usize,
+    available_preload_count: usize,
+    missing_preload_blocker_count: usize,
+    runtime_candidate_count: usize,
+    runtime_blocker_count: usize,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientSoundRuntimeReport {
+    const BOUNDARY: &'static str = "sound_events_loaded_audio_backend_playback_pending_unavailable";
+
+    pub fn from_sound_events(
+        resource: impl Into<String>,
+        sound_events: &ClientSoundEvents,
+    ) -> Self {
+        let state = ClientSoundManagerState::from_sound_events(sound_events.clone());
+        Self::from_sound_manager_state(resource, &state)
+    }
+
+    pub fn from_sound_manager_state(
+        resource: impl Into<String>,
+        state: &ClientSoundManagerState,
+    ) -> Self {
+        let missing_preload_blocker_count = state
+            .report()
+            .preload_buffer_candidates()
+            .iter()
+            .map(|candidate| candidate.missing_blockers().len())
+            .sum::<usize>();
+        let status = match state.status() {
+            ClientSoundManagerStatus::Loaded => ClientSoundRuntimeStatus::Loaded,
+            ClientSoundManagerStatus::Missing => ClientSoundRuntimeStatus::Missing,
+            ClientSoundManagerStatus::Blocked => ClientSoundRuntimeStatus::Blocked,
+        };
+
+        Self {
+            status,
+            resource: resource.into(),
+            namespace_count: state.report().namespace_count(),
+            sounds_json_resource_count: state.report().sounds_json_resource_count(),
+            event_count: state.event_count(),
+            sound_entry_count: state.entry_count(),
+            file_sound_count: state.file_sound_count(),
+            missing_file_sound_count: state.missing_file_count(),
+            preload_file_sound_count: state.report().preload_file_sound_count(),
+            loaded_resources: state.report().loaded_resources().to_vec(),
+            preload_candidate_count: state.preload_candidate_count(),
+            available_preload_count: state.available_preload_count(),
+            missing_preload_blocker_count,
+            runtime_candidate_count: state.runtime_report().candidates().len(),
+            runtime_blocker_count: state.runtime_report().blocker_count(),
+            boundary: Self::BOUNDARY,
+            error: None,
+        }
+    }
+
+    pub fn from_failure(resource: impl Into<String>, error: &ResourceReloadError) -> Self {
+        Self {
+            status: ClientSoundRuntimeStatus::Failed,
+            resource: resource.into(),
+            namespace_count: 0,
+            sounds_json_resource_count: 0,
+            event_count: 0,
+            sound_entry_count: 0,
+            file_sound_count: 0,
+            missing_file_sound_count: 0,
+            preload_file_sound_count: 0,
+            loaded_resources: Vec::new(),
+            preload_candidate_count: 0,
+            available_preload_count: 0,
+            missing_preload_blocker_count: 0,
+            runtime_candidate_count: 0,
+            runtime_blocker_count: 0,
+            boundary: Self::BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientSoundRuntimeStatus {
+        self.status
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn namespace_count(&self) -> usize {
+        self.namespace_count
+    }
+
+    pub fn sounds_json_resource_count(&self) -> usize {
+        self.sounds_json_resource_count
+    }
+
+    pub fn event_count(&self) -> usize {
+        self.event_count
+    }
+
+    pub fn sound_entry_count(&self) -> usize {
+        self.sound_entry_count
+    }
+
+    pub fn file_sound_count(&self) -> usize {
+        self.file_sound_count
+    }
+
+    pub fn missing_file_sound_count(&self) -> usize {
+        self.missing_file_sound_count
+    }
+
+    pub fn preload_file_sound_count(&self) -> usize {
+        self.preload_file_sound_count
+    }
+
+    pub fn loaded_resources(&self) -> &[String] {
+        &self.loaded_resources
+    }
+
+    pub fn preload_candidate_count(&self) -> usize {
+        self.preload_candidate_count
+    }
+
+    pub fn available_preload_count(&self) -> usize {
+        self.available_preload_count
+    }
+
+    pub fn missing_preload_blocker_count(&self) -> usize {
+        self.missing_preload_blocker_count
+    }
+
+    pub fn runtime_candidate_count(&self) -> usize {
+        self.runtime_candidate_count
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.runtime_blocker_count
+    }
+
+    pub fn boundary(&self) -> &str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "sound_runtime_report:{:?} resource:{} namespaces:{} sounds_json:{} events:{} entries:{} files:{} missing_files:{} preloads:{} loaded_resources:{} preload_candidates:{} available_preloads:{} missing_preload_blockers:{} runtime_candidates:{} runtime_blockers:{} boundary:{} error:{}",
+            self.status,
+            self.resource,
+            self.namespace_count,
+            self.sounds_json_resource_count,
+            self.event_count,
+            self.sound_entry_count,
+            self.file_sound_count,
+            self.missing_file_sound_count,
+            self.preload_file_sound_count,
+            self.loaded_resources.join(","),
+            self.preload_candidate_count,
+            self.available_preload_count,
+            self.missing_preload_blocker_count,
+            self.runtime_candidate_count,
+            self.runtime_blocker_count,
+            self.boundary,
+            self.error.as_deref().unwrap_or("")
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.push(format!(
+            "sound_runtime_loaded_resources:{}",
+            self.loaded_resources.join(",")
+        ));
+        if let Some(error) = &self.error {
+            items.push(format!("sound_runtime_error:{error}"));
+        }
+        items
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientSoundManagerState {
     status: ClientSoundManagerStatus,
@@ -13186,6 +13389,13 @@ impl SoundEventsReloadListener {
         self.load(stack)
             .map(ClientSoundManagerState::from_sound_events)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientSoundRuntimeReport {
+        match self.load_state(stack) {
+            Ok(state) => ClientSoundRuntimeReport::from_sound_manager_state(&self.resource, &state),
+            Err(error) => ClientSoundRuntimeReport::from_failure(&self.resource, &error),
+        }
+    }
 }
 
 impl Default for SoundEventsReloadListener {
@@ -13212,9 +13422,11 @@ impl ResourceReloadListener for SoundEventsReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let sound_events = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new([sound_events
-            .report()
-            .summary_fragment()]))
+        let runtime_report =
+            ClientSoundRuntimeReport::from_sound_events(&self.resource, &sound_events);
+        let mut items = vec![sound_events.report().summary_fragment()];
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -40408,7 +40620,7 @@ mod tests {
             listener.preparation.items(),
             [SOUND_EVENTS_RESOURCE.to_owned()]
         );
-        assert_eq!(listener.reload.items().len(), 1);
+        assert!(listener.reload.items().len() >= 2);
         assert!(listener.reload.items()[0].contains("events:2 entries:3 files:3"));
 
         let sounds = SoundEventsReloadListener::default()
@@ -40604,6 +40816,104 @@ mod tests {
                 .report()
                 .summary_fragment()
                 .contains("preload_candidates:1 preload_blockers:0")
+        );
+    }
+
+    #[test]
+    fn sound_runtime_report_successful_preload_file_is_blocked_by_audio_runtime() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"music.menu","preload":true}]}}"#,
+        );
+        temp.write_bytes("assets/minecraft/sounds/music.menu.ogg", b"menu");
+
+        let report =
+            SoundEventsReloadListener::default().runtime_report(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("test", temp.path()),
+            ]));
+
+        assert_eq!(report.status(), ClientSoundRuntimeStatus::Blocked);
+        assert_eq!(report.resource(), SOUND_EVENTS_RESOURCE);
+        assert_eq!(report.sounds_json_resource_count(), 1);
+        assert_eq!(report.event_count(), 1);
+        assert_eq!(report.sound_entry_count(), 1);
+        assert_eq!(report.file_sound_count(), 1);
+        assert_eq!(report.missing_file_sound_count(), 0);
+        assert_eq!(report.preload_file_sound_count(), 1);
+        assert_eq!(report.preload_candidate_count(), 1);
+        assert_eq!(report.available_preload_count(), 1);
+        assert_eq!(report.missing_preload_blocker_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert_eq!(report.runtime_blocker_count(), 10);
+        assert_eq!(report.error(), None);
+        assert_eq!(
+            report.loaded_resources(),
+            &["assets/minecraft/sounds.json@test".to_owned()]
+        );
+        assert!(
+            report.summary_fragment().contains(
+                "boundary:sound_events_loaded_audio_backend_playback_pending_unavailable"
+            )
+        );
+    }
+
+    #[test]
+    fn sound_runtime_report_missing_file_preload_blocker_is_missing() {
+        let temp = TempPack::new();
+        temp.write(
+            SOUND_EVENTS_RESOURCE,
+            r#"{"music.menu":{"sounds":[{"name":"missing.music","preload":true}]}}"#,
+        );
+
+        let report =
+            SoundEventsReloadListener::default().runtime_report(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("test", temp.path()),
+            ]));
+
+        assert_eq!(report.status(), ClientSoundRuntimeStatus::Missing);
+        assert_eq!(report.sounds_json_resource_count(), 1);
+        assert_eq!(report.event_count(), 1);
+        assert_eq!(report.sound_entry_count(), 1);
+        assert_eq!(report.file_sound_count(), 0);
+        assert_eq!(report.missing_file_sound_count(), 1);
+        assert_eq!(report.preload_candidate_count(), 1);
+        assert_eq!(report.available_preload_count(), 0);
+        assert_eq!(report.missing_preload_blocker_count(), 1);
+        assert_eq!(report.runtime_candidate_count(), 5);
+        assert_eq!(report.runtime_blocker_count(), 10);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("missing_preload_blockers:1")
+        );
+    }
+
+    #[test]
+    fn sound_runtime_report_missing_sounds_json_failure_does_not_panic() {
+        let temp = TempPack::new();
+
+        let report =
+            SoundEventsReloadListener::default().runtime_report(&ClientResourceStack::new(vec![
+                ClientResourcePack::new("test", temp.path()),
+            ]));
+
+        assert_eq!(report.status(), ClientSoundRuntimeStatus::Failed);
+        assert_eq!(report.sounds_json_resource_count(), 0);
+        assert_eq!(report.runtime_candidate_count(), 0);
+        assert_eq!(report.runtime_blocker_count(), 0);
+        assert!(
+            report
+                .error()
+                .expect("failed runtime report should capture error")
+                .contains(SOUND_EVENTS_RESOURCE_GLOB)
+        );
+        assert!(report.items().iter().any(|item| item.contains("boundary:")));
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("sound_runtime_error:"))
         );
     }
 
@@ -41051,6 +41361,44 @@ mod tests {
                 "vanilla sound manager state should load or report missing fixture sounds.json: {error:?}"
             ),
         }
+    }
+
+    #[test]
+    fn sound_runtime_report_committed_vanilla_includes_boundary_and_items() {
+        let report =
+            SoundEventsReloadListener::default().runtime_report(&ClientResourceStack::vanilla());
+
+        match report.status() {
+            ClientSoundRuntimeStatus::Blocked => {
+                assert!(report.sounds_json_resource_count() > 0);
+                assert!(report.event_count() > 0);
+                assert!(report.error().is_none());
+            }
+            ClientSoundRuntimeStatus::Failed => {
+                assert_eq!(report.sounds_json_resource_count(), 0);
+                assert!(
+                    report
+                        .error()
+                        .expect("failed vanilla report should include missing fixture error")
+                        .contains(SOUND_EVENTS_RESOURCE_GLOB)
+                );
+            }
+            status => {
+                panic!("vanilla sound runtime report should be blocked or failed, got {status:?}")
+            }
+        }
+
+        assert_eq!(
+            report.boundary(),
+            "sound_events_loaded_audio_backend_playback_pending_unavailable"
+        );
+        assert!(!report.items().is_empty());
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("sound_runtime_report:"))
+        );
     }
 
     #[test]
