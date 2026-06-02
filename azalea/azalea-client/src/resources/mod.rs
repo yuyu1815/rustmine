@@ -27625,6 +27625,10 @@ impl ColormapReloadListener {
     ) -> ResourceReloadResult<Vec<ClientColormapResource>> {
         load_client_colormap_resources(stack, &self.colormaps)
     }
+
+    pub fn load_state(&self, stack: &ClientResourceStack) -> ClientColormapState {
+        ClientColormapState::from_stack(stack, &self.colormaps)
+    }
 }
 
 impl Default for ColormapReloadListener {
@@ -27654,15 +27658,12 @@ impl ResourceReloadListener for ColormapReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         Ok(ResourceReloadTaskReport::new(
-            self.load(stack)?
-                .iter()
-                .map(colormap_report_item)
-                .collect::<Vec<_>>(),
+            self.load_state(stack).items(),
         ))
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientColormapResource {
     report: ClientColormapReloadReport,
     pixels: Vec<u32>,
@@ -27675,6 +27676,321 @@ impl ClientColormapResource {
 
     pub fn pixels(&self) -> &[u32] {
         &self.pixels
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientColormapLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientColormapState {
+    status: ClientColormapLoadStatus,
+    requested_count: usize,
+    loaded_count: usize,
+    byte_count: usize,
+    pixel_count: u64,
+    blocker_count: usize,
+    loaded_resources: Vec<String>,
+    items: Vec<ClientColormapStateItem>,
+    by_resource: BTreeMap<String, usize>,
+}
+
+impl ClientColormapState {
+    pub fn from_stack(stack: &ClientResourceStack, colormaps: &[String]) -> Self {
+        let mut items = Vec::with_capacity(colormaps.len());
+
+        for colormap in colormaps {
+            items.push(load_client_colormap_state_item(stack, colormap));
+        }
+
+        Self::from_items(colormaps.len(), items)
+    }
+
+    fn from_items(requested_count: usize, items: Vec<ClientColormapStateItem>) -> Self {
+        let mut loaded_count = 0;
+        let mut byte_count = 0;
+        let mut pixel_count = 0;
+        let mut blocker_count = 0;
+        let mut loaded_resources = Vec::new();
+        let mut by_resource = BTreeMap::new();
+        let mut has_missing = false;
+        let mut has_blocked = false;
+
+        for (index, item) in items.iter().enumerate() {
+            by_resource.insert(item.resource().to_owned(), index);
+            match item.status() {
+                ClientColormapLoadStatus::Loaded => {
+                    loaded_count += 1;
+                    byte_count += item.byte_count();
+                    pixel_count += item.pixel_count();
+                    loaded_resources.push(item.loaded_resource_pack());
+                }
+                ClientColormapLoadStatus::Blocked => {
+                    blocker_count += 1;
+                    has_blocked = true;
+                }
+                ClientColormapLoadStatus::Missing => {
+                    blocker_count += 1;
+                    has_missing = true;
+                }
+            }
+        }
+
+        let status = if has_missing {
+            ClientColormapLoadStatus::Missing
+        } else if has_blocked {
+            ClientColormapLoadStatus::Blocked
+        } else {
+            ClientColormapLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            requested_count,
+            loaded_count,
+            byte_count,
+            pixel_count,
+            blocker_count,
+            loaded_resources,
+            items,
+            by_resource,
+        }
+    }
+
+    pub fn status(&self) -> ClientColormapLoadStatus {
+        self.status
+    }
+
+    pub fn requested_count(&self) -> usize {
+        self.requested_count
+    }
+
+    pub fn loaded_count(&self) -> usize {
+        self.loaded_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn pixel_count(&self) -> u64 {
+        self.pixel_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn loaded_resources(&self) -> &[String] {
+        &self.loaded_resources
+    }
+
+    pub fn colormaps(&self) -> &[ClientColormapStateItem] {
+        &self.items
+    }
+
+    pub fn colormap_by_resource(&self, resource: &str) -> Option<&ClientColormapStateItem> {
+        self.by_resource
+            .get(resource)
+            .and_then(|index| self.items.get(*index))
+    }
+
+    pub fn loaded_resource(&self, resource: &str) -> Option<&ClientColormapResource> {
+        self.colormap_by_resource(resource)
+            .and_then(ClientColormapStateItem::resource_data)
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![format!(
+            "client_colormap_state:status:{:?} requested:{} loaded:{} bytes:{} pixels:{} blockers:{} total_blockers:{}",
+            self.status(),
+            self.requested_count(),
+            self.loaded_count(),
+            self.byte_count(),
+            self.pixel_count(),
+            self.blocker_count(),
+            self.total_blocker_count()
+        )];
+        items.extend(self.items.iter().map(ClientColormapStateItem::report_item));
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientColormapStateItem {
+    resource: String,
+    status: ClientColormapLoadStatus,
+    colormap: Option<ClientColormapResource>,
+    blocker: Option<ClientColormapBlocker>,
+}
+
+impl ClientColormapStateItem {
+    fn loaded(colormap: ClientColormapResource) -> Self {
+        Self {
+            resource: colormap.report().resource().to_owned(),
+            status: ClientColormapLoadStatus::Loaded,
+            colormap: Some(colormap),
+            blocker: None,
+        }
+    }
+
+    fn blocked(resource: impl Into<String>, blocker: ClientColormapBlocker) -> Self {
+        let status = match blocker.reason() {
+            ClientColormapBlockerReason::MissingResource => ClientColormapLoadStatus::Missing,
+            ClientColormapBlockerReason::ReadResource
+            | ClientColormapBlockerReason::InvalidPngSignature
+            | ClientColormapBlockerReason::InvalidPngMetadata { .. } => {
+                ClientColormapLoadStatus::Blocked
+            }
+        };
+
+        Self {
+            resource: resource.into(),
+            status,
+            colormap: None,
+            blocker: Some(blocker),
+        }
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn status(&self) -> ClientColormapLoadStatus {
+        self.status
+    }
+
+    pub fn resource_data(&self) -> Option<&ClientColormapResource> {
+        self.colormap.as_ref()
+    }
+
+    pub fn blocker(&self) -> Option<&ClientColormapBlocker> {
+        self.blocker.as_ref()
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.colormap
+            .as_ref()
+            .map(|colormap| colormap.report().pack_id())
+            .or_else(|| {
+                self.blocker
+                    .as_ref()
+                    .and_then(ClientColormapBlocker::pack_id)
+            })
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.colormap
+            .as_ref()
+            .map(|colormap| colormap.report().byte_count())
+            .or_else(|| {
+                self.blocker
+                    .as_ref()
+                    .and_then(ClientColormapBlocker::byte_count)
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn width(&self) -> u32 {
+        self.colormap
+            .as_ref()
+            .map(|colormap| colormap.report().width())
+            .unwrap_or(0)
+    }
+
+    pub fn height(&self) -> u32 {
+        self.colormap
+            .as_ref()
+            .map(|colormap| colormap.report().height())
+            .unwrap_or(0)
+    }
+
+    pub fn pixel_count(&self) -> u64 {
+        self.colormap
+            .as_ref()
+            .map(|colormap| colormap.report().pixel_count())
+            .unwrap_or(0)
+    }
+
+    pub fn loaded_resource_pack(&self) -> String {
+        match &self.colormap {
+            Some(colormap) => colormap.report().loaded_resource_pack(),
+            None => format!(
+                "{}@{}",
+                self.resource(),
+                self.pack_id().unwrap_or("missing")
+            ),
+        }
+    }
+
+    fn report_item(&self) -> String {
+        let reason = self
+            .blocker
+            .as_ref()
+            .map(ClientColormapBlocker::reason_fragment)
+            .unwrap_or_else(|| "none".to_owned());
+        format!(
+            "client_colormap_state_colormap:{} status:{:?} bytes:{} dimensions:{}x{} pixels:{} blocker:{}",
+            self.loaded_resource_pack(),
+            self.status(),
+            self.byte_count(),
+            self.width(),
+            self.height(),
+            self.pixel_count(),
+            reason
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientColormapBlocker {
+    pack_id: Option<String>,
+    byte_count: Option<usize>,
+    reason: ClientColormapBlockerReason,
+}
+
+impl ClientColormapBlocker {
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn byte_count(&self) -> Option<usize> {
+        self.byte_count
+    }
+
+    pub fn reason(&self) -> &ClientColormapBlockerReason {
+        &self.reason
+    }
+
+    pub fn reason_fragment(&self) -> String {
+        self.reason.report_fragment()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientColormapBlockerReason {
+    MissingResource,
+    ReadResource,
+    InvalidPngSignature,
+    InvalidPngMetadata { reason: String },
+}
+
+impl ClientColormapBlockerReason {
+    pub fn report_fragment(&self) -> String {
+        match self {
+            Self::MissingResource => "missing_resource".to_owned(),
+            Self::ReadResource => "read_resource".to_owned(),
+            Self::InvalidPngSignature => "invalid_png_signature".to_owned(),
+            Self::InvalidPngMetadata { reason } => format!("invalid_png_metadata:{reason}"),
+        }
     }
 }
 
@@ -27765,16 +28081,74 @@ pub fn load_client_colormap_resources(
     Ok(loaded)
 }
 
-fn colormap_report_item(colormap: &ClientColormapResource) -> String {
-    let report = colormap.report();
-    format!(
-        "{}:{} bytes:rgba8:{}x{}:{} pixels",
-        report.loaded_resource_pack(),
-        report.byte_count(),
-        report.width(),
-        report.height(),
-        report.pixel_count()
-    )
+fn load_client_colormap_state_item(
+    stack: &ClientResourceStack,
+    colormap: &str,
+) -> ClientColormapStateItem {
+    let Some(location) = stack.find_resource(colormap) else {
+        return ClientColormapStateItem::blocked(
+            colormap,
+            ClientColormapBlocker {
+                pack_id: None,
+                byte_count: None,
+                reason: ClientColormapBlockerReason::MissingResource,
+            },
+        );
+    };
+
+    let pack_id = location.pack_id.clone();
+    let bytes = match read_resource_bytes(colormap, &location) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return ClientColormapStateItem::blocked(
+                colormap,
+                ClientColormapBlocker {
+                    pack_id: Some(pack_id),
+                    byte_count: None,
+                    reason: ClientColormapBlockerReason::ReadResource,
+                },
+            );
+        }
+    };
+    let byte_count = bytes.len();
+    let image = match decode_png_rgba_image(colormap, &location, &bytes) {
+        Ok(image) => image,
+        Err(ResourceReloadError::InvalidPngSignature { .. }) => {
+            return ClientColormapStateItem::blocked(
+                colormap,
+                ClientColormapBlocker {
+                    pack_id: Some(pack_id),
+                    byte_count: Some(byte_count),
+                    reason: ClientColormapBlockerReason::InvalidPngSignature,
+                },
+            );
+        }
+        Err(ResourceReloadError::InvalidPngMetadata { reason, .. }) => {
+            return ClientColormapStateItem::blocked(
+                colormap,
+                ClientColormapBlocker {
+                    pack_id: Some(pack_id),
+                    byte_count: Some(byte_count),
+                    reason: ClientColormapBlockerReason::InvalidPngMetadata { reason },
+                },
+            );
+        }
+        Err(_) => {
+            return ClientColormapStateItem::blocked(
+                colormap,
+                ClientColormapBlocker {
+                    pack_id: Some(pack_id),
+                    byte_count: Some(byte_count),
+                    reason: ClientColormapBlockerReason::ReadResource,
+                },
+            );
+        }
+    };
+
+    ClientColormapStateItem::loaded(ClientColormapResource {
+        report: ClientColormapReloadReport::new(colormap, location.pack_id, byte_count, &image),
+        pixels: image.pixels,
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41052,13 +41426,126 @@ mod tests {
             listener.preparation.items(),
             [GRASS_COLORMAP_RESOURCE.to_owned()]
         );
+        assert_eq!(listener.reload.items().len(), 2);
         assert_eq!(
-            listener.reload.items(),
-            [format!(
-                "{GRASS_COLORMAP_RESOURCE}@override:{} bytes:rgba8:2x2:4 pixels",
+            listener.reload.items()[0],
+            format!(
+                "client_colormap_state:status:Loaded requested:1 loaded:1 bytes:{} pixels:4 blockers:0 total_blockers:0",
                 override_png.len()
-            )]
+            )
         );
+        assert_eq!(
+            listener.reload.items()[1],
+            format!(
+                "client_colormap_state_colormap:{GRASS_COLORMAP_RESOURCE}@override status:Loaded bytes:{} dimensions:2x2 pixels:4 blocker:none",
+                override_png.len()
+            )
+        );
+    }
+
+    #[test]
+    fn colormap_state_counts_lookup_and_pixels_with_small_pack_override() {
+        let base = TempPack::new();
+        let override_pack = TempPack::new();
+        let base_png = encode_test_rgba_png(1, 1, &[0, 0, 0, 255]);
+        let grass_png = encode_test_rgba_png(
+            2,
+            1,
+            &[
+                12, 34, 56, 255, //
+                78, 90, 123, 128,
+            ],
+        );
+        let foliage_png = encode_test_rgba_png(1, 1, &[1, 2, 3, 255]);
+        base.write_bytes(GRASS_COLORMAP_RESOURCE, &base_png);
+        override_pack.write_bytes(GRASS_COLORMAP_RESOURCE, &grass_png);
+        override_pack.write_bytes(FOLIAGE_COLORMAP_RESOURCE, &foliage_png);
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("base", base.path()),
+            ClientResourcePack::new("override", override_pack.path()),
+        ]);
+        let listener =
+            ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE, FOLIAGE_COLORMAP_RESOURCE]);
+
+        let state = listener.load_state(&stack);
+
+        assert_eq!(state.status(), ClientColormapLoadStatus::Loaded);
+        assert_eq!(state.requested_count(), 2);
+        assert_eq!(state.loaded_count(), 2);
+        assert_eq!(state.byte_count(), grass_png.len() + foliage_png.len());
+        assert_eq!(state.pixel_count(), 3);
+        assert_eq!(state.blocker_count(), 0);
+        assert_eq!(state.total_blocker_count(), 0);
+        assert_eq!(
+            state.loaded_resources(),
+            [
+                format!("{GRASS_COLORMAP_RESOURCE}@override"),
+                format!("{FOLIAGE_COLORMAP_RESOURCE}@override")
+            ]
+        );
+
+        let grass = state
+            .colormap_by_resource(GRASS_COLORMAP_RESOURCE)
+            .expect("grass colormap should be indexed by resource path");
+        assert_eq!(grass.status(), ClientColormapLoadStatus::Loaded);
+        assert_eq!(grass.pack_id(), Some("override"));
+        assert_eq!(grass.width(), 2);
+        assert_eq!(grass.height(), 1);
+        assert_eq!(
+            state
+                .loaded_resource(GRASS_COLORMAP_RESOURCE)
+                .expect("grass colormap pixels should be retained")
+                .pixels(),
+            [0xff0c2238, 0x804e5a7b]
+        );
+        assert_eq!(state.items().len(), 3);
+        assert!(state.items()[0].contains("status:Loaded requested:2 loaded:2"));
+    }
+
+    #[test]
+    fn colormap_state_retains_missing_and_invalid_blockers() {
+        let temp = TempPack::new();
+        temp.write_bytes(GRASS_COLORMAP_RESOURCE, b"not a png");
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener =
+            ColormapReloadListener::new([GRASS_COLORMAP_RESOURCE, FOLIAGE_COLORMAP_RESOURCE]);
+
+        let state = listener.load_state(&stack);
+
+        assert_eq!(state.status(), ClientColormapLoadStatus::Missing);
+        assert_eq!(state.requested_count(), 2);
+        assert_eq!(state.loaded_count(), 0);
+        assert_eq!(state.byte_count(), 0);
+        assert_eq!(state.pixel_count(), 0);
+        assert_eq!(state.blocker_count(), 2);
+        assert_eq!(state.total_blocker_count(), 2);
+
+        let corrupt = state
+            .colormap_by_resource(GRASS_COLORMAP_RESOURCE)
+            .expect("invalid colormap should be retained as a blocker");
+        assert_eq!(corrupt.status(), ClientColormapLoadStatus::Blocked);
+        assert_eq!(corrupt.pack_id(), Some("test"));
+        assert_eq!(corrupt.byte_count(), 9);
+        assert_eq!(
+            corrupt.blocker().map(ClientColormapBlocker::reason),
+            Some(&ClientColormapBlockerReason::InvalidPngSignature)
+        );
+
+        let missing = state
+            .colormap_by_resource(FOLIAGE_COLORMAP_RESOURCE)
+            .expect("missing colormap should be retained as a blocker");
+        assert_eq!(missing.status(), ClientColormapLoadStatus::Missing);
+        assert_eq!(
+            missing.blocker().map(ClientColormapBlocker::reason),
+            Some(&ClientColormapBlockerReason::MissingResource)
+        );
+        assert!(state.items().iter().any(|item| {
+            item.contains("status:Blocked") && item.contains("blocker:invalid_png_signature")
+        }));
+        assert!(state.items().iter().any(|item| {
+            item.contains("status:Missing") && item.contains("blocker:missing_resource")
+        }));
     }
 
     #[test]
@@ -41977,10 +42464,22 @@ mod tests {
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "colormaps");
         assert_eq!(listener.preparation.items(), DEFAULT_COLORMAPS);
-        assert_eq!(listener.reload.items().len(), 3);
+        assert_eq!(listener.reload.items().len(), 4);
+        let total_byte_count = colormaps
+            .iter()
+            .map(|colormap| colormap.report().byte_count())
+            .sum::<usize>();
+        assert_eq!(
+            listener.reload.items()[0],
+            format!(
+                "client_colormap_state:status:Loaded requested:3 loaded:3 bytes:{total_byte_count} pixels:196608 blockers:0 total_blockers:0"
+            )
+        );
 
         for resource in DEFAULT_COLORMAPS {
-            let prefix = format!("{resource}@{VANILLA_PACK_ID}:");
+            let prefix = format!(
+                "client_colormap_state_colormap:{resource}@{VANILLA_PACK_ID} status:Loaded bytes:"
+            );
             let item = listener
                 .reload
                 .items()
@@ -41989,11 +42488,50 @@ mod tests {
                 .unwrap_or_else(|| panic!("reload report should include {resource}"));
             let byte_count = item
                 .strip_prefix(&prefix)
-                .and_then(|value| value.strip_suffix(" bytes:rgba8:256x256:65536 pixels"))
+                .and_then(|value| {
+                    value.strip_suffix(" dimensions:256x256 pixels:65536 blocker:none")
+                })
                 .expect("report should include byte count and decoded dimensions")
                 .parse::<usize>()
                 .expect("byte count should be numeric");
             assert!(byte_count > PNG_SIGNATURE.len());
+        }
+    }
+
+    #[test]
+    fn committed_vanilla_colormap_state_loads_default_colormap_set() {
+        let state = ColormapReloadListener::default().load_state(&ClientResourceStack::vanilla());
+
+        assert_eq!(state.status(), ClientColormapLoadStatus::Loaded);
+        assert_eq!(state.requested_count(), 3);
+        assert_eq!(state.loaded_count(), 3);
+        assert_eq!(state.pixel_count(), 196_608);
+        assert_eq!(state.blocker_count(), 0);
+        assert_eq!(state.total_blocker_count(), 0);
+        assert_eq!(state.colormaps().len(), 3);
+        let expected_loaded_resources = DEFAULT_COLORMAPS
+            .iter()
+            .map(|resource| format!("{resource}@{VANILLA_PACK_ID}"))
+            .collect::<Vec<_>>();
+        assert_eq!(state.loaded_resources(), expected_loaded_resources);
+
+        for resource in DEFAULT_COLORMAPS {
+            let item = state
+                .colormap_by_resource(resource)
+                .unwrap_or_else(|| panic!("state should index {resource}"));
+            assert_eq!(item.status(), ClientColormapLoadStatus::Loaded);
+            assert_eq!(item.pack_id(), Some(VANILLA_PACK_ID));
+            assert_eq!(item.width(), 256);
+            assert_eq!(item.height(), 256);
+            assert_eq!(item.pixel_count(), 65_536);
+            assert_eq!(
+                state
+                    .loaded_resource(resource)
+                    .expect("decoded pixels should be retained")
+                    .pixels()
+                    .len(),
+                65_536
+            );
         }
     }
 
