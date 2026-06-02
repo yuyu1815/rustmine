@@ -113,6 +113,8 @@ const SOUND_FILE_RESOURCE_GLOB: &str = "assets/*/sounds/**/*.ogg";
 const PARTICLE_SPRITE_SET_BOUNDARY: &str = "sprite_decode_complete_particle_engine_pending";
 const WAYPOINT_STYLE_MANAGER_BOUNDARY: &str = "sprite_decode_complete_waypoint_manager_pending";
 const EQUIPMENT_RENDER_ASSET_BOUNDARY: &str = "texture_decode_complete_equipment_renderer_pending";
+const ENTITY_RENDERER_DISPATCHER_BOUNDARY: &str =
+    "entity_renderer_registry_loaded_dispatcher_pending";
 const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
     "cloud_texture_decode_complete_renderer_rebuild_pending";
 const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warning_decision_pending";
@@ -1979,6 +1981,7 @@ impl ResourceReloadManager {
             .with_listener(ModelBakeCandidateReloadListener::default())
             .with_listener(EquipmentAssetsReloadListener::default())
             .with_listener(EquipmentRenderAssetCandidateReloadListener::default())
+            .with_listener(EntityRendererDispatcherCandidateReloadListener::default())
             .with_listener(ParticleManifestReloadListener::default())
             .with_listener(ParticleSpriteResourceReloadListener::default())
             .with_listener(ParticleSpriteSetCandidateReloadListener::default())
@@ -3974,6 +3977,222 @@ impl ClientEquipmentRenderAssetCandidateReport {
 
     pub fn loaded_resource_pack(&self) -> String {
         format!("{}@{}", self.resource, self.pack_id)
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EntityRendererDispatcherCandidateSet {
+    candidates: Vec<EntityRendererDispatcherCandidate>,
+}
+
+impl EntityRendererDispatcherCandidateSet {
+    pub fn candidates(&self) -> &[EntityRendererDispatcherCandidate] {
+        &self.candidates
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = EntityRendererDispatcherCandidateReport> + '_ {
+        self.candidates
+            .iter()
+            .map(EntityRendererDispatcherCandidate::report)
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn representative_entity_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(EntityRendererDispatcherCandidate::representative_entity_count)
+            .sum()
+    }
+
+    pub fn model_manager_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.model_manager)
+            .count()
+    }
+
+    pub fn item_model_resolver_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.item_model_resolver)
+            .count()
+    }
+
+    pub fn equipment_asset_manager_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.equipment_asset_manager)
+            .count()
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.font)
+            .count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.dependencies.texture_manager)
+            .count()
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(EntityRendererDispatcherCandidate::model_layer_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(EntityRendererDispatcherCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "entity_renderer_dispatcher_candidates:families:{} representative_entities:{} deps:model_manager:{} item_model_resolver:{} equipment_asset_manager:{} font:{} texture_manager:{} model_layers:{} blockers:{} boundary:{}",
+            self.candidate_count(),
+            self.representative_entity_count(),
+            self.model_manager_dependency_count(),
+            self.item_model_resolver_dependency_count(),
+            self.equipment_asset_manager_dependency_count(),
+            self.font_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.model_layer_count(),
+            self.blocker_count(),
+            ENTITY_RENDERER_DISPATCHER_BOUNDARY
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| entity_renderer_dispatcher_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EntityRendererDispatcherCandidate {
+    id: String,
+    category: String,
+    representative_entities: Vec<String>,
+    dependencies: EntityRendererDispatcherDependencyFlags,
+    model_layer_count: usize,
+    blockers: Vec<String>,
+}
+
+impl EntityRendererDispatcherCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_entities(&self) -> &[String] {
+        &self.representative_entities
+    }
+
+    pub fn dependencies(&self) -> EntityRendererDispatcherDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.model_layer_count
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn representative_entity_count(&self) -> usize {
+        self.representative_entities.len()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        ENTITY_RENDERER_DISPATCHER_BOUNDARY
+    }
+
+    pub fn report(&self) -> EntityRendererDispatcherCandidateReport {
+        EntityRendererDispatcherCandidateReport {
+            id: self.id.clone(),
+            category: self.category.clone(),
+            representative_entities: self.representative_entities.clone(),
+            dependencies: self.dependencies,
+            model_layer_count: self.model_layer_count,
+            blockers: self.blockers.clone(),
+            render_boundary: self.render_boundary(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct EntityRendererDispatcherDependencyFlags {
+    pub model_manager: bool,
+    pub item_model_resolver: bool,
+    pub equipment_asset_manager: bool,
+    pub font: bool,
+    pub texture_manager: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EntityRendererDispatcherCandidateReport {
+    id: String,
+    category: String,
+    representative_entities: Vec<String>,
+    dependencies: EntityRendererDispatcherDependencyFlags,
+    model_layer_count: usize,
+    blockers: Vec<String>,
+    render_boundary: &'static str,
+}
+
+impl EntityRendererDispatcherCandidateReport {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_entities(&self) -> &[String] {
+        &self.representative_entities
+    }
+
+    pub fn dependencies(&self) -> EntityRendererDispatcherDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn model_layer_count(&self) -> usize {
+        self.model_layer_count
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn render_boundary(&self) -> &'static str {
+        self.render_boundary
     }
 }
 
@@ -6787,6 +7006,40 @@ impl ResourceReloadListener for EquipmentRenderAssetCandidateReloadListener {
                         .into_owned()
                 }),
         ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EntityRendererDispatcherCandidateReloadListener;
+
+impl EntityRendererDispatcherCandidateReloadListener {
+    pub fn load(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<EntityRendererDispatcherCandidateSet> {
+        Ok(build_entity_renderer_dispatcher_candidate_set())
+    }
+}
+
+impl ResourceReloadListener for EntityRendererDispatcherCandidateReloadListener {
+    fn name(&self) -> &str {
+        "entity_renderer_dispatcher_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new([self
+            .load(stack)?
+            .summary_fragment()]))
     }
 
     fn reload(
@@ -10557,6 +10810,197 @@ fn load_equipment_render_decoded_texture_resource(
     })
 }
 
+#[derive(Clone, Copy)]
+struct EntityRendererDispatcherCandidateSpec {
+    id: &'static str,
+    category: &'static str,
+    representative_entities: &'static [&'static str],
+    dependencies: EntityRendererDispatcherDependencyFlags,
+    model_layer_count: usize,
+}
+
+const fn entity_renderer_deps(
+    model_manager: bool,
+    item_model_resolver: bool,
+    equipment_asset_manager: bool,
+    font: bool,
+    texture_manager: bool,
+) -> EntityRendererDispatcherDependencyFlags {
+    EntityRendererDispatcherDependencyFlags {
+        model_manager,
+        item_model_resolver,
+        equipment_asset_manager,
+        font,
+        texture_manager,
+    }
+}
+
+const ENTITY_RENDERER_DISPATCHER_CANDIDATE_SPECS: &[EntityRendererDispatcherCandidateSpec] = &[
+    EntityRendererDispatcherCandidateSpec {
+        id: "avatar",
+        category: "avatar_renderer",
+        representative_entities: &["player", "mannequin"],
+        dependencies: entity_renderer_deps(true, true, true, false, true),
+        model_layer_count: 4,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "humanoid_living",
+        category: "living_model_renderer",
+        representative_entities: &[
+            "zombie",
+            "skeleton",
+            "armor_stand",
+            "piglin",
+            "zombified_piglin",
+        ],
+        dependencies: entity_renderer_deps(true, false, true, false, true),
+        model_layer_count: 12,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "animal_living",
+        category: "living_model_renderer",
+        representative_entities: &["cow", "pig", "sheep", "wolf", "camel", "sniffer"],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 10,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "saddled_equipment",
+        category: "equipment_layer_renderer",
+        representative_entities: &["donkey", "mule", "skeleton_horse", "zombie_horse"],
+        dependencies: entity_renderer_deps(true, false, true, false, true),
+        model_layer_count: 8,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "boat_and_raft",
+        category: "vehicle_model_renderer",
+        representative_entities: &[
+            "oak_boat",
+            "oak_chest_boat",
+            "bamboo_raft",
+            "bamboo_chest_raft",
+        ],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 4,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "minecart",
+        category: "vehicle_model_renderer",
+        representative_entities: &[
+            "minecart",
+            "chest_minecart",
+            "furnace_minecart",
+            "tnt_minecart",
+        ],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 4,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "thrown_item",
+        category: "item_model_renderer",
+        representative_entities: &["egg", "ender_pearl", "snowball", "splash_potion"],
+        dependencies: entity_renderer_deps(false, true, false, false, true),
+        model_layer_count: 0,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "item_display",
+        category: "item_model_renderer",
+        representative_entities: &["item", "item_display", "item_frame", "glow_item_frame"],
+        dependencies: entity_renderer_deps(false, true, false, false, true),
+        model_layer_count: 0,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "block_display",
+        category: "block_model_renderer",
+        representative_entities: &["falling_block", "block_display", "tnt"],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 0,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "text_display",
+        category: "font_renderer",
+        representative_entities: &["text_display"],
+        dependencies: entity_renderer_deps(false, false, false, true, true),
+        model_layer_count: 0,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "projectile_model",
+        category: "projectile_renderer",
+        representative_entities: &["arrow", "spectral_arrow", "trident", "wind_charge"],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 3,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "large_boss",
+        category: "large_model_renderer",
+        representative_entities: &["ender_dragon", "wither", "warden"],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 6,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "aquatic_explicit_bake_layer",
+        category: "living_model_renderer",
+        representative_entities: &["squid", "glow_squid", "tropical_fish"],
+        dependencies: entity_renderer_deps(true, false, false, false, true),
+        model_layer_count: 5,
+    },
+    EntityRendererDispatcherCandidateSpec {
+        id: "noop",
+        category: "noop_renderer",
+        representative_entities: &["area_effect_cloud", "interaction", "marker"],
+        dependencies: entity_renderer_deps(false, false, false, false, false),
+        model_layer_count: 0,
+    },
+];
+
+fn build_entity_renderer_dispatcher_candidate_set() -> EntityRendererDispatcherCandidateSet {
+    EntityRendererDispatcherCandidateSet {
+        candidates: ENTITY_RENDERER_DISPATCHER_CANDIDATE_SPECS
+            .iter()
+            .map(build_entity_renderer_dispatcher_candidate)
+            .collect(),
+    }
+}
+
+fn build_entity_renderer_dispatcher_candidate(
+    spec: &EntityRendererDispatcherCandidateSpec,
+) -> EntityRendererDispatcherCandidate {
+    let dependencies = spec.dependencies;
+    let mut blockers = vec![
+        "real_entity_renderer_implementation_unavailable".to_owned(),
+        "ecs_render_state_extraction_unavailable".to_owned(),
+        "gpu_submit_pipeline_unavailable".to_owned(),
+    ];
+
+    if dependencies.model_manager || spec.model_layer_count > 0 {
+        blockers.push("model_layer_bake_integration_unavailable".to_owned());
+    }
+    if dependencies.item_model_resolver {
+        blockers.push("item_model_resolver_render_integration_unavailable".to_owned());
+    }
+    if dependencies.equipment_asset_manager {
+        blockers.push("equipment_renderer_layer_binding_unavailable".to_owned());
+    }
+    if dependencies.font {
+        blockers.push("font_glyph_draw_pipeline_unavailable".to_owned());
+    }
+    if dependencies.texture_manager {
+        blockers.push("texture_atlas_upload_gpu_integration_unavailable".to_owned());
+    }
+
+    EntityRendererDispatcherCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category.to_owned(),
+        representative_entities: spec
+            .representative_entities
+            .iter()
+            .map(|entity| (*entity).to_owned())
+            .collect(),
+        dependencies,
+        model_layer_count: spec.model_layer_count,
+        blockers,
+    }
+}
+
 fn parse_client_equipment_asset(
     manifest: &ClientJsonManifest,
 ) -> ResourceReloadResult<ClientEquipmentAsset> {
@@ -11503,6 +11947,27 @@ fn equipment_render_blockers_fragment(layers: &[ClientEquipmentRenderLayerCandid
         .map(|blocker| blocker.item_fragment())
         .collect::<Vec<_>>()
         .join("|")
+}
+
+fn entity_renderer_dispatcher_candidate_report_item(
+    report: &EntityRendererDispatcherCandidateReport,
+) -> String {
+    let dependencies = report.dependencies();
+    format!(
+        "entity_renderer_dispatcher_candidate:{} category:{} representative_entities:{} deps:model_manager:{} item_model_resolver:{} equipment_asset_manager:{} font:{} texture_manager:{} model_layers:{} blockers:{} blocker_details:{} boundary:{}",
+        report.id(),
+        report.category(),
+        report.representative_entities().join(","),
+        dependencies.model_manager,
+        dependencies.item_model_resolver,
+        dependencies.equipment_asset_manager,
+        dependencies.font,
+        dependencies.texture_manager,
+        report.model_layer_count(),
+        report.blocker_count(),
+        report.blockers().join(","),
+        report.render_boundary()
+    )
 }
 
 fn equipment_dyeable_fragment(dyeable: Option<&ClientEquipmentDyeable>) -> String {
@@ -25150,6 +25615,91 @@ mod tests {
                                     == Some(-6265536)
                         })
                 })
+        }));
+    }
+
+    #[test]
+    fn entity_renderer_dispatcher_candidate_report_tracks_renderer_context_dependencies() {
+        let candidates = EntityRendererDispatcherCandidateReloadListener
+            .load(&ClientResourceStack::vanilla())
+            .expect("entity renderer dispatcher candidates should load");
+
+        assert!(candidates.candidate_count() >= 10);
+        assert!(candidates.representative_entity_count() >= 40);
+        assert!(candidates.model_manager_dependency_count() > 0);
+        assert!(candidates.item_model_resolver_dependency_count() > 0);
+        assert!(candidates.equipment_asset_manager_dependency_count() > 0);
+        assert!(candidates.font_dependency_count() > 0);
+        assert!(candidates.texture_manager_dependency_count() > 0);
+        assert!(candidates.model_layer_count() > 0);
+        assert!(
+            candidates
+                .summary_fragment()
+                .contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        );
+
+        let by_id = candidates
+            .candidates()
+            .iter()
+            .map(|candidate| (candidate.id(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        let thrown_item = by_id
+            .get("thrown_item")
+            .expect("thrown item renderer family should be reported");
+        assert_eq!(thrown_item.category(), "item_model_renderer");
+        assert!(thrown_item.dependencies().item_model_resolver);
+        assert!(!thrown_item.dependencies().equipment_asset_manager);
+        assert!(
+            thrown_item
+                .representative_entities()
+                .contains(&"snowball".to_owned())
+        );
+
+        let text_display = by_id
+            .get("text_display")
+            .expect("text display renderer family should be reported");
+        assert!(text_display.dependencies().font);
+        assert!(text_display.dependencies().texture_manager);
+        assert!(
+            text_display
+                .blockers()
+                .contains(&"font_glyph_draw_pipeline_unavailable".to_owned())
+        );
+
+        let saddled_equipment = by_id
+            .get("saddled_equipment")
+            .expect("saddled equipment renderer family should be reported");
+        assert!(saddled_equipment.dependencies().equipment_asset_manager);
+        assert!(saddled_equipment.model_layer_count() > 0);
+        assert!(
+            saddled_equipment
+                .blockers()
+                .contains(&"equipment_renderer_layer_binding_unavailable".to_owned())
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_entity_renderer_dispatcher_candidates_report_boundary_surface() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(EntityRendererDispatcherCandidateReloadListener)
+            .run()
+            .expect("committed vanilla entity renderer dispatcher candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "entity_renderer_dispatcher_candidates");
+        assert_eq!(listener.preparation.items().len(), 1);
+        assert!(
+            listener.preparation.items()[0]
+                .contains("entity_renderer_dispatcher_candidates:families:")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("entity_renderer_dispatcher_candidate:avatar")
+                && item.contains("representative_entities:player,mannequin")
+                && item.contains("boundary:entity_renderer_registry_loaded_dispatcher_pending")
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("entity_renderer_dispatcher_candidate:noop")
+                && item.contains("category:noop_renderer")
         }));
     }
 
