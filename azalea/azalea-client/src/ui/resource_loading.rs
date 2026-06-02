@@ -6,7 +6,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::{ResMut, Resource};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
 
 use super::{
     account_flow::StoredLauncherAccount,
@@ -36,6 +36,10 @@ pub const STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY: &str =
     "startup_resource_loading_runtime_report";
 pub const STARTUP_CLIENT_RESOURCE_RELOAD_PLUGIN_BOUNDARY: &str =
     "startup_client_resources_reload_plugin";
+pub const STARTUP_MOJANG_LOADING_OVERLAY_SURFACE_BOUNDARY: &str =
+    "startup_mojang_loading_overlay_surface";
+pub const DEFAULT_MOJANG_LOADING_OVERLAY_VIEWPORT_WIDTH: f32 = 854.0;
+pub const DEFAULT_MOJANG_LOADING_OVERLAY_VIEWPORT_HEIGHT: f32 = 480.0;
 
 #[derive(Default)]
 pub struct StartupClientResourceReloadPlugin;
@@ -127,6 +131,169 @@ pub fn run_startup_client_resource_reload_once(
     mut startup_reload: ResMut<StartupClientResourceReload>,
 ) {
     startup_reload.run_initial_reload_once();
+}
+
+#[derive(Default)]
+pub struct StartupMojangLoadingOverlayDrawSurfacePlugin;
+
+impl Plugin for StartupMojangLoadingOverlayDrawSurfacePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<StartupClientResourceReload>()
+            .init_resource::<StartupMojangLoadingOverlayDrawSurface>()
+            .add_systems(
+                Update,
+                update_startup_mojang_loading_overlay_draw_surface
+                    .after(run_startup_client_resource_reload_once),
+            );
+    }
+}
+
+#[derive(Clone, Debug, Resource)]
+pub struct StartupMojangLoadingOverlayDrawSurface {
+    viewport: MojangLoadingOverlayViewport,
+    elapsed: Duration,
+    overlay: VanillaLoadingOverlay,
+    logo_texture_state: MojangLogoTextureState,
+    latest_view: MojangLoadingOverlayViewModel,
+    latest_draw_list: MojangLoadingOverlayDrawList,
+    boundary: &'static str,
+}
+
+impl Default for StartupMojangLoadingOverlayDrawSurface {
+    fn default() -> Self {
+        Self::from_startup_reload(&StartupClientResourceReload::default())
+    }
+}
+
+impl StartupMojangLoadingOverlayDrawSurface {
+    pub fn new(viewport: MojangLoadingOverlayViewport) -> Self {
+        let mut surface = Self::default();
+        surface.set_viewport(viewport);
+        surface
+    }
+
+    pub fn from_startup_reload(startup_reload: &StartupClientResourceReload) -> Self {
+        let viewport = MojangLoadingOverlayViewport::default();
+        let elapsed = Duration::ZERO;
+        let overlay = VanillaLoadingOverlay::default();
+        let logo_texture_state = MojangLogoTextureState::default();
+        let latest_view = startup_reload
+            .tracker()
+            .loading_overlay_view_with_logo_state(&overlay, elapsed, logo_texture_state.clone());
+        let latest_draw_list = latest_view.draw_list(viewport.width, viewport.height);
+
+        Self {
+            viewport,
+            elapsed,
+            overlay,
+            logo_texture_state,
+            latest_view,
+            latest_draw_list,
+            boundary: STARTUP_MOJANG_LOADING_OVERLAY_SURFACE_BOUNDARY,
+        }
+    }
+
+    pub fn viewport(&self) -> MojangLoadingOverlayViewport {
+        self.viewport
+    }
+
+    pub fn set_viewport(&mut self, viewport: MojangLoadingOverlayViewport) {
+        self.viewport = viewport;
+        self.latest_draw_list = self
+            .latest_view
+            .draw_list(self.viewport.width, self.viewport.height);
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.elapsed
+    }
+
+    pub fn set_elapsed(&mut self, elapsed: Duration) {
+        self.elapsed = elapsed;
+    }
+
+    pub fn overlay(&self) -> &VanillaLoadingOverlay {
+        &self.overlay
+    }
+
+    pub fn overlay_mut(&mut self) -> &mut VanillaLoadingOverlay {
+        &mut self.overlay
+    }
+
+    pub fn logo_texture_state(&self) -> &MojangLogoTextureState {
+        &self.logo_texture_state
+    }
+
+    pub fn set_logo_texture_state(&mut self, logo_texture_state: MojangLogoTextureState) {
+        self.logo_texture_state = logo_texture_state;
+    }
+
+    pub fn latest_view(&self) -> &MojangLoadingOverlayViewModel {
+        &self.latest_view
+    }
+
+    pub fn latest_draw_list(&self) -> &MojangLoadingOverlayDrawList {
+        &self.latest_draw_list
+    }
+
+    pub fn command_count(&self) -> usize {
+        self.latest_draw_list.commands.len()
+    }
+
+    pub fn should_render(&self) -> bool {
+        self.latest_view.vanilla.should_render
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn refresh_from_startup_reload(&mut self, startup_reload: &StartupClientResourceReload) {
+        let actual_progress = startup_reload.tracker().loading_overlay_actual_progress();
+        self.overlay.tick(actual_progress);
+        self.overlay.update_fade_out(
+            startup_reload.tracker().flow().loading_phase(),
+            self.elapsed,
+        );
+        self.latest_view = startup_reload
+            .tracker()
+            .loading_overlay_view_with_logo_state(
+                &self.overlay,
+                self.elapsed,
+                self.logo_texture_state.clone(),
+            );
+        self.latest_draw_list = self
+            .latest_view
+            .draw_list(self.viewport.width, self.viewport.height);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MojangLoadingOverlayViewport {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl MojangLoadingOverlayViewport {
+    pub fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
+}
+
+impl Default for MojangLoadingOverlayViewport {
+    fn default() -> Self {
+        Self {
+            width: DEFAULT_MOJANG_LOADING_OVERLAY_VIEWPORT_WIDTH,
+            height: DEFAULT_MOJANG_LOADING_OVERLAY_VIEWPORT_HEIGHT,
+        }
+    }
+}
+
+pub fn update_startup_mojang_loading_overlay_draw_surface(
+    startup_reload: Res<StartupClientResourceReload>,
+    mut surface: ResMut<StartupMojangLoadingOverlayDrawSurface>,
+) {
+    surface.refresh_from_startup_reload(&startup_reload);
 }
 
 #[derive(Clone, Debug)]
@@ -2685,6 +2852,147 @@ mod tests {
         );
         assert_eq!(startup_reload.run_count(), 1);
         assert_eq!(startup_reload.manager_report(), Some(&first_report));
+    }
+
+    #[test]
+    fn resource_loading_overlay_surface_initial_app_exposes_loading_minecraft_fallback_draw_list() {
+        let mut app = App::new();
+
+        app.add_plugins(StartupMojangLoadingOverlayDrawSurfacePlugin);
+
+        let surface = app
+            .world()
+            .resource::<StartupMojangLoadingOverlayDrawSurface>();
+        assert_eq!(
+            surface.boundary(),
+            STARTUP_MOJANG_LOADING_OVERLAY_SURFACE_BOUNDARY
+        );
+        assert!(surface.should_render());
+        assert_eq!(surface.command_count(), 6);
+        assert!(surface.latest_draw_list().commands.iter().any(|command| {
+            matches!(
+                command,
+                MojangLoadingOverlayDrawCommand::LoadingText(
+                    MojangLoadingOverlayTextCommand {
+                        text,
+                        fallback_text: "Loading Minecraft",
+                        phase: ResourceLoadingReloadPhase::Fallback,
+                        ..
+                    }
+                ) if text == "Loading Minecraft"
+            )
+        }));
+    }
+
+    #[test]
+    fn resource_loading_overlay_surface_updates_after_startup_reload_completion() {
+        let mut app = App::new();
+        app.add_plugins((
+            StartupClientResourceReloadPlugin,
+            StartupMojangLoadingOverlayDrawSurfacePlugin,
+        ));
+
+        app.update();
+
+        let startup_reload = app.world().resource::<StartupClientResourceReload>();
+        let surface = app
+            .world()
+            .resource::<StartupMojangLoadingOverlayDrawSurface>();
+        assert_eq!(
+            startup_reload.state(),
+            StartupClientResourceReloadState::Completed
+        );
+        assert_eq!(
+            startup_reload.tracker().flow().loading_phase(),
+            StartupLoadingPhase::Complete
+        );
+        assert_eq!(surface.latest_view().vanilla.actual_progress, 1.0);
+        assert_eq!(
+            surface.latest_view().reload.phase,
+            ResourceLoadingReloadPhase::Complete
+        );
+        assert_eq!(surface.latest_view().reload.label, "Complete");
+        assert_eq!(surface.overlay().fade_out_start(), Some(Duration::ZERO));
+        assert!(surface.should_render());
+        assert!(surface.command_count() >= 5);
+    }
+
+    #[test]
+    fn resource_loading_overlay_surface_viewport_changes_draw_geometry() {
+        let mut app = App::new();
+        app.add_plugins(StartupMojangLoadingOverlayDrawSurfacePlugin);
+
+        let initial_logo = overlay_surface_logo_target_rect(
+            app.world()
+                .resource::<StartupMojangLoadingOverlayDrawSurface>()
+                .latest_draw_list(),
+        );
+
+        app.world_mut()
+            .resource_mut::<StartupMojangLoadingOverlayDrawSurface>()
+            .set_viewport(MojangLoadingOverlayViewport::new(1_280.0, 720.0));
+
+        let resized_logo = overlay_surface_logo_target_rect(
+            app.world()
+                .resource::<StartupMojangLoadingOverlayDrawSurface>()
+                .latest_draw_list(),
+        );
+
+        assert_ne!(initial_logo, resized_logo);
+        assert!(resized_logo.width > initial_logo.width);
+        assert!(resized_logo.height > initial_logo.height);
+    }
+
+    #[test]
+    fn resource_loading_overlay_surface_missing_logo_state_surfaces_fallback_logo() {
+        let mut app = App::new();
+        app.add_plugins(StartupMojangLoadingOverlayDrawSurfacePlugin);
+
+        app.world_mut()
+            .resource_mut::<StartupMojangLoadingOverlayDrawSurface>()
+            .set_logo_texture_state(MojangLogoTextureState::resolve(&ClientResourceStack::new(
+                Vec::new(),
+            )));
+
+        app.update();
+
+        let surface = app
+            .world()
+            .resource::<StartupMojangLoadingOverlayDrawSurface>();
+        assert!(surface.logo_texture_state().is_fallback());
+        assert!(surface.latest_draw_list().commands.iter().any(|command| {
+            matches!(
+                command,
+                MojangLoadingOverlayDrawCommand::FallbackLogo {
+                    metadata: MojangFallbackLogoMetadata {
+                        primary_word: "MOJANG",
+                        secondary_word: "STUDIOS",
+                        ..
+                    },
+                    ..
+                }
+            )
+        }));
+    }
+
+    fn overlay_surface_logo_target_rect(
+        draw_list: &MojangLoadingOverlayDrawList,
+    ) -> MojangLoadingRect {
+        draw_list
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                MojangLoadingOverlayDrawCommand::LogoTextureHalf {
+                    half: MojangLogoHalf::Left,
+                    target_rect,
+                    ..
+                } => Some(*target_rect),
+                MojangLoadingOverlayDrawCommand::FallbackLogo { target_rect, .. } => {
+                    Some(*target_rect)
+                }
+                _ => None,
+            })
+            .expect("draw list should include logo geometry")
     }
 
     #[test]
