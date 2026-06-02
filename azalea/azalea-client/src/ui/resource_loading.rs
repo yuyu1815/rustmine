@@ -8,10 +8,12 @@ use std::{path::PathBuf, time::Duration};
 use super::{
     account_flow::StoredLauncherAccount,
     startup_flow::{
-        ResourceLoadingEvent, ResourceLoadingUpdate, StartupDestination, StartupFlow,
-        StartupLoadingPhase, StartupScreen, VanillaLoadingBackground, VanillaLoadingLogoView,
-        VanillaLoadingOverlay, VanillaLoadingOverlayView, VanillaLoadingProgressBarView,
-        VanillaLoadingTextView, WeightedReloadProgress, WeightedReloadStageProgress,
+        ResourceLoadingEvent, ResourceLoadingUpdate, StartupDestination,
+        StartupDestinationActionKind, StartupDestinationHandoffView, StartupFlow,
+        StartupLoadingPhase, StartupLoadingScreen, StartupScreen, VanillaLoadingBackground,
+        VanillaLoadingLogoView, VanillaLoadingOverlay, VanillaLoadingOverlayView,
+        VanillaLoadingProgressBarView, VanillaLoadingTextView, WeightedReloadProgress,
+        WeightedReloadStageProgress,
     },
 };
 use crate::resources::{
@@ -27,6 +29,8 @@ pub const MOJANG_STUDIOS_LOGO_RESOURCE: &str =
 pub const MOJANG_STUDIOS_RED_BACKGROUND_ARGB: u32 = 0xFFEF_323D;
 pub const MOJANG_STUDIOS_BLACK_BACKGROUND_ARGB: u32 = 0xFF00_0000;
 pub const FALLBACK_RELOAD_LABEL: &str = VanillaLoadingTextView::FALLBACK_LOADING_MINECRAFT;
+pub const STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY: &str =
+    "startup_resource_loading_runtime_report";
 
 #[derive(Clone, Debug)]
 pub struct ResourceLoadingTracker {
@@ -132,6 +136,10 @@ impl ResourceLoadingTracker {
             .map(ResourceReloadProgressSnapshot::actual_progress)
             .unwrap_or_else(|| self.weighted_progress().actual_progress())
             .clamp(0.0, 1.0)
+    }
+
+    pub fn startup_runtime_report(&self) -> ResourceLoadingStartupRuntimeReport {
+        ResourceLoadingStartupRuntimeReport::from_tracker(self)
     }
 
     pub fn loading_overlay_view(
@@ -323,6 +331,292 @@ impl ResourceLoadingTracker {
                 .current_step()
                 .map(ResourceLoadingReloadPhase::from)
                 .unwrap_or(ResourceLoadingReloadPhase::Fallback),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResourceLoadingStartupRuntimeReport {
+    pub loading_phase: StartupLoadingPhase,
+    pub surface_kind: ResourceLoadingStartupSurfaceKind,
+    pub surface_label: String,
+    pub fallback_label: Option<&'static str>,
+    pub actual_progress: f32,
+    pub reload_label: String,
+    pub reload_phase: ResourceLoadingReloadPhase,
+    pub reload: ResourceLoadingReloadView,
+    pub manager_runtime: Option<ResourceLoadingManagerRuntimeView>,
+    pub manager_runtime_status: Option<ClientResourceReloadManagerRuntimeStatus>,
+    pub error_text: Option<String>,
+    pub pack_load_failure_toast: Option<ResourceLoadingPackLoadFailureToast>,
+    pub startup_destination: Option<StartupDestination>,
+    pub completed_handoff: Option<StartupDestinationHandoffView>,
+    pub completed_action_kind: Option<StartupDestinationActionKind>,
+    pub boundary: &'static str,
+    pub summary: String,
+    pub items: Vec<String>,
+}
+
+impl ResourceLoadingStartupRuntimeReport {
+    fn from_tracker(tracker: &ResourceLoadingTracker) -> Self {
+        let screen = tracker.screen();
+        let (surface_kind, surface_label, fallback_label) =
+            ResourceLoadingStartupSurfaceReport::from_loading_screen(screen.loading_screen)
+                .into_parts();
+        let reload = tracker.reload_view();
+        let manager_runtime = tracker.resource_reload_manager_view();
+        let manager_runtime_status = manager_runtime.as_ref().map(|manager| manager.status);
+        let error_text = tracker.resource_reload_error().map(ToOwned::to_owned);
+        let pack_load_failure_toast = tracker.pack_load_failure_toast().cloned();
+        let completed_handoff = screen.completed_destination_handoff;
+        let completed_action_kind =
+            completed_handoff.map(StartupDestinationHandoffView::action_kind);
+        let actual_progress = tracker.loading_overlay_actual_progress();
+        let startup_destination = screen.startup_destination;
+        let summary = Self::summary_fragment(
+            screen.loading_phase,
+            surface_kind,
+            &surface_label,
+            actual_progress,
+            &reload,
+            manager_runtime_status,
+            error_text.as_deref(),
+            pack_load_failure_toast.as_ref(),
+            startup_destination,
+            completed_action_kind,
+        );
+        let items = Self::runtime_items(
+            &summary,
+            surface_kind,
+            &surface_label,
+            fallback_label,
+            &reload,
+            manager_runtime.as_ref(),
+            error_text.as_deref(),
+            pack_load_failure_toast.as_ref(),
+            startup_destination,
+            completed_action_kind,
+        );
+
+        Self {
+            loading_phase: screen.loading_phase,
+            surface_kind,
+            surface_label,
+            fallback_label,
+            actual_progress,
+            reload_label: reload.label.clone(),
+            reload_phase: reload.phase,
+            reload,
+            manager_runtime,
+            manager_runtime_status,
+            error_text,
+            pack_load_failure_toast,
+            startup_destination,
+            completed_handoff,
+            completed_action_kind,
+            boundary: STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+            summary,
+            items,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn summary_fragment(
+        loading_phase: StartupLoadingPhase,
+        surface_kind: ResourceLoadingStartupSurfaceKind,
+        surface_label: &str,
+        actual_progress: f32,
+        reload: &ResourceLoadingReloadView,
+        manager_runtime_status: Option<ClientResourceReloadManagerRuntimeStatus>,
+        error_text: Option<&str>,
+        pack_load_failure_toast: Option<&ResourceLoadingPackLoadFailureToast>,
+        startup_destination: Option<StartupDestination>,
+        completed_action_kind: Option<StartupDestinationActionKind>,
+    ) -> String {
+        format!(
+            "startup_resource_loading_runtime:phase:{} surface:{} surface_label:{} progress:{:.3} reload_phase:{} reload_label:{} manager_status:{} error:{} toast:{} destination:{} action:{} boundary:{}",
+            startup_loading_phase_label(loading_phase),
+            surface_kind.as_str(),
+            surface_label,
+            actual_progress,
+            reload.phase.as_str(),
+            reload.label,
+            manager_runtime_status
+                .map(|status| status.as_str())
+                .unwrap_or("none"),
+            error_text.unwrap_or("none"),
+            pack_load_failure_toast
+                .map(|toast| toast.title_key)
+                .unwrap_or("none"),
+            startup_destination
+                .map(startup_destination_label)
+                .unwrap_or("none"),
+            completed_action_kind
+                .map(startup_destination_action_kind_label)
+                .unwrap_or("none"),
+            STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn runtime_items(
+        summary: &str,
+        surface_kind: ResourceLoadingStartupSurfaceKind,
+        surface_label: &str,
+        fallback_label: Option<&'static str>,
+        reload: &ResourceLoadingReloadView,
+        manager_runtime: Option<&ResourceLoadingManagerRuntimeView>,
+        error_text: Option<&str>,
+        pack_load_failure_toast: Option<&ResourceLoadingPackLoadFailureToast>,
+        startup_destination: Option<StartupDestination>,
+        completed_action_kind: Option<StartupDestinationActionKind>,
+    ) -> Vec<String> {
+        let mut items = vec![summary.to_owned()];
+        items.push(format!(
+            "startup_resource_loading_surface:kind:{} label:{} fallback:{} boundary:{}",
+            surface_kind.as_str(),
+            surface_label,
+            fallback_label.unwrap_or("none"),
+            STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+        ));
+        items.push(format!(
+            "startup_resource_loading_reload:phase:{} label:{} boundary:{}",
+            reload.phase.as_str(),
+            reload.label,
+            STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+        ));
+
+        if let Some(manager_runtime) = manager_runtime {
+            items.push(format!(
+                "startup_resource_loading_manager:status:{} listeners:{} packs:{} boundary:{}",
+                manager_runtime.status_label,
+                manager_runtime.listener_count,
+                manager_runtime.pack_ids.len(),
+                manager_runtime.boundary,
+            ));
+        }
+
+        if let Some(error_text) = error_text {
+            items.push(format!(
+                "startup_resource_loading_error:{} boundary:{}",
+                error_text, STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+            ));
+        }
+
+        if let Some(toast) = pack_load_failure_toast {
+            items.push(format!(
+                "startup_resource_loading_toast:{:?} title:{} message:{} boundary:{}",
+                toast.id,
+                toast.title_key,
+                toast.message.as_deref().unwrap_or("none"),
+                STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+            ));
+        }
+
+        if let Some(destination) = startup_destination {
+            items.push(format!(
+                "startup_resource_loading_destination:{} boundary:{}",
+                startup_destination_label(destination),
+                STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+            ));
+        }
+
+        if let Some(action_kind) = completed_action_kind {
+            items.push(format!(
+                "startup_resource_loading_handoff_action:{} boundary:{}",
+                startup_destination_action_kind_label(action_kind),
+                STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY,
+            ));
+        }
+
+        items
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResourceLoadingStartupSurfaceReport {
+    kind: ResourceLoadingStartupSurfaceKind,
+    label: String,
+    fallback_label: Option<&'static str>,
+}
+
+impl ResourceLoadingStartupSurfaceReport {
+    fn from_loading_screen(screen: StartupLoadingScreen<'_>) -> Self {
+        match screen {
+            StartupLoadingScreen::GenericMessage(view) => Self {
+                kind: ResourceLoadingStartupSurfaceKind::GenericMessage,
+                label: view.message.text.to_owned(),
+                fallback_label: Some(view.message.text),
+            },
+            StartupLoadingScreen::MojangLoadingOverlay(_) => Self {
+                kind: ResourceLoadingStartupSurfaceKind::MojangLoadingOverlay,
+                label: "Mojang Studios loading overlay".to_owned(),
+                fallback_label: None,
+            },
+            StartupLoadingScreen::CompleteDestination(destination) => Self {
+                kind: ResourceLoadingStartupSurfaceKind::CompleteDestination,
+                label: destination
+                    .map(|destination| match destination {
+                        StartupDestination::TitleMenu => "Title Menu handoff",
+                        StartupDestination::QuickPlay => "Quick Play handoff",
+                    })
+                    .unwrap_or("Complete destination handoff")
+                    .to_owned(),
+                fallback_label: None,
+            },
+        }
+    }
+
+    fn into_parts(
+        self,
+    ) -> (
+        ResourceLoadingStartupSurfaceKind,
+        String,
+        Option<&'static str>,
+    ) {
+        (self.kind, self.label, self.fallback_label)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceLoadingStartupSurfaceKind {
+    GenericMessage,
+    MojangLoadingOverlay,
+    CompleteDestination,
+}
+
+impl ResourceLoadingStartupSurfaceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GenericMessage => "generic_message",
+            Self::MojangLoadingOverlay => "mojang_loading_overlay",
+            Self::CompleteDestination => "complete_destination",
+        }
+    }
+}
+
+fn startup_loading_phase_label(phase: StartupLoadingPhase) -> &'static str {
+    match phase {
+        StartupLoadingPhase::WaitingForTasks => "waiting_for_tasks",
+        StartupLoadingPhase::Loading => "loading",
+        StartupLoadingPhase::Complete => "complete",
+    }
+}
+
+fn startup_destination_label(destination: StartupDestination) -> &'static str {
+    match destination {
+        StartupDestination::TitleMenu => "title_menu",
+        StartupDestination::QuickPlay => "quick_play",
+    }
+}
+
+fn startup_destination_action_kind_label(
+    action_kind: StartupDestinationActionKind,
+) -> &'static str {
+    match action_kind {
+        StartupDestinationActionKind::ShowTitleMenu => "show_title_menu",
+        StartupDestinationActionKind::WaitForExternalQuickPlayAction => {
+            "wait_for_external_quick_play_action"
         }
     }
 }
@@ -875,6 +1169,20 @@ pub enum ResourceLoadingReloadPhase {
     ListenerComplete,
     Complete,
     Error,
+}
+
+impl ResourceLoadingReloadPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fallback => "fallback",
+            Self::InitialPreparation => "initial_preparation",
+            Self::Preparation => "preparation",
+            Self::Reload => "reload",
+            Self::ListenerComplete => "listener_complete",
+            Self::Complete => "complete",
+            Self::Error => "error",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1464,6 +1772,175 @@ mod tests {
         );
         assert_eq!(view.vanilla.text.text, "Loading Minecraft");
         assert_eq!(view.vanilla.actual_progress, 0.0);
+    }
+
+    #[test]
+    fn startup_runtime_report_distinguishes_initial_fallback_loading_minecraft() {
+        let tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let report = tracker.startup_runtime_report();
+
+        assert_eq!(report.loading_phase, StartupLoadingPhase::WaitingForTasks);
+        assert_eq!(
+            report.surface_kind,
+            ResourceLoadingStartupSurfaceKind::GenericMessage
+        );
+        assert_eq!(report.surface_label, "Loading Minecraft");
+        assert_eq!(report.fallback_label, Some("Loading Minecraft"));
+        assert_eq!(report.actual_progress, 0.0);
+        assert_eq!(report.reload_label, "Loading Minecraft");
+        assert_eq!(report.reload_phase, ResourceLoadingReloadPhase::Fallback);
+        assert_eq!(report.manager_runtime_status, None);
+        assert_eq!(report.error_text, None);
+        assert_eq!(report.pack_load_failure_toast, None);
+        assert_eq!(report.startup_destination, None);
+        assert_eq!(report.completed_action_kind, None);
+        assert_eq!(
+            report.boundary,
+            STARTUP_RESOURCE_LOADING_RUNTIME_REPORT_BOUNDARY
+        );
+        assert!(report.summary.contains("surface:generic_message"));
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.contains("fallback:Loading Minecraft"))
+        );
+    }
+
+    #[test]
+    fn startup_runtime_report_distinguishes_mojang_overlay_after_reload_snapshot() {
+        let report = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(TestReloadListener("sounds"))
+            .run()
+            .unwrap();
+        let preparation_event = &report.events()[1];
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker.apply_resource_reload_event(preparation_event);
+
+        let runtime_report = tracker.startup_runtime_report();
+
+        assert_eq!(runtime_report.loading_phase, StartupLoadingPhase::Loading);
+        assert_eq!(
+            runtime_report.surface_kind,
+            ResourceLoadingStartupSurfaceKind::MojangLoadingOverlay
+        );
+        assert_eq!(
+            runtime_report.surface_label,
+            "Mojang Studios loading overlay"
+        );
+        assert_eq!(runtime_report.fallback_label, None);
+        assert_eq!(
+            runtime_report.actual_progress,
+            preparation_event.progress_snapshot.actual_progress()
+        );
+        assert_eq!(runtime_report.reload_label, "textures");
+        assert_eq!(
+            runtime_report.reload_phase,
+            ResourceLoadingReloadPhase::Preparation
+        );
+        assert_eq!(runtime_report.error_text, None);
+        assert_eq!(runtime_report.pack_load_failure_toast, None);
+        assert_eq!(runtime_report.startup_destination, None);
+        assert!(
+            runtime_report
+                .summary
+                .contains("surface:mojang_loading_overlay")
+        );
+    }
+
+    #[test]
+    fn startup_runtime_report_distinguishes_failed_reload_error_and_toast() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(FailingReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let error = tracker
+            .run_resource_reload(&manager)
+            .expect_err("reload failure should be reported");
+        let error_message = error.to_string();
+        let report = tracker.startup_runtime_report();
+
+        assert_ne!(report.loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            report.surface_kind,
+            ResourceLoadingStartupSurfaceKind::MojangLoadingOverlay
+        );
+        assert_eq!(report.reload_phase, ResourceLoadingReloadPhase::Error);
+        assert_eq!(report.reload_label, error_message);
+        assert_eq!(report.error_text, Some(error_message.clone()));
+        assert_eq!(
+            report.pack_load_failure_toast,
+            Some(ResourceLoadingPackLoadFailureToast {
+                id: ResourceLoadingSystemToastId::PackLoadFailure,
+                title_key: ResourceLoadingPackLoadFailureToast::TITLE_KEY,
+                message: Some(error_message.clone()),
+            })
+        );
+        assert_eq!(
+            report.manager_runtime_status,
+            Some(ClientResourceReloadManagerRuntimeStatus::Failed)
+        );
+        assert_eq!(report.completed_action_kind, None);
+        assert!(report.summary.contains("reload_phase:error"));
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.contains("startup_resource_loading_toast:PackLoadFailure"))
+        );
+    }
+
+    #[test]
+    fn startup_runtime_report_distinguishes_complete_handoff_destination_action_kind() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(Vec::new()))
+            .with_listener(TestReloadListener("textures"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new())
+            .with_startup_destination(StartupDestination::QuickPlay);
+
+        tracker
+            .run_resource_reload(&manager)
+            .expect("reload should complete");
+
+        let report = tracker.startup_runtime_report();
+
+        assert_eq!(report.loading_phase, StartupLoadingPhase::Complete);
+        assert_eq!(
+            report.surface_kind,
+            ResourceLoadingStartupSurfaceKind::CompleteDestination
+        );
+        assert_eq!(report.surface_label, "Quick Play handoff");
+        assert_eq!(report.actual_progress, 1.0);
+        assert_eq!(report.reload_phase, ResourceLoadingReloadPhase::Complete);
+        assert_eq!(report.reload_label, "Complete");
+        assert_eq!(
+            report.startup_destination,
+            Some(StartupDestination::QuickPlay)
+        );
+        assert_eq!(
+            report.completed_action_kind,
+            Some(StartupDestinationActionKind::WaitForExternalQuickPlayAction)
+        );
+        assert_eq!(
+            report.completed_handoff,
+            Some(StartupDestinationHandoffView::QuickPlay(
+                StartupQuickPlayHandoffView::external_launcher_action()
+            ))
+        );
+        assert_eq!(
+            report.manager_runtime_status,
+            Some(ClientResourceReloadManagerRuntimeStatus::Completed)
+        );
+        assert!(report.summary.contains("surface:complete_destination"));
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.contains("startup_resource_loading_handoff_action"))
+        );
     }
 
     #[test]
