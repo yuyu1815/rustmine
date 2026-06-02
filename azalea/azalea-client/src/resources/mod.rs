@@ -5110,6 +5110,10 @@ impl RegionalComplianceNotificationDecisionCandidateReport {
         self.loaded_compliancies.as_ref()
     }
 
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
     pub fn country_code(&self) -> &str {
         &self.country_code
     }
@@ -5515,6 +5519,309 @@ impl ClientRegionalComplianceNotificationRuntimeState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientRegionalComplianceRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientRegionalComplianceRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+fn regional_compliance_runtime_status_from_state(
+    state: &ClientRegionalComplianceNotificationRuntimeState,
+) -> ClientRegionalComplianceRuntimeStatus {
+    if state.is_loaded() {
+        ClientRegionalComplianceRuntimeStatus::Loaded
+    } else if state
+        .blockers()
+        .iter()
+        .any(|blocker| blocker.starts_with("missing client resource"))
+    {
+        ClientRegionalComplianceRuntimeStatus::Missing
+    } else if state
+        .blockers()
+        .iter()
+        .any(|blocker| blocker.starts_with("invalid regional compliancies"))
+    {
+        ClientRegionalComplianceRuntimeStatus::Failed
+    } else {
+        ClientRegionalComplianceRuntimeStatus::Blocked
+    }
+}
+
+fn regional_compliance_representative_notification_keys(
+    notifications: &[RegionalComplianceNotification],
+) -> Vec<String> {
+    notifications
+        .iter()
+        .take(8)
+        .map(|notification| format!("{}|{}", notification.title(), notification.message()))
+        .collect()
+}
+
+fn regional_compliance_runtime_list_fragment(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_owned()
+    } else {
+        values.join("|")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientRegionalComplianceNotificationRuntimeReport {
+    status: ClientRegionalComplianceRuntimeStatus,
+    resource: String,
+    pack_id: Option<String>,
+    country_code: String,
+    loaded_country_count: usize,
+    loaded_notification_count: usize,
+    selected_notification_count: usize,
+    scheduling_plan: RegionalComplianceSchedulingPlan,
+    notifications_enabled: bool,
+    next_due_minutes: Option<i64>,
+    due_notification_count: usize,
+    blocker_count: usize,
+    representative_notification_keys: Vec<String>,
+    representative_blockers: Vec<String>,
+    decision_boundary: &'static str,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientRegionalComplianceNotificationRuntimeReport {
+    pub fn from_runtime_state(
+        resource: impl Into<String>,
+        loaded_compliancies_report: Option<&RegionalComplianciesReloadReport>,
+        runtime: &ClientRegionalComplianceNotificationRuntimeState,
+    ) -> Self {
+        let representative_blockers = runtime
+            .blockers()
+            .iter()
+            .take(8)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        let error = representative_blockers.first().cloned();
+
+        Self {
+            status: regional_compliance_runtime_status_from_state(runtime),
+            resource: loaded_compliancies_report
+                .map(|report| report.resource().to_owned())
+                .unwrap_or_else(|| resource.into()),
+            pack_id: loaded_compliancies_report.map(|report| report.pack_id().to_owned()),
+            country_code: runtime.country_code().to_owned(),
+            loaded_country_count: loaded_compliancies_report
+                .map(RegionalComplianciesReloadReport::country_count)
+                .unwrap_or_default(),
+            loaded_notification_count: loaded_compliancies_report
+                .map(RegionalComplianciesReloadReport::notification_count)
+                .unwrap_or_default(),
+            selected_notification_count: runtime.selected_notifications().len(),
+            scheduling_plan: runtime.scheduling_plan(),
+            notifications_enabled: runtime.notifications_enabled(),
+            next_due_minutes: runtime.next_due_in_minutes(),
+            due_notification_count: runtime.due_notifications().len(),
+            blocker_count: runtime.blockers().len(),
+            representative_notification_keys: regional_compliance_representative_notification_keys(
+                runtime.selected_notifications(),
+            ),
+            representative_blockers,
+            decision_boundary: REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY,
+            runtime_boundary: runtime.boundary_marker(),
+            error,
+        }
+    }
+
+    pub fn from_notification_state(
+        state: &RegionalComplianceNotificationState,
+    ) -> ClientRegionalComplianceNotificationRuntimeReport {
+        let runtime =
+            ClientRegionalComplianceNotificationRuntimeState::from_notification_state(state);
+        Self::from_runtime_state(
+            state.decision_candidate_report().resource(),
+            state.loaded_compliancies_report(),
+            &runtime,
+        )
+    }
+
+    pub fn from_decision_candidate_report(
+        report: RegionalComplianceNotificationDecisionCandidateReport,
+    ) -> Self {
+        let state = RegionalComplianceNotificationState::from_report(report);
+        Self::from_notification_state(&state)
+    }
+
+    pub fn from_failure(resource: impl Into<String>, error: &ResourceReloadError) -> Self {
+        let resource = resource.into();
+        let report = RegionalComplianceNotificationDecisionCandidateReport::blocked(
+            resource,
+            DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE.to_owned(),
+            error.to_string(),
+        );
+        let mut runtime_report = Self::from_decision_candidate_report(report);
+        runtime_report.status = if matches!(error, ResourceReloadError::MissingResource(_)) {
+            ClientRegionalComplianceRuntimeStatus::Missing
+        } else {
+            ClientRegionalComplianceRuntimeStatus::Failed
+        };
+        runtime_report.error = Some(error.to_string());
+        runtime_report
+    }
+
+    pub fn status(&self) -> ClientRegionalComplianceRuntimeStatus {
+        self.status
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn country_code(&self) -> &str {
+        &self.country_code
+    }
+
+    pub fn loaded_country_count(&self) -> usize {
+        self.loaded_country_count
+    }
+
+    pub fn loaded_notification_count(&self) -> usize {
+        self.loaded_notification_count
+    }
+
+    pub fn selected_notification_count(&self) -> usize {
+        self.selected_notification_count
+    }
+
+    pub fn scheduling_plan(&self) -> RegionalComplianceSchedulingPlan {
+        self.scheduling_plan
+    }
+
+    pub fn notifications_enabled(&self) -> bool {
+        self.notifications_enabled
+    }
+
+    pub fn next_due_minutes(&self) -> Option<i64> {
+        self.next_due_minutes
+    }
+
+    pub fn due_notification_count(&self) -> usize {
+        self.due_notification_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn representative_notification_keys(&self) -> &[String] {
+        &self.representative_notification_keys
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn decision_boundary(&self) -> &'static str {
+        self.decision_boundary
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_regional_compliance_notification_runtime_report:status:{} resource:{} pack:{} country:{} countries:{} loaded_notifications:{} selected:{} schedule:{} enabled:{} next_due_minutes:{} due_notifications:{} blockers:{} notification_keys:{} error:{} decision_boundary:{} runtime_boundary:{}",
+            self.status().as_str(),
+            self.resource(),
+            self.pack_id().unwrap_or("missing"),
+            self.country_code(),
+            self.loaded_country_count(),
+            self.loaded_notification_count(),
+            self.selected_notification_count(),
+            self.scheduling_plan().report_fragment(),
+            self.notifications_enabled(),
+            format_optional_i64(self.next_due_minutes()),
+            self.due_notification_count(),
+            self.blocker_count(),
+            regional_compliance_runtime_list_fragment(self.representative_notification_keys()),
+            self.error().unwrap_or("none"),
+            self.decision_boundary(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.push(format!(
+            "client_regional_compliance_notification_runtime_resource:{}@{} status:{} country:{} countries:{} loaded_notifications:{} selected:{} boundary:{}",
+            self.resource(),
+            self.pack_id().unwrap_or("missing"),
+            self.status().as_str(),
+            self.country_code(),
+            self.loaded_country_count(),
+            self.loaded_notification_count(),
+            self.selected_notification_count(),
+            self.runtime_boundary()
+        ));
+        items.push(format!(
+            "client_regional_compliance_notification_runtime_schedule:{} enabled:{} next_due_minutes:{} due_notifications:{} boundary:{}",
+            self.scheduling_plan().report_fragment(),
+            self.notifications_enabled(),
+            format_optional_i64(self.next_due_minutes()),
+            self.due_notification_count(),
+            self.runtime_boundary()
+        ));
+
+        if self.representative_notification_keys().is_empty() {
+            items.push(format!(
+                "client_regional_compliance_notification_runtime_notification_keys:none boundary:{}",
+                self.runtime_boundary()
+            ));
+        } else {
+            items.extend(self.representative_notification_keys().iter().map(|key| {
+                format!(
+                    "client_regional_compliance_notification_runtime_notification_key:{key} boundary:{}",
+                    self.runtime_boundary()
+                )
+            }));
+        }
+
+        items.extend(self.representative_blockers().iter().map(|blocker| {
+            format!(
+                "client_regional_compliance_notification_runtime_report_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_regional_compliance_notification_runtime_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+
+        items
+    }
+}
+
 impl ClientRegionalComplianceDueNotification {
     fn from_notification(
         index: usize,
@@ -5600,6 +5907,15 @@ impl RegionalComplianceNotificationDecisionCandidateReloadListener {
     pub fn state(&self, stack: &ClientResourceStack) -> RegionalComplianceNotificationState {
         self.report(stack).into_runtime_state()
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientRegionalComplianceNotificationRuntimeReport {
+        ClientRegionalComplianceNotificationRuntimeReport::from_decision_candidate_report(
+            self.report(stack),
+        )
+    }
 }
 
 impl Default for RegionalComplianceNotificationDecisionCandidateReloadListener {
@@ -5627,7 +5943,14 @@ impl ResourceReloadListener for RegionalComplianceNotificationDecisionCandidateR
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.report(stack).items()))
+        let report = self.report(stack);
+        let runtime_report =
+            ClientRegionalComplianceNotificationRuntimeReport::from_decision_candidate_report(
+                report.clone(),
+            );
+        let mut items = report.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -43382,6 +43705,208 @@ mod tests {
             item.contains(
                 "regional_compliance_notification_runtime country:KOR status:loaded enabled:true",
             )
+        }));
+    }
+
+    #[test]
+    fn regional_compliance_runtime_report_loaded_schedule_surface_is_non_panicking() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"KOR":[{"delay":1440,"period":60,"title":"over.24h","message":"playtime.message"},{"period":60,"title":"hours","message":"playtime.message"}],"USA":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("kor")
+            .runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientRegionalComplianceRuntimeStatus::Loaded
+        );
+        assert_eq!(report.resource(), REGIONAL_COMPLIANCIES_RESOURCE);
+        assert_eq!(report.pack_id(), Some("test"));
+        assert_eq!(report.country_code(), "KOR");
+        assert_eq!(report.loaded_country_count(), 2);
+        assert_eq!(report.loaded_notification_count(), 2);
+        assert_eq!(report.selected_notification_count(), 2);
+        assert_eq!(
+            report.scheduling_plan(),
+            RegionalComplianceSchedulingPlan::Enabled {
+                initial_delay: 0,
+                optimal_period: 60,
+            }
+        );
+        assert!(report.notifications_enabled());
+        assert_eq!(report.next_due_minutes(), Some(0));
+        assert_eq!(report.due_notification_count(), 1);
+        assert_eq!(report.blocker_count(), 0);
+        assert_eq!(
+            report.representative_notification_keys(),
+            [
+                "over.24h|playtime.message".to_owned(),
+                "hours|playtime.message".to_owned()
+            ]
+        );
+        assert!(report.representative_blockers().is_empty());
+        assert_eq!(
+            report.decision_boundary(),
+            REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY
+        );
+        assert_eq!(
+            report.runtime_boundary(),
+            REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY
+        );
+        assert_eq!(report.error(), None);
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_regional_compliance_notification_runtime_report:status:loaded")
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains(
+                "client_regional_compliance_notification_runtime_schedule:enabled initial_delay:0 optimal_period:60 enabled:true next_due_minutes:0 due_notifications:1"
+            ) && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
+        }));
+    }
+
+    #[test]
+    fn regional_compliance_runtime_report_missing_surface_retains_error() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientRegionalComplianceRuntimeStatus::Missing
+        );
+        assert_eq!(report.resource(), REGIONAL_COMPLIANCIES_RESOURCE);
+        assert_eq!(report.pack_id(), None);
+        assert_eq!(
+            report.country_code(),
+            DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE
+        );
+        assert_eq!(report.loaded_country_count(), 0);
+        assert_eq!(report.loaded_notification_count(), 0);
+        assert_eq!(report.selected_notification_count(), 0);
+        assert!(!report.notifications_enabled());
+        assert_eq!(report.next_due_minutes(), None);
+        assert_eq!(report.due_notification_count(), 0);
+        assert_eq!(report.blocker_count(), 1);
+        assert!(
+            report
+                .representative_blockers()
+                .first()
+                .is_some_and(|blocker| blocker.contains("missing client resource"))
+        );
+        assert!(report.error().is_some_and(|error| {
+            error.contains("missing client resource")
+                && error.contains(REGIONAL_COMPLIANCIES_RESOURCE)
+        }));
+        assert!(report.items().iter().any(|item| {
+            item.starts_with(
+                "client_regional_compliance_notification_runtime_failure:error:missing client resource",
+            ) && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
+        }));
+    }
+
+    #[test]
+    fn regional_compliance_runtime_report_failed_surface_retains_invalid_json_error() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"title":"missing.period","message":"message.key"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("usa")
+            .runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientRegionalComplianceRuntimeStatus::Failed
+        );
+        assert_eq!(report.resource(), REGIONAL_COMPLIANCIES_RESOURCE);
+        assert_eq!(report.pack_id(), None);
+        assert_eq!(report.country_code(), "USA");
+        assert_eq!(report.blocker_count(), 1);
+        assert!(report.error().is_some_and(|error| {
+            error.contains("invalid regional compliancies") && error.contains("missing field")
+        }));
+        assert!(report.items().iter().any(|item| {
+            item.starts_with(
+                "client_regional_compliance_notification_runtime_report_blocker:invalid regional compliancies",
+            ) && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
+        }));
+    }
+
+    #[test]
+    fn regional_compliance_runtime_report_listener_appends_rows_after_decision_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"KOR":[{"period":60,"title":"hours","message":"playtime.message"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("kor");
+        let reload_report = listener
+            .reload(&stack)
+            .expect("regional compliance decision listener should not panic");
+
+        assert!(
+            reload_report.items()[0]
+                .starts_with("regional_compliance_notification_decision_candidates:")
+        );
+        assert!(
+            reload_report
+                .items()
+                .iter()
+                .position(|item| item
+                    .starts_with("client_regional_compliance_notification_runtime_report:"))
+                .expect("runtime report row should be appended")
+                > reload_report
+                    .items()
+                    .iter()
+                    .position(|item| item == REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY)
+                    .expect("decision boundary row should remain present")
+        );
+        assert!(reload_report.items().iter().any(|item| {
+            item.contains("regional_compliance_notification_decision_candidates:")
+                && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY)
+        }));
+        assert!(reload_report.items().iter().any(|item| {
+            item.contains("client_regional_compliance_notification_runtime_report:status:loaded")
+                && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
+        }));
+    }
+
+    #[test]
+    fn regional_compliance_runtime_report_committed_vanilla_resources_are_reported() {
+        let report = ResourceReloadManager::with_default_vanilla_client_resources()
+            .run()
+            .expect("committed vanilla client resources should load");
+        let listener = report
+            .listener_reports()
+            .iter()
+            .find(|listener| {
+                listener.name == "regional_compliance_notification_decision_candidates"
+            })
+            .expect(
+                "default client resources should include regional compliance decision listener",
+            );
+
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("regional_compliance_notification_decision_candidates:")
+                && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY)
+        }));
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("client_regional_compliance_notification_runtime_report:status:loaded")
+                && item.contains("country:ZZZ")
+                && item.contains(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
         }));
     }
 
