@@ -2165,6 +2165,7 @@ impl ResourceReloadManager {
             .with_listener(InitialTextureReloadListener::default())
             .with_listener(TextureManagerReloadListener::default())
             .with_listener(TextureManagerUploadCandidateReloadListener::default())
+            .with_listener(TextureManagerRuntimeCandidateReloadListener::default())
             .with_listener(HeadlessShaderSourceReloadListener::default())
             .with_listener(HeadlessShaderManagerReloadListener::default())
             .with_listener(ShaderManagerRuntimeCandidateReloadListener::default());
@@ -20977,6 +20978,57 @@ impl ResourceReloadListener for TextureManagerUploadCandidateReloadListener {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureManagerRuntimeCandidateReloadListener {
+    name: String,
+    registrations: Vec<TextureManagerTextureRegistration>,
+}
+
+impl TextureManagerRuntimeCandidateReloadListener {
+    pub fn new(registrations: impl IntoIterator<Item = TextureManagerTextureRegistration>) -> Self {
+        Self {
+            name: "texture_manager_runtime_candidates".to_owned(),
+            registrations: registrations.into_iter().collect(),
+        }
+    }
+
+    pub fn registrations(&self) -> &[TextureManagerTextureRegistration] {
+        &self.registrations
+    }
+
+    pub fn load(&self) -> TextureManagerRuntimeCandidateSet {
+        build_texture_manager_runtime_candidate_set(&self.registrations)
+    }
+}
+
+impl Default for TextureManagerRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self::new(initial_texture_manager_registrations())
+    }
+}
+
+impl ResourceReloadListener for TextureManagerRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn prepare(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            self.registrations.iter().map(texture_manager_prepare_item),
+        ))
+    }
+
+    fn reload(
+        &self,
+        _stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(self.load().items()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextureManagerReloadReport {
     registered_textures: Vec<InitialTextureReportItem>,
 }
@@ -21049,6 +21101,218 @@ impl TextureManagerUploadCandidateReloadReport {
                 .map(TextureUploadCandidateBlocker::item_string),
         );
         items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureManagerRuntimeCandidateSet {
+    candidates: Vec<TextureManagerRuntimeCandidate>,
+}
+
+impl TextureManagerRuntimeCandidateSet {
+    pub fn candidates(&self) -> &[TextureManagerRuntimeCandidate] {
+        &self.candidates
+    }
+
+    pub fn reports(&self) -> impl Iterator<Item = TextureManagerRuntimeCandidateReport> + '_ {
+        self.candidates
+            .iter()
+            .map(TextureManagerRuntimeCandidate::report)
+    }
+
+    pub fn registration_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(TextureManagerRuntimeCandidate::registration_count)
+            .sum()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(TextureManagerRuntimeCandidate::runtime_source_count)
+            .sum()
+    }
+
+    pub fn dependency_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(TextureManagerRuntimeCandidate::dependency_count)
+            .sum()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .map(TextureManagerRuntimeCandidate::blocker_count)
+            .sum()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "texture_manager_runtime_candidates:candidates:{} registrations:{} runtime_sources:{} deps:{} blockers:{} boundary:{}",
+            self.candidates.len(),
+            self.registration_count(),
+            self.runtime_source_count(),
+            self.dependency_count(),
+            self.blocker_count(),
+            TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.reports()
+                .map(|report| texture_manager_runtime_candidate_report_item(&report)),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureManagerRuntimeCandidate {
+    id: String,
+    category: TextureManagerRuntimeCandidateCategory,
+    registered_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: TextureManagerRuntimeDependencyFlags,
+    blockers: Vec<String>,
+}
+
+impl TextureManagerRuntimeCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> TextureManagerRuntimeCandidateCategory {
+        self.category
+    }
+
+    pub fn registered_texture_ids(&self) -> &[String] {
+        &self.registered_texture_ids
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> TextureManagerRuntimeDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn registration_count(&self) -> usize {
+        self.registered_texture_ids.len()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn dependency_count(&self) -> usize {
+        self.dependencies.count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn report(&self) -> TextureManagerRuntimeCandidateReport {
+        TextureManagerRuntimeCandidateReport {
+            id: self.id.clone(),
+            category: self.category,
+            registered_texture_ids: self.registered_texture_ids.clone(),
+            runtime_sources: self.runtime_sources.clone(),
+            dependencies: self.dependencies,
+            blockers: self.blockers.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureManagerRuntimeCandidateCategory {
+    RegisteredTextureCache,
+    MissingTextureFallback,
+    ReloadableTextureApply,
+    DynamicTextureRegistration,
+    GpuHandleLifecycleTick,
+}
+
+impl TextureManagerRuntimeCandidateCategory {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::RegisteredTextureCache => "registered_texture_cache",
+            Self::MissingTextureFallback => "missing_texture_fallback",
+            Self::ReloadableTextureApply => "reloadable_texture_apply",
+            Self::DynamicTextureRegistration => "dynamic_texture_registration",
+            Self::GpuHandleLifecycleTick => "gpu_handle_lifecycle_tick",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextureManagerRuntimeDependencyFlags {
+    pub runtime_registry: bool,
+    pub missing_texture: bool,
+    pub reloadable_texture_apply: bool,
+    pub dynamic_texture_allocation: bool,
+    pub gpu_handle_lifecycle: bool,
+    pub tickable_texture_set: bool,
+}
+
+impl TextureManagerRuntimeDependencyFlags {
+    fn count(self) -> usize {
+        [
+            self.runtime_registry,
+            self.missing_texture,
+            self.reloadable_texture_apply,
+            self.dynamic_texture_allocation,
+            self.gpu_handle_lifecycle,
+            self.tickable_texture_set,
+        ]
+        .into_iter()
+        .filter(|dependency| *dependency)
+        .count()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureManagerRuntimeCandidateReport {
+    id: String,
+    category: TextureManagerRuntimeCandidateCategory,
+    registered_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: TextureManagerRuntimeDependencyFlags,
+    blockers: Vec<String>,
+}
+
+impl TextureManagerRuntimeCandidateReport {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> TextureManagerRuntimeCandidateCategory {
+        self.category
+    }
+
+    pub fn registered_texture_ids(&self) -> &[String] {
+        &self.registered_texture_ids
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> TextureManagerRuntimeDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
     }
 }
 
@@ -21575,6 +21839,157 @@ fn load_texture_manager_upload_candidates(
     }
 }
 
+const TEXTURE_MANAGER_RUNTIME_BOUNDARY: &str = "texture_assets_loaded_runtime_registry_pending";
+
+struct TextureManagerRuntimeCandidateSpec {
+    id: &'static str,
+    category: TextureManagerRuntimeCandidateCategory,
+    runtime_sources: &'static [&'static str],
+    dependencies: TextureManagerRuntimeDependencyFlags,
+}
+
+const fn texture_manager_runtime_deps(
+    runtime_registry: bool,
+    missing_texture: bool,
+    reloadable_texture_apply: bool,
+    dynamic_texture_allocation: bool,
+    gpu_handle_lifecycle: bool,
+    tickable_texture_set: bool,
+) -> TextureManagerRuntimeDependencyFlags {
+    TextureManagerRuntimeDependencyFlags {
+        runtime_registry,
+        missing_texture,
+        reloadable_texture_apply,
+        dynamic_texture_allocation,
+        gpu_handle_lifecycle,
+        tickable_texture_set,
+    }
+}
+
+const TEXTURE_MANAGER_RUNTIME_CANDIDATE_SPECS: &[TextureManagerRuntimeCandidateSpec] = &[
+    TextureManagerRuntimeCandidateSpec {
+        id: "registered_texture_cache",
+        category: TextureManagerRuntimeCandidateCategory::RegisteredTextureCache,
+        runtime_sources: &[
+            "TextureManager.byPath",
+            "TextureManager.register(Identifier,AbstractTexture)",
+            "TextureManager.getTexture(Identifier)",
+            "TextureManager.registerForNextReload(Identifier)",
+            "Minecraft.<init>:new TextureManager(ResourceManager)",
+            "Minecraft.<init>:resourceManager.registerReloadListener(TextureManager)",
+            "TitleScreen.registerTextures(TextureManager)",
+            "LoadingOverlay.registerTextures(TextureManager)",
+        ],
+        dependencies: texture_manager_runtime_deps(true, false, false, false, true, false),
+    },
+    TextureManagerRuntimeCandidateSpec {
+        id: "missing_texture_fallback",
+        category: TextureManagerRuntimeCandidateCategory::MissingTextureFallback,
+        runtime_sources: &[
+            "TextureManager.<init>:register(MissingTextureAtlasSprite.getLocation(),DynamicTexture)",
+            "TextureManager.loadContentsSafe",
+            "TextureManager.loadContents",
+            "TextureContents.createMissing",
+        ],
+        dependencies: texture_manager_runtime_deps(true, true, true, true, true, false),
+    },
+    TextureManagerRuntimeCandidateSpec {
+        id: "reloadable_texture_apply",
+        category: TextureManagerRuntimeCandidateCategory::ReloadableTextureApply,
+        runtime_sources: &[
+            "TextureManager.registerAndLoad(Identifier,ReloadableTexture)",
+            "TextureManager.reload",
+            "TextureManager.scheduleLoad",
+            "ReloadableTexture.apply(TextureContents)",
+            "ReloadableTexture.doLoad(NativeImage)",
+        ],
+        dependencies: texture_manager_runtime_deps(true, true, true, false, true, false),
+    },
+    TextureManagerRuntimeCandidateSpec {
+        id: "dynamic_texture_registration",
+        category: TextureManagerRuntimeCandidateCategory::DynamicTextureRegistration,
+        runtime_sources: &[
+            "TextureManager.register(Identifier,AbstractTexture)",
+            "DynamicTexture.<init>(Supplier,NativeImage)",
+            "DynamicTexture.<init>(Supplier,int,int,boolean)",
+            "DynamicTexture.upload",
+            "SkinTextureDownloader.registerTextureInManager",
+        ],
+        dependencies: texture_manager_runtime_deps(true, false, false, true, true, false),
+    },
+    TextureManagerRuntimeCandidateSpec {
+        id: "gpu_handle_lifecycle_tick",
+        category: TextureManagerRuntimeCandidateCategory::GpuHandleLifecycleTick,
+        runtime_sources: &[
+            "TextureManager.safeClose(Identifier,AbstractTexture)",
+            "TextureManager.release(Identifier)",
+            "TextureManager.close",
+            "TextureManager.tick",
+            "AbstractTexture.close",
+            "DynamicTexture.close",
+            "Minecraft.close:textureManager.close",
+            "Minecraft.runTick:textureManager.tick",
+        ],
+        dependencies: texture_manager_runtime_deps(true, false, false, true, true, true),
+    },
+];
+
+fn build_texture_manager_runtime_candidate_set(
+    registrations: &[TextureManagerTextureRegistration],
+) -> TextureManagerRuntimeCandidateSet {
+    let registered_texture_ids = registrations
+        .iter()
+        .map(|registration| registration.registered_id.clone())
+        .collect::<Vec<_>>();
+
+    TextureManagerRuntimeCandidateSet {
+        candidates: TEXTURE_MANAGER_RUNTIME_CANDIDATE_SPECS
+            .iter()
+            .map(|spec| build_texture_manager_runtime_candidate(spec, &registered_texture_ids))
+            .collect(),
+    }
+}
+
+fn build_texture_manager_runtime_candidate(
+    spec: &TextureManagerRuntimeCandidateSpec,
+    registered_texture_ids: &[String],
+) -> TextureManagerRuntimeCandidate {
+    let dependencies = spec.dependencies;
+    let mut blockers = vec!["headless_runtime_texture_manager_unavailable".to_owned()];
+
+    if dependencies.runtime_registry {
+        blockers.push("texture_manager_registry_cache_unavailable".to_owned());
+    }
+    if dependencies.missing_texture {
+        blockers.push("missing_texture_runtime_fallback_unavailable".to_owned());
+    }
+    if dependencies.reloadable_texture_apply {
+        blockers.push("reloadable_texture_apply_gpu_upload_unavailable".to_owned());
+    }
+    if dependencies.dynamic_texture_allocation {
+        blockers.push("dynamic_texture_registration_unavailable".to_owned());
+    }
+    if dependencies.gpu_handle_lifecycle {
+        blockers.push("gpu_texture_handle_lifecycle_unavailable".to_owned());
+    }
+    if dependencies.tickable_texture_set {
+        blockers.push("tickable_texture_runtime_set_unavailable".to_owned());
+    }
+
+    TextureManagerRuntimeCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category,
+        registered_texture_ids: registered_texture_ids.to_vec(),
+        runtime_sources: spec
+            .runtime_sources
+            .iter()
+            .map(|source| (*source).to_owned())
+            .collect(),
+        dependencies,
+        blockers,
+    }
+}
+
 fn texture_upload_candidate_from_initial_item(
     registration: &TextureManagerTextureRegistration,
     item: &InitialTextureReportItem,
@@ -21815,6 +22230,28 @@ fn texture_manager_prepare_item(registration: &TextureManagerTextureRegistration
 
 fn texture_manager_report_item(item: &InitialTextureReportItem) -> String {
     format!("registered:{}", initial_texture_report_item(item))
+}
+
+fn texture_manager_runtime_candidate_report_item(
+    report: &TextureManagerRuntimeCandidateReport,
+) -> String {
+    let dependencies = report.dependencies();
+    format!(
+        "texture_manager_runtime_candidate:{} category:{} registered_texture_ids:{} runtime_sources:{} deps:runtime_registry:{} missing_texture:{} reloadable_texture_apply:{} dynamic_texture_allocation:{} gpu_handle_lifecycle:{} tickable_texture_set:{} blockers:{} blocker_details:{} boundary:{}",
+        report.id(),
+        report.category().report_fragment(),
+        report.registered_texture_ids().join(","),
+        report.runtime_sources().join(","),
+        dependencies.runtime_registry,
+        dependencies.missing_texture,
+        dependencies.reloadable_texture_apply,
+        dependencies.dynamic_texture_allocation,
+        dependencies.gpu_handle_lifecycle,
+        dependencies.tickable_texture_set,
+        report.blockers().len(),
+        report.blockers().join(","),
+        TEXTURE_MANAGER_RUNTIME_BOUNDARY,
+    )
 }
 
 fn load_initial_texture_metadata(
@@ -24090,6 +24527,7 @@ mod tests {
                 "initial_textures",
                 "texture_manager_registered_textures",
                 "texture_manager_upload_candidates",
+                "texture_manager_runtime_candidates",
                 "headless_shader_sources",
                 "headless_shader_manager",
                 "shader_manager_runtime_candidates",
@@ -30501,6 +30939,209 @@ mod tests {
                 && item.contains("cubemap_face:5:_2.png:")
                 && item.contains("upload_size:")
                 && item.contains("x6 metadata:synthetic")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_runtime_candidates_report_registry_cache_boundary() {
+        let listener = TextureManagerRuntimeCandidateReloadListener::new([
+            TextureManagerTextureRegistration::simple_texture(
+                "minecraft:test/simple",
+                "assets/minecraft/textures/gui/title/minecraft.png",
+            ),
+            TextureManagerTextureRegistration::loading_overlay_logo(),
+        ]);
+        let candidates = listener.load();
+
+        assert_eq!(listener.name(), "texture_manager_runtime_candidates");
+        assert_eq!(candidates.candidates().len(), 5);
+        assert_eq!(candidates.registration_count(), 10);
+        assert_eq!(candidates.runtime_source_count(), 30);
+        assert!(candidates.dependency_count() > candidates.candidates().len());
+        assert_eq!(
+            candidates.summary_fragment(),
+            format!(
+                "texture_manager_runtime_candidates:candidates:5 registrations:10 runtime_sources:30 deps:{} blockers:{} boundary:texture_assets_loaded_runtime_registry_pending",
+                candidates.dependency_count(),
+                candidates.blocker_count()
+            )
+        );
+
+        let cache = candidates
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "registered_texture_cache")
+            .expect("registered cache boundary should be reported");
+        assert_eq!(
+            cache.category(),
+            TextureManagerRuntimeCandidateCategory::RegisteredTextureCache
+        );
+        assert_eq!(cache.registered_texture_ids().len(), 2);
+        assert!(
+            cache
+                .runtime_sources()
+                .contains(&"TextureManager.byPath".to_owned())
+        );
+        assert!(
+            cache
+                .runtime_sources()
+                .contains(&"TextureManager.getTexture(Identifier)".to_owned())
+        );
+        assert!(cache.dependencies().runtime_registry);
+        assert!(cache.dependencies().gpu_handle_lifecycle);
+        assert!(!cache.dependencies().reloadable_texture_apply);
+        assert!(
+            cache
+                .blockers()
+                .contains(&"texture_manager_registry_cache_unavailable".to_owned())
+        );
+
+        let items = candidates.items();
+        assert_eq!(items[0], candidates.summary_fragment());
+        assert!(items.iter().any(|item| {
+            item.contains("texture_manager_runtime_candidate:registered_texture_cache")
+                && item.contains("category:registered_texture_cache")
+                && item.contains("registered_texture_ids:minecraft:test/simple,minecraft:textures/gui/title/mojangstudios.png")
+                && item.contains("runtime_sources:TextureManager.byPath")
+                && item.contains("deps:runtime_registry:true")
+                && item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_runtime_candidates_cover_runtime_surfaces() {
+        let candidates = TextureManagerRuntimeCandidateReloadListener::default().load();
+
+        let missing = candidates
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "missing_texture_fallback")
+            .expect("missing texture fallback boundary should be reported");
+        assert_eq!(
+            missing.category(),
+            TextureManagerRuntimeCandidateCategory::MissingTextureFallback
+        );
+        assert!(missing.dependencies().missing_texture);
+        assert!(missing.dependencies().dynamic_texture_allocation);
+        assert!(
+            missing
+                .runtime_sources()
+                .contains(&"TextureContents.createMissing".to_owned())
+        );
+        assert!(
+            missing
+                .blockers()
+                .contains(&"missing_texture_runtime_fallback_unavailable".to_owned())
+        );
+
+        let reloadable = candidates
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "reloadable_texture_apply")
+            .expect("reloadable texture apply boundary should be reported");
+        assert_eq!(
+            reloadable.category(),
+            TextureManagerRuntimeCandidateCategory::ReloadableTextureApply
+        );
+        assert!(reloadable.dependencies().reloadable_texture_apply);
+        assert!(reloadable.dependencies().gpu_handle_lifecycle);
+        assert!(
+            reloadable
+                .runtime_sources()
+                .contains(&"ReloadableTexture.apply(TextureContents)".to_owned())
+        );
+        assert!(
+            reloadable
+                .blockers()
+                .contains(&"reloadable_texture_apply_gpu_upload_unavailable".to_owned())
+        );
+
+        let dynamic = candidates
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "dynamic_texture_registration")
+            .expect("dynamic texture registration boundary should be reported");
+        assert_eq!(
+            dynamic.category(),
+            TextureManagerRuntimeCandidateCategory::DynamicTextureRegistration
+        );
+        assert!(dynamic.dependencies().dynamic_texture_allocation);
+        assert!(
+            dynamic
+                .runtime_sources()
+                .contains(&"DynamicTexture.upload".to_owned())
+        );
+        assert!(
+            dynamic
+                .runtime_sources()
+                .contains(&"SkinTextureDownloader.registerTextureInManager".to_owned())
+        );
+
+        let lifecycle = candidates
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.id() == "gpu_handle_lifecycle_tick")
+            .expect("GPU handle lifecycle and tick boundary should be reported");
+        assert_eq!(
+            lifecycle.category(),
+            TextureManagerRuntimeCandidateCategory::GpuHandleLifecycleTick
+        );
+        assert!(lifecycle.dependencies().tickable_texture_set);
+        assert!(lifecycle.dependencies().gpu_handle_lifecycle);
+        assert!(
+            lifecycle
+                .runtime_sources()
+                .contains(&"TextureManager.safeClose(Identifier,AbstractTexture)".to_owned())
+        );
+        assert!(
+            lifecycle
+                .runtime_sources()
+                .contains(&"Minecraft.runTick:textureManager.tick".to_owned())
+        );
+
+        let items = candidates.items();
+        assert!(items.iter().any(|item| {
+            item.contains("texture_manager_runtime_candidate:missing_texture_fallback")
+                && item.contains("deps:runtime_registry:true missing_texture:true reloadable_texture_apply:true dynamic_texture_allocation:true gpu_handle_lifecycle:true")
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("texture_manager_runtime_candidate:reloadable_texture_apply")
+                && item.contains(
+                    "runtime_sources:TextureManager.registerAndLoad(Identifier,ReloadableTexture)",
+                )
+        }));
+        assert!(items.iter().any(|item| {
+            item.contains("texture_manager_runtime_candidate:gpu_handle_lifecycle_tick")
+                && item.contains("tickable_texture_set:true")
+                && item.contains("blocker_details:headless_runtime_texture_manager_unavailable")
+        }));
+    }
+
+    #[test]
+    fn committed_vanilla_texture_manager_runtime_candidate_listener_reports_pending_surfaces() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(TextureManagerRuntimeCandidateReloadListener::default())
+            .run()
+            .expect("committed vanilla TextureManager runtime candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "texture_manager_runtime_candidates");
+        assert_eq!(
+            listener.preparation.items(),
+            initial_texture_manager_registrations()
+                .iter()
+                .map(texture_manager_prepare_item)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(listener.reload.items().len(), 6);
+        assert!(
+            listener.reload.items()[0]
+                .starts_with("texture_manager_runtime_candidates:candidates:5 registrations:")
+        );
+        assert!(listener.reload.items().iter().any(|item| {
+            item.contains("texture_manager_runtime_candidate:dynamic_texture_registration")
+                && item.contains("boundary:texture_assets_loaded_runtime_registry_pending")
+                && item.contains("dynamic_texture_registration_unavailable")
         }));
     }
 
