@@ -1096,6 +1096,57 @@ impl ServerResourcePackDownload {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackDownloadSummaryKind {
+    Bytes,
+    Path,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackDownloadSummary {
+    kind: ServerResourcePackDownloadSummaryKind,
+    len: usize,
+    sha1: String,
+    path: Option<PathBuf>,
+}
+
+impl ServerResourcePackDownloadSummary {
+    pub fn kind(&self) -> ServerResourcePackDownloadSummaryKind {
+        self.kind
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn sha1(&self) -> &str {
+        &self.sha1
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+}
+
+impl From<&ServerResourcePackDownload> for ServerResourcePackDownloadSummary {
+    fn from(download: &ServerResourcePackDownload) -> Self {
+        match download {
+            ServerResourcePackDownload::Bytes { len, sha1 } => Self {
+                kind: ServerResourcePackDownloadSummaryKind::Bytes,
+                len: *len,
+                sha1: sha1.clone(),
+                path: None,
+            },
+            ServerResourcePackDownload::Path { path, len, sha1 } => Self {
+                kind: ServerResourcePackDownloadSummaryKind::Path,
+                len: *len,
+                sha1: sha1.clone(),
+                path: Some(path.clone()),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ClientResourcePackMetadata {
     pack: ClientResourcePackMetadataSection,
@@ -1262,6 +1313,112 @@ pub struct ServerResourcePackApplyModel {
     packs: Vec<ServerResourcePackApplyState>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackApplyModelState {
+    base_stack_pack_ids: Vec<String>,
+    resulting_stack_pack_ids: Vec<String>,
+    server_pack_count: usize,
+    applied_pack_count: usize,
+    pending_pack_count: usize,
+    opened_pack_count: usize,
+    downloading_pack_count: usize,
+    failed_pack_count: usize,
+    declined_pack_count: usize,
+    items: Vec<ServerResourcePackApplyStateSummary>,
+}
+
+impl ServerResourcePackApplyModelState {
+    pub fn base_stack_pack_ids(&self) -> &[String] {
+        &self.base_stack_pack_ids
+    }
+
+    pub fn resulting_stack_pack_ids(&self) -> &[String] {
+        &self.resulting_stack_pack_ids
+    }
+
+    pub fn server_pack_count(&self) -> usize {
+        self.server_pack_count
+    }
+
+    pub fn applied_pack_count(&self) -> usize {
+        self.applied_pack_count
+    }
+
+    pub fn pending_pack_count(&self) -> usize {
+        self.pending_pack_count
+    }
+
+    pub fn opened_pack_count(&self) -> usize {
+        self.opened_pack_count
+    }
+
+    pub fn downloading_pack_count(&self) -> usize {
+        self.downloading_pack_count
+    }
+
+    pub fn failed_pack_count(&self) -> usize {
+        self.failed_pack_count
+    }
+
+    pub fn declined_pack_count(&self) -> usize {
+        self.declined_pack_count
+    }
+
+    pub fn items(&self) -> &[ServerResourcePackApplyStateSummary] {
+        &self.items
+    }
+
+    pub fn find(&self, id: Uuid) -> Option<&ServerResourcePackApplyStateSummary> {
+        self.items.iter().find(|item| item.id == id)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackApplyStateSummary {
+    id: Uuid,
+    status: ServerResourcePackStatus,
+    phases: Vec<ServerResourcePackApplyPhase>,
+    ack_history: Vec<ServerResourcePackAck>,
+    reload_outcome: Option<ServerResourcePackReloadOutcome>,
+    download: Option<ServerResourcePackDownloadSummary>,
+    enters_resource_stack: bool,
+    stack_pack_id: Option<String>,
+}
+
+impl ServerResourcePackApplyStateSummary {
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub fn status(&self) -> ServerResourcePackStatus {
+        self.status
+    }
+
+    pub fn phases(&self) -> &[ServerResourcePackApplyPhase] {
+        &self.phases
+    }
+
+    pub fn ack_history(&self) -> &[ServerResourcePackAck] {
+        &self.ack_history
+    }
+
+    pub fn reload_outcome(&self) -> Option<ServerResourcePackReloadOutcome> {
+        self.reload_outcome
+    }
+
+    pub fn download(&self) -> Option<&ServerResourcePackDownloadSummary> {
+        self.download.as_ref()
+    }
+
+    pub fn enters_resource_stack(&self) -> bool {
+        self.enters_resource_stack
+    }
+
+    pub fn stack_pack_id(&self) -> Option<&str> {
+        self.stack_pack_id.as_deref()
+    }
+}
+
 impl ServerResourcePackApplyModel {
     pub fn new(base_stack: ClientResourceStack) -> Self {
         Self {
@@ -1286,6 +1443,57 @@ impl ServerResourcePackApplyModel {
 
     pub fn packs(&self) -> &[ServerResourcePackApplyState] {
         &self.packs
+    }
+
+    pub fn state(&self) -> ServerResourcePackApplyModelState {
+        let base_stack_pack_ids = self
+            .base_stack
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+        let resulting_stack_pack_ids = self
+            .resource_stack()
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+        let items = self
+            .packs
+            .iter()
+            .map(ServerResourcePackApplyStateSummary::from)
+            .collect::<Vec<_>>();
+
+        ServerResourcePackApplyModelState {
+            base_stack_pack_ids,
+            resulting_stack_pack_ids,
+            server_pack_count: items.len(),
+            applied_pack_count: items
+                .iter()
+                .filter(|item| item.status == ServerResourcePackStatus::Applied)
+                .count(),
+            pending_pack_count: items
+                .iter()
+                .filter(|item| item.status == ServerResourcePackStatus::Pending)
+                .count(),
+            opened_pack_count: items
+                .iter()
+                .filter(|item| item.status == ServerResourcePackStatus::Opened)
+                .count(),
+            downloading_pack_count: items
+                .iter()
+                .filter(|item| item.status == ServerResourcePackStatus::Downloading)
+                .count(),
+            failed_pack_count: items
+                .iter()
+                .filter(|item| matches!(item.status, ServerResourcePackStatus::Failed(_)))
+                .count(),
+            declined_pack_count: items
+                .iter()
+                .filter(|item| item.status == ServerResourcePackStatus::Declined)
+                .count(),
+            items,
+        }
     }
 
     pub fn record(&mut self, pack: ServerResourcePackApplyState) {
@@ -1321,6 +1529,27 @@ impl ServerResourcePackApplyModel {
         let had_packs = !self.packs.is_empty();
         self.packs.clear();
         had_packs
+    }
+}
+
+impl From<&ServerResourcePackApplyState> for ServerResourcePackApplyStateSummary {
+    fn from(pack: &ServerResourcePackApplyState) -> Self {
+        let plan = pack.apply_plan();
+        let enters_resource_stack = plan.status() == ServerResourcePackStatus::Applied;
+        let stack_pack_id = enters_resource_stack.then(|| pack.resource_pack().id().to_owned());
+
+        Self {
+            id: plan.id(),
+            status: plan.status(),
+            phases: plan.phases().to_vec(),
+            ack_history: pack.ack_history().to_vec(),
+            reload_outcome: pack.reload_outcome(),
+            download: pack
+                .downloaded()
+                .map(ServerResourcePackDownloadSummary::from),
+            enters_resource_stack,
+            stack_pack_id,
+        }
     }
 }
 
@@ -32956,6 +33185,205 @@ mod tests {
                 .map(|pack| pack.id().to_owned())
                 .collect::<Vec<_>>(),
             [VANILLA_PACK_ID.to_owned(), format!("server:{id}")]
+        );
+    }
+
+    #[test]
+    fn server_resource_pack_apply_model_state_reports_mixed_pack_stack_membership() {
+        let applied_id = resource_pack_id(701);
+        let opened_id = resource_pack_id(702);
+        let failed_id = resource_pack_id(703);
+        let declined_id = resource_pack_id(704);
+        let downloading_id = resource_pack_id(705);
+        let pending_id = resource_pack_id(706);
+        let mut model = ServerResourcePackApplyModel::new(ClientResourceStack::new(vec![
+            ClientResourcePack::vanilla(),
+            ClientResourcePack::new("selected", VANILLA_PACK_PATH),
+        ]));
+
+        model
+            .receive(server_pack_request(applied_id, true))
+            .apply_test_server_pack();
+        let opened = model.receive(server_pack_request(opened_id, true));
+        opened.start_download();
+        opened
+            .download_bytes_succeeded(b"opened server pack")
+            .expect("test request has no enforced sha1");
+        opened
+            .open_downloaded()
+            .expect("downloaded test bytes should open");
+        let failed = model.receive(server_pack_request(failed_id, true));
+        failed.accept();
+        failed.download_failed();
+        model
+            .receive(server_pack_request(declined_id, false))
+            .decline()
+            .expect("optional pack can be declined");
+        let downloading = model.receive(server_pack_request(downloading_id, true));
+        downloading.accept();
+        downloading.start_download();
+        model.receive(server_pack_request(pending_id, true));
+
+        let state = model.state();
+        let stack_ids = model
+            .resource_stack()
+            .packs()
+            .iter()
+            .map(|pack| pack.id().to_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            state.base_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned(), "selected".to_owned()]
+        );
+        assert_eq!(state.resulting_stack_pack_ids(), stack_ids);
+        assert_eq!(
+            state.resulting_stack_pack_ids(),
+            [
+                VANILLA_PACK_ID.to_owned(),
+                "selected".to_owned(),
+                format!("server:{applied_id}")
+            ]
+        );
+        assert_eq!(state.server_pack_count(), 6);
+        assert_eq!(state.applied_pack_count(), 1);
+        assert_eq!(state.pending_pack_count(), 1);
+        assert_eq!(state.opened_pack_count(), 1);
+        assert_eq!(state.downloading_pack_count(), 1);
+        assert_eq!(state.failed_pack_count(), 1);
+        assert_eq!(state.declined_pack_count(), 1);
+
+        let applied = state
+            .find(applied_id)
+            .expect("applied pack summary should be indexed by id");
+        assert!(applied.enters_resource_stack());
+        assert_eq!(
+            applied.stack_pack_id(),
+            Some(format!("server:{applied_id}").as_str())
+        );
+        assert!(
+            applied
+                .phases()
+                .contains(&ServerResourcePackApplyPhase::Applied)
+        );
+        assert_eq!(
+            applied.reload_outcome(),
+            Some(ServerResourcePackReloadOutcome::Succeeded {
+                successfully_loaded_ack_sent: true,
+            })
+        );
+
+        for id in [
+            opened_id,
+            failed_id,
+            declined_id,
+            downloading_id,
+            pending_id,
+        ] {
+            let item = state
+                .find(id)
+                .expect("non-applied server pack should still be retained in model state");
+            assert!(!item.enters_resource_stack());
+            assert_eq!(item.stack_pack_id(), None);
+        }
+        assert!(state.find(resource_pack_id(707)).is_none());
+    }
+
+    #[test]
+    fn server_resource_pack_apply_model_state_retains_ack_history_and_download_summary() {
+        let id = resource_pack_id(708);
+        let bytes = b"state report server pack";
+        let expected_sha1 = server_resource_pack_sha1_hex(bytes);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        let pack = model.receive(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack.zip",
+            &expected_sha1,
+            true,
+            None,
+        ));
+        pack.accept();
+        pack.start_download();
+        pack.download_bytes_succeeded(bytes)
+            .expect("matching bytes should download");
+        pack.open_downloaded()
+            .expect("downloaded test bytes should open");
+        pack.apply_opened();
+
+        let state = model.state();
+        let item = state.find(id).expect("pack summary should exist");
+        let download = item
+            .download()
+            .expect("download summary should be retained in state");
+
+        assert_eq!(
+            item.ack_history()
+                .iter()
+                .map(|ack| ack.action)
+                .collect::<Vec<_>>(),
+            [
+                ServerResourcePackAckAction::Accepted,
+                ServerResourcePackAckAction::Downloaded,
+                ServerResourcePackAckAction::SuccessfullyLoaded,
+            ]
+        );
+        assert_eq!(
+            download.kind(),
+            ServerResourcePackDownloadSummaryKind::Bytes
+        );
+        assert_eq!(download.len(), bytes.len());
+        assert_eq!(download.sha1(), expected_sha1);
+        assert_eq!(download.path(), None);
+    }
+
+    #[test]
+    fn server_resource_pack_apply_model_state_updates_after_pop() {
+        let removed_id = resource_pack_id(709);
+        let kept_id = resource_pack_id(710);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model
+            .receive(server_pack_request(removed_id, true))
+            .apply_test_server_pack();
+        model
+            .receive(server_pack_request(kept_id, true))
+            .apply_test_server_pack();
+
+        assert!(model.pop(removed_id));
+        let state = model.state();
+
+        assert_eq!(state.server_pack_count(), 1);
+        assert!(state.find(removed_id).is_none());
+        assert!(state.find(kept_id).is_some());
+        assert_eq!(
+            state.resulting_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned(), format!("server:{kept_id}")]
+        );
+    }
+
+    #[test]
+    fn server_resource_pack_apply_model_state_updates_after_pop_all() {
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        model
+            .receive(server_pack_request(resource_pack_id(711), true))
+            .apply_test_server_pack();
+        model
+            .receive(server_pack_request(resource_pack_id(712), false))
+            .decline()
+            .expect("optional pack can be declined");
+
+        assert!(model.pop_all());
+        let state = model.state();
+
+        assert_eq!(state.server_pack_count(), 0);
+        assert_eq!(state.applied_pack_count(), 0);
+        assert!(state.items().is_empty());
+        assert_eq!(state.base_stack_pack_ids(), [VANILLA_PACK_ID.to_owned()]);
+        assert_eq!(
+            state.resulting_stack_pack_ids(),
+            [VANILLA_PACK_ID.to_owned()]
         );
     }
 
