@@ -168,6 +168,8 @@ const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warnin
 const REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY: &str =
     "regional_compliancies_loaded_notification_ui_pending";
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
+const CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY: &str =
+    "client_resources_reloaded_runtime_application_pending";
 const DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE: &str = "ZZZ";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
@@ -2153,6 +2155,15 @@ pub enum ResourceReloadStep {
 }
 
 impl ResourceReloadStep {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InitialPreparation => "initial_preparation",
+            Self::Preparation => "preparation",
+            Self::Reload => "reload",
+            Self::ListenerComplete => "listener_complete",
+        }
+    }
+
     pub const fn weight(self) -> u32 {
         match self {
             Self::InitialPreparation => 2,
@@ -2392,6 +2403,221 @@ impl ResourceReloadReport {
 
     pub fn listener_reports(&self) -> &[CompletedResourceReloadListener] {
         &self.listener_reports
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientResourceReloadRuntimeStatus {
+    Succeeded,
+    Failed,
+}
+
+impl ClientResourceReloadRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientResourceReloadRuntimeProgressSummary {
+    actual_progress: f32,
+    listener_count: usize,
+    report_count: usize,
+    completed_weight: u32,
+    total_weight: u32,
+    last_listener: Option<String>,
+    last_step: Option<ResourceReloadStep>,
+}
+
+impl ClientResourceReloadRuntimeProgressSummary {
+    fn from_report(report: &ResourceReloadReport) -> Self {
+        let progress_snapshot = report.state().progress_snapshot();
+        let last_event = report.events().last();
+
+        Self {
+            actual_progress: progress_snapshot.actual_progress(),
+            listener_count: progress_snapshot.listener_count() as usize,
+            report_count: report.listener_reports().len(),
+            completed_weight: progress_snapshot.completed_weight(),
+            total_weight: progress_snapshot.total_weight(),
+            last_listener: last_event.map(|event| event.listener.clone()),
+            last_step: last_event.map(|event| event.step),
+        }
+    }
+
+    fn failed() -> Self {
+        Self {
+            actual_progress: 0.0,
+            listener_count: 0,
+            report_count: 0,
+            completed_weight: 0,
+            total_weight: 0,
+            last_listener: None,
+            last_step: None,
+        }
+    }
+
+    pub fn actual_progress(&self) -> f32 {
+        self.actual_progress
+    }
+
+    pub fn listener_count(&self) -> usize {
+        self.listener_count
+    }
+
+    pub fn report_count(&self) -> usize {
+        self.report_count
+    }
+
+    pub fn completed_weight(&self) -> u32 {
+        self.completed_weight
+    }
+
+    pub fn total_weight(&self) -> u32 {
+        self.total_weight
+    }
+
+    pub fn last_listener(&self) -> Option<&str> {
+        self.last_listener.as_deref()
+    }
+
+    pub fn last_step(&self) -> Option<ResourceReloadStep> {
+        self.last_step
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientResourceReloadRuntimeState {
+    status: ClientResourceReloadRuntimeStatus,
+    progress: ClientResourceReloadRuntimeProgressSummary,
+    last_successful_report: Option<ResourceReloadReport>,
+    last_failure: Option<String>,
+}
+
+impl ClientResourceReloadRuntimeState {
+    pub fn from_success(report: ResourceReloadReport) -> Self {
+        Self {
+            status: ClientResourceReloadRuntimeStatus::Succeeded,
+            progress: ClientResourceReloadRuntimeProgressSummary::from_report(&report),
+            last_successful_report: Some(report),
+            last_failure: None,
+        }
+    }
+
+    pub fn from_failure(error: &ResourceReloadError) -> Self {
+        Self {
+            status: ClientResourceReloadRuntimeStatus::Failed,
+            progress: ClientResourceReloadRuntimeProgressSummary::failed(),
+            last_successful_report: None,
+            last_failure: Some(error.to_string()),
+        }
+    }
+
+    pub fn from_result(result: ResourceReloadResult<ResourceReloadReport>) -> Self {
+        match result {
+            Ok(report) => Self::from_success(report),
+            Err(error) => Self::from_failure(&error),
+        }
+    }
+
+    pub fn record_success(&mut self, report: ResourceReloadReport) {
+        self.status = ClientResourceReloadRuntimeStatus::Succeeded;
+        self.progress = ClientResourceReloadRuntimeProgressSummary::from_report(&report);
+        self.last_successful_report = Some(report);
+        self.last_failure = None;
+    }
+
+    pub fn record_failure(&mut self, error: &ResourceReloadError) {
+        self.status = ClientResourceReloadRuntimeStatus::Failed;
+        self.progress = ClientResourceReloadRuntimeProgressSummary::failed();
+        self.last_failure = Some(error.to_string());
+    }
+
+    pub fn status(&self) -> ClientResourceReloadRuntimeStatus {
+        self.status
+    }
+
+    pub fn progress(&self) -> &ClientResourceReloadRuntimeProgressSummary {
+        &self.progress
+    }
+
+    pub fn actual_progress(&self) -> f32 {
+        self.progress.actual_progress()
+    }
+
+    pub fn listener_count(&self) -> usize {
+        self.progress.listener_count()
+    }
+
+    pub fn report_count(&self) -> usize {
+        self.progress.report_count()
+    }
+
+    pub fn last_listener(&self) -> Option<&str> {
+        self.progress.last_listener()
+    }
+
+    pub fn last_step(&self) -> Option<ResourceReloadStep> {
+        self.progress.last_step()
+    }
+
+    pub fn error_text(&self) -> Option<&str> {
+        self.last_failure.as_deref()
+    }
+
+    pub fn last_successful_report(&self) -> Option<&ResourceReloadReport> {
+        self.last_successful_report.as_ref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_resource_reload_runtime:status:{} progress:{:.3} listeners:{} reports:{} completed_weight:{} total_weight:{} last_listener:{} last_step:{} error:{} boundary:{}",
+            self.status.as_str(),
+            self.actual_progress(),
+            self.listener_count(),
+            self.report_count(),
+            self.progress.completed_weight(),
+            self.progress.total_weight(),
+            self.last_listener().unwrap_or("none"),
+            self.last_step()
+                .map(ResourceReloadStep::as_str)
+                .unwrap_or("none"),
+            self.error_text().unwrap_or("none"),
+            self.boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+
+        if let Some(report) = &self.last_successful_report {
+            items.extend(report.listener_reports().iter().map(|listener| {
+                format!(
+                    "client_resource_reload_listener:{} preparation_items:{} reload_items:{} boundary:{}",
+                    listener.name,
+                    listener.preparation.items().len(),
+                    listener.reload.items().len(),
+                    self.boundary()
+                )
+            }));
+        }
+
+        if let Some(error) = self.error_text() {
+            items.push(format!(
+                "client_resource_reload_failure:error:{} boundary:{}",
+                error,
+                self.boundary()
+            ));
+        }
+
+        items
     }
 }
 
@@ -29535,6 +29761,123 @@ mod tests {
             report.listener_reports()[0].reload.items(),
             ["assets/minecraft/lang/en_us.json@test".to_owned()]
         );
+    }
+
+    #[test]
+    fn client_resource_reload_runtime_state_retains_success_report_summary() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/lang/en_us.json", "{}");
+        temp.write("assets/minecraft/texts/splashes.txt", "hello");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(ListingResourceReloadListener::new(
+                "lang",
+                ["assets/minecraft/lang/en_us.json"],
+            ))
+            .with_listener(ListingResourceReloadListener::new(
+                "splashes",
+                ["assets/minecraft/texts/splashes.txt"],
+            ))
+            .run()
+            .expect("mock reload should succeed");
+
+        let runtime = ClientResourceReloadRuntimeState::from_success(report);
+
+        assert_eq!(
+            runtime.status(),
+            ClientResourceReloadRuntimeStatus::Succeeded
+        );
+        assert_eq!(runtime.actual_progress(), 1.0);
+        assert_eq!(runtime.listener_count(), 2);
+        assert_eq!(runtime.report_count(), 2);
+        assert_eq!(runtime.last_listener(), Some("splashes"));
+        assert_eq!(
+            runtime.last_step(),
+            Some(ResourceReloadStep::ListenerComplete)
+        );
+        assert_eq!(runtime.error_text(), None);
+        assert_eq!(runtime.boundary(), CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY);
+        assert!(runtime.last_successful_report().is_some());
+        assert_eq!(runtime.items().len(), 3);
+        assert!(
+            runtime
+                .summary_fragment()
+                .contains("boundary:client_resources_reloaded_runtime_application_pending")
+        );
+    }
+
+    #[test]
+    fn client_resource_reload_runtime_state_retains_failure_text() {
+        let temp = TempPack::new();
+        temp.write("assets/minecraft/lang/en_us.json", "{}");
+        let success_stack =
+            ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let success_report = ResourceReloadManager::new(success_stack)
+            .with_listener(ListingResourceReloadListener::new(
+                "lang",
+                ["assets/minecraft/lang/en_us.json"],
+            ))
+            .run()
+            .expect("initial mock reload should succeed");
+        let mut runtime = ClientResourceReloadRuntimeState::from_success(success_report);
+        let failure_stack = ClientResourceStack::new(Vec::new());
+        let error = ResourceReloadManager::new(failure_stack)
+            .with_listener(ListingResourceReloadListener::new(
+                "missing",
+                ["assets/minecraft/lang/en_us.json"],
+            ))
+            .run()
+            .expect_err("missing asset should fail");
+
+        runtime.record_failure(&error);
+
+        assert_eq!(runtime.status(), ClientResourceReloadRuntimeStatus::Failed);
+        assert_eq!(runtime.actual_progress(), 0.0);
+        assert_eq!(runtime.listener_count(), 0);
+        assert_eq!(runtime.report_count(), 0);
+        assert_eq!(runtime.last_listener(), None);
+        assert_eq!(runtime.last_step(), None);
+        assert!(runtime.last_successful_report().is_some());
+        assert!(
+            runtime
+                .error_text()
+                .is_some_and(|error| error.contains("missing client resource"))
+        );
+        assert!(runtime.items().iter().any(|item| {
+            item.contains("client_resource_reload_failure:error:")
+                && item.contains("boundary:client_resources_reloaded_runtime_application_pending")
+        }));
+
+        let failed_runtime = ClientResourceReloadRuntimeState::from_failure(&error);
+        assert!(failed_runtime.last_successful_report().is_none());
+    }
+
+    #[test]
+    fn client_resource_reload_runtime_state_retains_committed_vanilla_client_resources() {
+        let runtime = ClientResourceReloadRuntimeState::from_result(
+            ResourceReloadManager::with_default_vanilla_client_resources().run(),
+        );
+
+        assert_eq!(
+            runtime.status(),
+            ClientResourceReloadRuntimeStatus::Succeeded
+        );
+        assert_eq!(runtime.actual_progress(), 1.0);
+        assert!(runtime.listener_count() > 30);
+        assert_eq!(runtime.report_count(), runtime.listener_count());
+        assert!(runtime.last_successful_report().is_some());
+        assert!(runtime.items().len() > runtime.listener_count());
+        assert!(runtime.items().iter().any(|item| {
+            item.contains("client_resource_reload_listener:client_languages")
+                && item.contains("reload_items:")
+        }));
+        assert!(runtime.items().iter().any(|item| {
+            item.contains("client_resource_reload_listener:regional_compliance_notification_decision_candidates")
+                && item.contains(
+                    "boundary:client_resources_reloaded_runtime_application_pending"
+                )
+        }));
     }
 
     #[test]
