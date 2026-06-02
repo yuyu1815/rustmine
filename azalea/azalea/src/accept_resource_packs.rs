@@ -64,13 +64,14 @@ struct AcceptResourcePackTaskOutput {
 fn accept_resource_pack(
     mut events: MessageReader<ResourcePackEvent>,
     mut commands: Commands,
-    query: Query<(
+    mut query: Query<(
         Option<&InConfigState>,
-        Option<&ServerResourcePackApplyModel>,
+        Option<&mut ServerResourcePackApplyModel>,
     )>,
 ) {
     for event in events.read() {
-        let Ok((in_config_state_option, _server_resource_packs)) = query.get(event.entity) else {
+        let Ok((in_config_state_option, server_resource_packs)) = query.get_mut(event.entity)
+        else {
             continue;
         };
 
@@ -91,10 +92,20 @@ fn accept_resource_pack(
         );
 
         #[cfg(feature = "online-mode")]
+        let base_stack = server_resource_packs
+            .as_deref()
+            .map(ServerResourcePackApplyModel::resource_stack)
+            .unwrap_or_else(ClientResourceStack::vanilla);
+
+        record_initial_resource_pack(
+            &mut commands,
+            event.entity,
+            server_resource_packs,
+            pack.clone(),
+        );
+
+        #[cfg(feature = "online-mode")]
         if ack.action == ServerResourcePackAckAction::Accepted {
-            let base_stack = _server_resource_packs
-                .map(ServerResourcePackApplyModel::resource_stack)
-                .unwrap_or_else(ClientResourceStack::vanilla);
             let task =
                 IoTaskPool::get().spawn(async_compat::Compat::new(apply_accepted_resource_pack(
                     pack,
@@ -114,6 +125,34 @@ fn initial_resource_pack_ack(pack: &mut ServerResourcePackApplyState) -> ServerR
     }
 
     pack.accept()
+}
+
+fn record_initial_resource_pack(
+    commands: &mut Commands,
+    entity: Entity,
+    server_resource_packs: Option<Mut<ServerResourcePackApplyModel>>,
+    pack: ServerResourcePackApplyState,
+) {
+    if let Some(mut server_resource_packs) = server_resource_packs {
+        record_initial_resource_pack_in_model(&mut server_resource_packs, pack);
+    } else {
+        commands
+            .entity(entity)
+            .insert(initial_resource_pack_model(pack));
+    }
+}
+
+fn record_initial_resource_pack_in_model(
+    model: &mut ServerResourcePackApplyModel,
+    pack: ServerResourcePackApplyState,
+) {
+    model.record(pack);
+}
+
+fn initial_resource_pack_model(pack: ServerResourcePackApplyState) -> ServerResourcePackApplyModel {
+    let mut model = ServerResourcePackApplyModel::with_vanilla();
+    record_initial_resource_pack_in_model(&mut model, pack);
+    model
 }
 
 #[cfg(any(feature = "online-mode", test))]
@@ -746,6 +785,110 @@ mod tests {
         assert_eq!(ack.id, id);
         assert_eq!(ack.action, ServerResourcePackAckAction::InvalidUrl);
         assert!(matches!(pack.status(), ServerResourcePackStatus::Failed(_)));
+    }
+
+    #[test]
+    fn initial_accepted_pack_is_recorded_into_existing_model_without_entering_stack() {
+        let id = Uuid::from_u128(15);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+        let mut pack = test_pack(id);
+        initial_resource_pack_ack(&mut pack);
+
+        record_initial_resource_pack_in_model(&mut model, pack);
+
+        let state = model.state();
+        let item = state
+            .find(id)
+            .expect("accepted server pack should be visible in apply model");
+        assert_eq!(item.status(), ServerResourcePackStatus::Accepted);
+        assert_eq!(
+            item.ack_history(),
+            [ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::Accepted,
+            }]
+        );
+        assert!(!item.enters_resource_stack());
+        assert_eq!(state.server_pack_count(), 1);
+        assert_eq!(state.resulting_stack_pack_ids(), ["vanilla"]);
+    }
+
+    #[test]
+    fn initial_pack_model_uses_vanilla_when_entity_has_no_existing_model() {
+        let id = Uuid::from_u128(16);
+        let mut pack = test_pack(id);
+        initial_resource_pack_ack(&mut pack);
+
+        let model = initial_resource_pack_model(pack);
+
+        let state = model.state();
+        assert_eq!(state.base_stack_pack_ids(), ["vanilla"]);
+        assert_eq!(state.resulting_stack_pack_ids(), ["vanilla"]);
+        assert_eq!(
+            state
+                .find(id)
+                .expect("accepted server pack should be inserted")
+                .status(),
+            ServerResourcePackStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn initial_invalid_url_state_is_retained_in_apply_model() {
+        let id = Uuid::from_u128(17);
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "ftp://example.com/server-pack.zip",
+            "",
+            false,
+            None,
+        ));
+        initial_resource_pack_ack(&mut pack);
+
+        let model = initial_resource_pack_model(pack);
+        let state = model.state();
+        let item = state
+            .find(id)
+            .expect("invalid server pack should be visible in apply model");
+
+        assert!(matches!(item.status(), ServerResourcePackStatus::Failed(_)));
+        assert_eq!(
+            item.ack_history(),
+            [ServerResourcePackAck {
+                id,
+                action: ServerResourcePackAckAction::InvalidUrl,
+            }]
+        );
+        assert!(!item.enters_resource_stack());
+    }
+
+    #[test]
+    fn later_finished_pack_replaces_initial_accepted_state_for_same_id() {
+        let id = Uuid::from_u128(18);
+        let server = TempPack::new();
+        write_valid_pack(&server);
+        let mut initial = test_pack(id);
+        initial_resource_pack_ack(&mut initial);
+        let mut model = initial_resource_pack_model(initial);
+
+        model.record(applied_test_pack(id, server.path()));
+
+        let state = model.state();
+        let item = state
+            .find(id)
+            .expect("finished pack should replace initial server pack state");
+        assert_eq!(state.server_pack_count(), 1);
+        assert_eq!(item.status(), ServerResourcePackStatus::Applied);
+        assert!(item.enters_resource_stack());
+        assert_eq!(item.stack_pack_id(), Some(format!("server:{id}").as_str()));
+        assert_eq!(
+            model
+                .resource_stack()
+                .find_resource("pack.mcmeta")
+                .expect("applied server pack should enter resource stack")
+                .pack_id,
+            format!("server:{id}")
+        );
     }
 
     fn test_pack(id: Uuid) -> ServerResourcePackApplyState {
