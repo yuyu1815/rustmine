@@ -38281,6 +38281,13 @@ impl TextureManagerReloadListener {
     ) -> ResourceReloadResult<TextureManagerReloadReport> {
         load_texture_manager_registered_textures(stack, &self.registrations)
     }
+
+    pub fn runtime_report(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ClientTextureManagerRegisteredTextureRuntimeReport {
+        ClientTextureManagerRegisteredTextureRuntimeReport::from_stack(stack, &self.registrations)
+    }
 }
 
 impl Default for TextureManagerReloadListener {
@@ -38323,11 +38330,17 @@ impl ResourceReloadListener for TextureManagerReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let loaded = self.load(stack)?;
+        let runtime_report = ClientTextureManagerRegisteredTextureRuntimeReport::from_loaded_report(
+            &self.registrations,
+            &loaded,
+        );
         Ok(ResourceReloadTaskReport::new(
-            self.load(stack)?
+            loaded
                 .registered_textures()
                 .iter()
-                .map(texture_manager_report_item),
+                .map(texture_manager_report_item)
+                .chain(runtime_report.items()),
         ))
     }
 }
@@ -38453,6 +38466,282 @@ pub struct TextureManagerReloadReport {
 impl TextureManagerReloadReport {
     pub fn registered_textures(&self) -> &[InitialTextureReportItem] {
         &self.registered_textures
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientTextureManagerRegisteredTextureRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientTextureManagerRegisteredTextureRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientTextureManagerRegisteredTextureRuntimeReport {
+    status: ClientTextureManagerRegisteredTextureRuntimeStatus,
+    registration_count: usize,
+    loaded_texture_count: usize,
+    missing_failed_count: usize,
+    source_resource_count: usize,
+    byte_count: usize,
+    cubemap_face_count: usize,
+    cubemap_depth_count: u32,
+    loader_kind_counts: Vec<String>,
+    representative_registered_texture_ids: Vec<String>,
+    representative_resources: Vec<String>,
+    packs: Vec<String>,
+    metadata_sources: Vec<String>,
+    blockers: Vec<String>,
+    boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientTextureManagerRegisteredTextureRuntimeReport {
+    pub fn from_stack(
+        stack: &ClientResourceStack,
+        registrations: &[TextureManagerTextureRegistration],
+    ) -> Self {
+        let candidates = load_texture_manager_upload_candidates(stack, registrations);
+        Self::from_upload_candidates(registrations, &candidates, None)
+    }
+
+    pub fn from_loaded_report(
+        registrations: &[TextureManagerTextureRegistration],
+        report: &TextureManagerReloadReport,
+    ) -> Self {
+        Self::from_parts(
+            registrations,
+            report.registered_textures(),
+            Vec::new(),
+            None,
+        )
+    }
+
+    pub fn from_failure(
+        registrations: &[TextureManagerTextureRegistration],
+        error: impl Into<String>,
+    ) -> Self {
+        Self::from_parts(registrations, &[], Vec::new(), Some(error.into()))
+    }
+
+    fn from_upload_candidates(
+        registrations: &[TextureManagerTextureRegistration],
+        candidates: &TextureManagerUploadCandidateReloadReport,
+        error: Option<String>,
+    ) -> Self {
+        let items = candidates
+            .candidates()
+            .iter()
+            .map(initial_texture_item_from_upload_candidate)
+            .collect::<Vec<_>>();
+        let blockers = candidates
+            .blockers()
+            .iter()
+            .map(initial_texture_runtime_blocker_item)
+            .collect::<Vec<_>>();
+
+        Self::from_parts(registrations, &items, blockers, error)
+    }
+
+    fn from_parts(
+        registrations: &[TextureManagerTextureRegistration],
+        items: &[InitialTextureReportItem],
+        blockers: Vec<String>,
+        error: Option<String>,
+    ) -> Self {
+        let loaded_texture_count = items.len();
+        let missing_failed_count = blockers.len();
+        let source_resource_count = items
+            .iter()
+            .map(|item| item.loaded_resource_paths().len())
+            .sum();
+        let byte_count = items
+            .iter()
+            .flat_map(|item| item.byte_counts().iter())
+            .sum();
+        let cubemap_face_count = items
+            .iter()
+            .filter(|item| item.loader_kind() == InitialTextureLoaderKind::Cubemap)
+            .map(|item| item.loaded_resource_paths().len())
+            .sum();
+        let cubemap_depth_count = items
+            .iter()
+            .filter(|item| item.loader_kind() == InitialTextureLoaderKind::Cubemap)
+            .map(InitialTextureReportItem::depth)
+            .sum();
+        let status = texture_manager_registered_runtime_status(
+            loaded_texture_count,
+            &blockers,
+            error.as_ref(),
+        );
+
+        Self {
+            status,
+            registration_count: registrations.len(),
+            loaded_texture_count,
+            missing_failed_count,
+            source_resource_count,
+            byte_count,
+            cubemap_face_count,
+            cubemap_depth_count,
+            loader_kind_counts: texture_manager_registered_loader_kind_counts(registrations),
+            representative_registered_texture_ids: representative_initial_texture_ids(items),
+            representative_resources: representative_initial_texture_resources(items),
+            packs: initial_texture_pack_ids(items),
+            metadata_sources: initial_texture_metadata_sources(items),
+            blockers,
+            boundary: TEXTURE_MANAGER_REGISTERED_TEXTURE_RUNTIME_BOUNDARY,
+            error,
+        }
+    }
+
+    pub fn status(&self) -> ClientTextureManagerRegisteredTextureRuntimeStatus {
+        self.status
+    }
+
+    pub fn registration_count(&self) -> usize {
+        self.registration_count
+    }
+
+    pub fn loaded_texture_count(&self) -> usize {
+        self.loaded_texture_count
+    }
+
+    pub fn missing_failed_count(&self) -> usize {
+        self.missing_failed_count
+    }
+
+    pub fn source_resource_count(&self) -> usize {
+        self.source_resource_count
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    pub fn cubemap_face_count(&self) -> usize {
+        self.cubemap_face_count
+    }
+
+    pub fn cubemap_depth_count(&self) -> u32 {
+        self.cubemap_depth_count
+    }
+
+    pub fn loader_kind_counts(&self) -> &[String] {
+        &self.loader_kind_counts
+    }
+
+    pub fn representative_registered_texture_ids(&self) -> &[String] {
+        &self.representative_registered_texture_ids
+    }
+
+    pub fn representative_resources(&self) -> &[String] {
+        &self.representative_resources
+    }
+
+    pub fn packs(&self) -> &[String] {
+        &self.packs
+    }
+
+    pub fn metadata_sources(&self) -> &[String] {
+        &self.metadata_sources
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_texture_manager_registered_texture_runtime:status:{} registrations:{} loaded:{} missing_failed:{} source_resources:{} bytes:{} cubemap_faces:{} cubemap_depths:{} loader_kinds:{} representative_textures:{} representative_resources:{} packs:{} metadata_sources:{} blockers:{} error:{} boundary:{}",
+            self.status().as_str(),
+            self.registration_count(),
+            self.loaded_texture_count(),
+            self.missing_failed_count(),
+            self.source_resource_count(),
+            self.byte_count(),
+            self.cubemap_face_count(),
+            self.cubemap_depth_count(),
+            initial_texture_runtime_list_fragment(self.loader_kind_counts()),
+            initial_texture_runtime_list_fragment(self.representative_registered_texture_ids()),
+            initial_texture_runtime_list_fragment(self.representative_resources()),
+            initial_texture_runtime_list_fragment(self.packs()),
+            initial_texture_runtime_list_fragment(self.metadata_sources()),
+            initial_texture_runtime_list_fragment(self.blockers()),
+            self.error().unwrap_or("none"),
+            self.boundary(),
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.representative_registered_texture_ids
+                .iter()
+                .map(|texture| {
+                    format!(
+                        "client_texture_manager_registered_texture_runtime_texture:{texture} boundary:{}",
+                        self.boundary()
+                    )
+                }),
+        );
+        items.extend(self.representative_resources.iter().map(|resource| {
+            format!(
+                "client_texture_manager_registered_texture_runtime_resource:{resource} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.packs.iter().map(|pack| {
+            format!(
+                "client_texture_manager_registered_texture_runtime_pack:{pack} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.metadata_sources.iter().map(|source| {
+            format!(
+                "client_texture_manager_registered_texture_runtime_metadata:{source} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.loader_kind_counts.iter().map(|count| {
+            format!(
+                "client_texture_manager_registered_texture_runtime_loader_kind:{count} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.blockers.iter().map(|blocker| {
+            format!(
+                "client_texture_manager_registered_texture_runtime_blocker:{blocker} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_texture_manager_registered_texture_runtime_failure:error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
+        items
     }
 }
 
@@ -39926,6 +40215,8 @@ fn load_texture_manager_upload_candidates(
 
 const TEXTURE_MANAGER_RUNTIME_BOUNDARY: &str = "texture_assets_loaded_runtime_registry_pending";
 const CLIENT_INITIAL_TEXTURE_RUNTIME_BOUNDARY: &str = "initial_textures_loaded_gpu_upload_pending";
+const TEXTURE_MANAGER_REGISTERED_TEXTURE_RUNTIME_BOUNDARY: &str =
+    "texture_manager_registered_textures_loaded_upload_pending";
 
 struct TextureManagerRuntimeCandidateSpec {
     id: &'static str,
@@ -40416,6 +40707,41 @@ fn initial_texture_runtime_list_fragment(items: &[String]) -> String {
     } else {
         items.join("|")
     }
+}
+
+fn texture_manager_registered_runtime_status(
+    loaded_texture_count: usize,
+    blockers: &[String],
+    error: Option<&String>,
+) -> ClientTextureManagerRegisteredTextureRuntimeStatus {
+    if error.is_some() {
+        ClientTextureManagerRegisteredTextureRuntimeStatus::Failed
+    } else if blockers.is_empty() {
+        ClientTextureManagerRegisteredTextureRuntimeStatus::Loaded
+    } else if loaded_texture_count == 0
+        && blockers
+            .iter()
+            .all(|blocker| blocker.contains(":missing_resource:"))
+    {
+        ClientTextureManagerRegisteredTextureRuntimeStatus::Missing
+    } else {
+        ClientTextureManagerRegisteredTextureRuntimeStatus::Blocked
+    }
+}
+
+fn texture_manager_registered_loader_kind_counts(
+    registrations: &[TextureManagerTextureRegistration],
+) -> Vec<String> {
+    let mut counts = BTreeMap::new();
+    for registration in registrations {
+        *counts
+            .entry(registration.loader_kind().report_fragment())
+            .or_insert(0usize) += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(kind, count)| format!("{kind}:{count}"))
+        .collect()
 }
 
 fn texture_manager_prepare_item(registration: &TextureManagerTextureRegistration) -> String {
@@ -56237,9 +56563,16 @@ mod tests {
             listener.preparation.items(),
             initial_texture_prepare_items()
         );
+        let loaded_row_count = INITIAL_SIMPLE_TEXTURES.len() + 2;
         assert_eq!(
-            listener.reload.items().len(),
-            INITIAL_SIMPLE_TEXTURES.len() + 2
+            &listener.reload.items()[..loaded_row_count],
+            InitialTextureReloadListener::default()
+                .load(&ClientResourceStack::vanilla())
+                .expect("committed vanilla initial textures should load")
+                .items()
+                .iter()
+                .map(initial_texture_report_item)
+                .collect::<Vec<_>>()
         );
         assert!(listener.reload.items().iter().any(|item| {
             item.starts_with("minecraft:textures/gui/title/mojangstudios.png kind:mojang_logo")
@@ -56420,11 +56753,30 @@ mod tests {
         );
         assert_eq!(
             listener.reload.items(),
-            [format!(
-                "registered:{} kind:simple_texture resources:{resource} packs:texture bytes:{} size:1x1x1 metadata:resource:{resource}.mcmeta@metadata blur:true clamp:true mipmap_strategy:cutout alpha_cutoff_bias:0.25",
-                INITIAL_SIMPLE_TEXTURES[0].0,
-                OVERRIDE_MINIMAL_PNG.len()
-            )]
+            [
+                format!(
+                    "registered:{} kind:simple_texture resources:{resource} packs:texture bytes:{} size:1x1x1 metadata:resource:{resource}.mcmeta@metadata blur:true clamp:true mipmap_strategy:cutout alpha_cutoff_bias:0.25",
+                    INITIAL_SIMPLE_TEXTURES[0].0,
+                    OVERRIDE_MINIMAL_PNG.len()
+                ),
+                format!(
+                    "client_texture_manager_registered_texture_runtime:status:loaded registrations:1 loaded:1 missing_failed:0 source_resources:1 bytes:{} cubemap_faces:0 cubemap_depths:0 loader_kinds:simple_texture:1 representative_textures:{} representative_resources:{resource}@texture packs:texture metadata_sources:resource:{resource}.mcmeta@metadata blockers:none error:none boundary:texture_manager_registered_textures_loaded_upload_pending",
+                    OVERRIDE_MINIMAL_PNG.len(),
+                    INITIAL_SIMPLE_TEXTURES[0].0
+                ),
+                format!(
+                    "client_texture_manager_registered_texture_runtime_texture:{} boundary:texture_manager_registered_textures_loaded_upload_pending",
+                    INITIAL_SIMPLE_TEXTURES[0].0
+                ),
+                format!(
+                    "client_texture_manager_registered_texture_runtime_resource:{resource}@texture boundary:texture_manager_registered_textures_loaded_upload_pending"
+                ),
+                "client_texture_manager_registered_texture_runtime_pack:texture boundary:texture_manager_registered_textures_loaded_upload_pending".to_owned(),
+                format!(
+                    "client_texture_manager_registered_texture_runtime_metadata:resource:{resource}.mcmeta@metadata boundary:texture_manager_registered_textures_loaded_upload_pending"
+                ),
+                "client_texture_manager_registered_texture_runtime_loader_kind:simple_texture:1 boundary:texture_manager_registered_textures_loaded_upload_pending".to_owned(),
+            ]
         );
     }
 
@@ -56474,9 +56826,16 @@ mod tests {
                 .map(texture_manager_prepare_item)
                 .collect::<Vec<_>>()
         );
+        let registered_row_count = INITIAL_SIMPLE_TEXTURES.len() + 2;
         assert_eq!(
-            listener.reload.items().len(),
-            INITIAL_SIMPLE_TEXTURES.len() + 2
+            &listener.reload.items()[..registered_row_count],
+            TextureManagerReloadListener::default()
+                .load(&ClientResourceStack::vanilla())
+                .expect("committed vanilla TextureManager startup textures should load")
+                .registered_textures()
+                .iter()
+                .map(texture_manager_report_item)
+                .collect::<Vec<_>>()
         );
         assert!(listener.reload.items().iter().any(|item| {
             item.starts_with(
@@ -56495,6 +56854,165 @@ mod tests {
                 "registered:minecraft:textures/gui/title/background/panorama kind:cubemap",
             ) && item.contains("x6 metadata:synthetic blur:true clamp:false mipmap_strategy:mean")
         }));
+    }
+
+    #[test]
+    fn texture_manager_registered_runtime_report_committed_vanilla_reports_loaded_upload_pending() {
+        let listener = TextureManagerReloadListener::default();
+        let report = listener.runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(
+            report.status(),
+            ClientTextureManagerRegisteredTextureRuntimeStatus::Loaded
+        );
+        assert_eq!(
+            report.registration_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(
+            report.loaded_texture_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(report.missing_failed_count(), 0);
+        assert_eq!(
+            report.source_resource_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 7
+        );
+        assert!(report.byte_count() > PNG_SIGNATURE.len());
+        assert_eq!(report.cubemap_face_count(), INITIAL_CUBEMAP_SUFFIXES.len());
+        assert_eq!(
+            report.cubemap_depth_count(),
+            INITIAL_CUBEMAP_SUFFIXES.len() as u32
+        );
+        assert!(
+            report
+                .loader_kind_counts()
+                .contains(&format!("simple_texture:{}", INITIAL_SIMPLE_TEXTURES.len()))
+        );
+        assert!(
+            report
+                .loader_kind_counts()
+                .contains(&"mojang_logo:1".to_owned())
+        );
+        assert!(
+            report
+                .loader_kind_counts()
+                .contains(&"cubemap:1".to_owned())
+        );
+        assert!(
+            report
+                .representative_registered_texture_ids()
+                .contains(&INITIAL_MOJANG_LOGO_ID.to_owned())
+        );
+        assert!(
+            report
+                .representative_registered_texture_ids()
+                .contains(&INITIAL_CUBEMAP_ID.to_owned())
+        );
+        assert!(
+            report
+                .representative_resources()
+                .iter()
+                .any(|resource| resource.contains(INITIAL_MOJANG_LOGO_RESOURCE))
+        );
+        assert_eq!(report.packs(), ["vanilla".to_owned()]);
+        assert!(report.metadata_sources().contains(&"default".to_owned()));
+        assert!(report.metadata_sources().contains(&"synthetic".to_owned()));
+        assert!(report.blockers().is_empty());
+        assert_eq!(
+            report.boundary(),
+            "texture_manager_registered_textures_loaded_upload_pending"
+        );
+        assert!(report.summary_fragment().contains("status:loaded"));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_manager_registered_texture_runtime_loader_kind:cubemap:1")
+                && item
+                    .contains("boundary:texture_manager_registered_textures_loaded_upload_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_registered_runtime_report_missing_corrupt_inputs_do_not_panic() {
+        let temp = TempPack::new();
+        let corrupt_resource = INITIAL_SIMPLE_TEXTURES[0].1;
+        temp.write_bytes(corrupt_resource, b"not a png");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = TextureManagerReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(
+            report.status(),
+            ClientTextureManagerRegisteredTextureRuntimeStatus::Blocked
+        );
+        assert_eq!(
+            report.registration_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(report.loaded_texture_count(), 0);
+        assert_eq!(
+            report.missing_failed_count(),
+            INITIAL_SIMPLE_TEXTURES.len() + 2
+        );
+        assert_eq!(report.source_resource_count(), 0);
+        assert_eq!(report.byte_count(), 0);
+        assert_eq!(report.cubemap_face_count(), 0);
+        assert_eq!(report.cubemap_depth_count(), 0);
+        assert!(report.error().is_none());
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.contains(INITIAL_SIMPLE_TEXTURES[0].0)
+                && blocker.contains("invalid_png_signature")
+                && blocker.contains("bytes:9")
+        }));
+        assert!(report.blockers().iter().any(|blocker| {
+            blocker.contains(INITIAL_MOJANG_LOGO_ID) && blocker.contains("missing_resource")
+        }));
+        assert!(report.summary_fragment().contains("status:blocked"));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_texture_manager_registered_texture_runtime_blocker:")
+                && item.contains("invalid_png_signature")
+                && item
+                    .contains("boundary:texture_manager_registered_textures_loaded_upload_pending")
+        }));
+    }
+
+    #[test]
+    fn texture_manager_registered_runtime_report_reload_rows_append_after_registered_rows() {
+        let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
+            .with_listener(TextureManagerReloadListener::default())
+            .run()
+            .expect(
+                "committed vanilla TextureManager registered textures should append runtime rows",
+            );
+
+        let listener = &report.listener_reports()[0];
+        let registered_row_count = INITIAL_SIMPLE_TEXTURES.len() + 2;
+        assert_eq!(
+            listener.reload.items()[0..registered_row_count]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            TextureManagerReloadListener::default()
+                .load(&ClientResourceStack::vanilla())
+                .expect("committed vanilla TextureManager registered textures should load")
+                .registered_textures()
+                .iter()
+                .map(texture_manager_report_item)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            listener.reload.items()[registered_row_count]
+                .starts_with("client_texture_manager_registered_texture_runtime:status:loaded")
+        );
+        assert!(
+            listener.reload.items()[registered_row_count..]
+                .iter()
+                .any(|item| {
+                    item.contains("client_texture_manager_registered_texture_runtime_resource:")
+                        && item.contains(
+                            "boundary:texture_manager_registered_textures_loaded_upload_pending",
+                        )
+                })
+        );
     }
 
     #[test]
