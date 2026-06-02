@@ -4141,6 +4141,10 @@ impl GpuWarnlistWarningDecisionCandidateReport {
         self.loaded_warnlist.as_ref()
     }
 
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
     pub fn device_info(&self) -> &GpuWarnlistDeviceInfo {
         &self.device_info
     }
@@ -4254,6 +4258,297 @@ pub struct ClientGpuWarnlistRuntimeState {
     warning_shown: bool,
     warning_dismissed: bool,
     reset_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientGpuWarnlistRuntimeStatus {
+    Loaded,
+    Blocked,
+    Missing,
+    Failed,
+}
+
+impl ClientGpuWarnlistRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientGpuWarnlistRuntimeReport {
+    status: ClientGpuWarnlistRuntimeStatus,
+    resource: String,
+    pack_id: Option<String>,
+    renderer_pattern_count: usize,
+    version_pattern_count: usize,
+    vendor_pattern_count: usize,
+    device_info: GpuWarnlistDeviceInfo,
+    matched_warning_count: usize,
+    matched_category_count: usize,
+    warning_categories: Vec<(String, String)>,
+    will_show_warning: bool,
+    is_showing_warning: bool,
+    warning_shown: bool,
+    warning_dismissed: bool,
+    reset_count: u32,
+    blocker_count: usize,
+    representative_blockers: Vec<String>,
+    decision_boundary: &'static str,
+    runtime_boundary: &'static str,
+    error: Option<String>,
+}
+
+impl ClientGpuWarnlistRuntimeReport {
+    pub fn from_runtime_state(runtime: &ClientGpuWarnlistRuntimeState) -> Self {
+        let state = runtime.warning_state();
+        let warnlist = state.loaded_warnlist_report();
+        let warning_categories = state
+            .warnings()
+            .categories()
+            .into_iter()
+            .map(|(category, matches)| (category.to_owned(), matches))
+            .collect::<Vec<_>>();
+        let representative_blockers = state
+            .blockers()
+            .iter()
+            .take(8)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+
+        Self {
+            status: gpu_warnlist_runtime_status_from_state(state),
+            resource: warnlist
+                .map(|report| report.resource().to_owned())
+                .unwrap_or_else(|| state.decision_candidate_report().resource().to_owned()),
+            pack_id: warnlist.map(|report| report.pack_id().to_owned()),
+            renderer_pattern_count: warnlist
+                .map(GpuWarnlistReloadReport::renderer_pattern_count)
+                .unwrap_or_default(),
+            version_pattern_count: warnlist
+                .map(GpuWarnlistReloadReport::version_pattern_count)
+                .unwrap_or_default(),
+            vendor_pattern_count: warnlist
+                .map(GpuWarnlistReloadReport::vendor_pattern_count)
+                .unwrap_or_default(),
+            device_info: state.device_info().clone(),
+            matched_warning_count: state.matched_warning_count(),
+            matched_category_count: state.matched_category_count(),
+            warning_categories,
+            will_show_warning: runtime.will_show_warning(),
+            is_showing_warning: runtime.is_showing_warning(),
+            warning_shown: runtime.warning_shown(),
+            warning_dismissed: runtime.warning_dismissed(),
+            reset_count: runtime.reset_count(),
+            blocker_count: state.blockers().len(),
+            representative_blockers,
+            decision_boundary: GPU_WARNLIST_WARNING_DECISION_BOUNDARY,
+            runtime_boundary: runtime.boundary_marker(),
+            error: None,
+        }
+    }
+
+    pub fn from_decision_candidate_report(
+        report: GpuWarnlistWarningDecisionCandidateReport,
+    ) -> Self {
+        let error = report.blockers().first().cloned();
+        let runtime = ClientGpuWarnlistRuntimeState::from_report(report);
+        let mut runtime_report = Self::from_runtime_state(&runtime);
+        runtime_report.status = gpu_warnlist_runtime_status_from_blockers(
+            runtime_report.status,
+            &runtime_report.representative_blockers,
+        );
+        runtime_report.error = error;
+        runtime_report
+    }
+
+    pub fn from_failure(resource: impl Into<String>, error: &ResourceReloadError) -> Self {
+        Self {
+            status: if matches!(error, ResourceReloadError::MissingResource(_)) {
+                ClientGpuWarnlistRuntimeStatus::Missing
+            } else {
+                ClientGpuWarnlistRuntimeStatus::Failed
+            },
+            resource: resource.into(),
+            pack_id: None,
+            renderer_pattern_count: 0,
+            version_pattern_count: 0,
+            vendor_pattern_count: 0,
+            device_info: GpuWarnlistDeviceInfo::default(),
+            matched_warning_count: 0,
+            matched_category_count: 0,
+            warning_categories: Vec::new(),
+            will_show_warning: false,
+            is_showing_warning: false,
+            warning_shown: false,
+            warning_dismissed: false,
+            reset_count: 0,
+            blocker_count: 1,
+            representative_blockers: vec![error.to_string()],
+            decision_boundary: GPU_WARNLIST_WARNING_DECISION_BOUNDARY,
+            runtime_boundary: GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn status(&self) -> ClientGpuWarnlistRuntimeStatus {
+        self.status
+    }
+
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+
+    pub fn pack_id(&self) -> Option<&str> {
+        self.pack_id.as_deref()
+    }
+
+    pub fn renderer_pattern_count(&self) -> usize {
+        self.renderer_pattern_count
+    }
+
+    pub fn version_pattern_count(&self) -> usize {
+        self.version_pattern_count
+    }
+
+    pub fn vendor_pattern_count(&self) -> usize {
+        self.vendor_pattern_count
+    }
+
+    pub fn device_info(&self) -> &GpuWarnlistDeviceInfo {
+        &self.device_info
+    }
+
+    pub fn matched_warning_count(&self) -> usize {
+        self.matched_warning_count
+    }
+
+    pub fn matched_category_count(&self) -> usize {
+        self.matched_category_count
+    }
+
+    pub fn warning_categories(&self) -> &[(String, String)] {
+        &self.warning_categories
+    }
+
+    pub fn will_show_warning(&self) -> bool {
+        self.will_show_warning
+    }
+
+    pub fn is_showing_warning(&self) -> bool {
+        self.is_showing_warning
+    }
+
+    pub fn warning_shown(&self) -> bool {
+        self.warning_shown
+    }
+
+    pub fn warning_dismissed(&self) -> bool {
+        self.warning_dismissed
+    }
+
+    pub fn reset_count(&self) -> u32 {
+        self.reset_count
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blocker_count
+    }
+
+    pub fn representative_blockers(&self) -> &[String] {
+        &self.representative_blockers
+    }
+
+    pub fn decision_boundary(&self) -> &'static str {
+        self.decision_boundary
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_gpu_warnlist_runtime_report:status:{} resource:{} pack:{} patterns:renderer:{} version:{} vendor:{} matches:{} categories:{} will_show_warning:{} is_showing_warning:{} shown:{} dismissed:{} resets:{} blockers:{} error:{} decision_boundary:{} runtime_boundary:{}",
+            self.status().as_str(),
+            self.resource(),
+            self.pack_id().unwrap_or("missing"),
+            self.renderer_pattern_count(),
+            self.version_pattern_count(),
+            self.vendor_pattern_count(),
+            self.matched_warning_count(),
+            self.matched_category_count(),
+            self.will_show_warning(),
+            self.is_showing_warning(),
+            self.warning_shown(),
+            self.warning_dismissed(),
+            self.reset_count(),
+            self.blocker_count(),
+            self.error().unwrap_or("none"),
+            self.decision_boundary(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.push(format!(
+            "client_gpu_warnlist_runtime_resource:{}@{} status:{} renderer_patterns:{} version_patterns:{} vendor_patterns:{} boundary:{}",
+            self.resource(),
+            self.pack_id().unwrap_or("missing"),
+            self.status().as_str(),
+            self.renderer_pattern_count(),
+            self.version_pattern_count(),
+            self.vendor_pattern_count(),
+            self.runtime_boundary()
+        ));
+        items.push(format!(
+            "client_gpu_warnlist_runtime_device:gpu_backend:{} gpu_renderer:{} gpu_version:{} gpu_vendor:{} boundary:{}",
+            unavailable_if_empty(&self.device_info().backend),
+            unavailable_if_empty(&self.device_info().renderer),
+            unavailable_if_empty(&self.device_info().version),
+            unavailable_if_empty(&self.device_info().vendor),
+            self.runtime_boundary()
+        ));
+
+        if self.warning_categories().is_empty() {
+            items.push(format!(
+                "client_gpu_warnlist_runtime_warning_categories:none boundary:{}",
+                self.runtime_boundary()
+            ));
+        } else {
+            items.extend(self.warning_categories().iter().map(|(category, matches)| {
+                format!(
+                    "client_gpu_warnlist_runtime_warning_category:{category}:{matches} boundary:{}",
+                    self.runtime_boundary()
+                )
+            }));
+        }
+
+        items.extend(self.representative_blockers().iter().map(|blocker| {
+            format!(
+                "client_gpu_warnlist_runtime_report_blocker:{blocker} boundary:{}",
+                self.runtime_boundary()
+            )
+        }));
+
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_gpu_warnlist_runtime_failure:error:{error} boundary:{}",
+                self.runtime_boundary()
+            ));
+        }
+
+        items
+    }
 }
 
 impl ClientGpuWarnlistRuntimeState {
@@ -4400,6 +4695,32 @@ impl From<GpuWarnlistWarningDecisionCandidateReport> for ClientGpuWarnlistRuntim
     }
 }
 
+fn gpu_warnlist_runtime_status_from_state(
+    state: &GpuWarnlistWarningState,
+) -> ClientGpuWarnlistRuntimeStatus {
+    if state.is_loaded() {
+        ClientGpuWarnlistRuntimeStatus::Loaded
+    } else {
+        ClientGpuWarnlistRuntimeStatus::Blocked
+    }
+}
+
+fn gpu_warnlist_runtime_status_from_blockers(
+    fallback: ClientGpuWarnlistRuntimeStatus,
+    blockers: &[String],
+) -> ClientGpuWarnlistRuntimeStatus {
+    if blockers
+        .iter()
+        .any(|blocker| blocker.starts_with("missing client resource"))
+    {
+        ClientGpuWarnlistRuntimeStatus::Missing
+    } else if blockers.is_empty() {
+        fallback
+    } else {
+        ClientGpuWarnlistRuntimeStatus::Failed
+    }
+}
+
 impl GpuWarnlistWarningState {
     pub fn from_warnlist(device_info: GpuWarnlistDeviceInfo, warnlist: &GpuWarnlist) -> Self {
         GpuWarnlistWarningDecisionCandidateReport::loaded(
@@ -4504,6 +4825,10 @@ impl GpuWarnlistWarningDecisionCandidateReloadListener {
     pub fn state(&self, stack: &ClientResourceStack) -> GpuWarnlistWarningState {
         self.report(stack).into_runtime_state()
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientGpuWarnlistRuntimeReport {
+        ClientGpuWarnlistRuntimeReport::from_decision_candidate_report(self.report(stack))
+    }
 }
 
 impl Default for GpuWarnlistWarningDecisionCandidateReloadListener {
@@ -4531,7 +4856,12 @@ impl ResourceReloadListener for GpuWarnlistWarningDecisionCandidateReloadListene
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.report(stack).items()))
+        let report = self.report(stack);
+        let runtime_report =
+            ClientGpuWarnlistRuntimeReport::from_decision_candidate_report(report.clone());
+        let mut items = report.items();
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -43422,6 +43752,174 @@ mod tests {
     }
 
     #[test]
+    fn gpu_warnlist_runtime_report_loaded_warning_surface() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel","iris"],"version":["mesa"],"vendor":["corp"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = GpuWarnlistWarningDecisionCandidateReloadListener::default()
+            .with_device_info(GpuWarnlistDeviceInfo::new(
+                "OpenGL",
+                "Intel Iris",
+                "Mesa 24.1",
+                "GPU Corp",
+            ))
+            .runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientGpuWarnlistRuntimeStatus::Loaded);
+        assert_eq!(report.resource(), GPU_WARNLIST_RESOURCE);
+        assert_eq!(report.pack_id(), Some("test"));
+        assert_eq!(report.renderer_pattern_count(), 2);
+        assert_eq!(report.version_pattern_count(), 1);
+        assert_eq!(report.vendor_pattern_count(), 1);
+        assert_eq!(
+            report.device_info(),
+            &GpuWarnlistDeviceInfo::new("OpenGL", "Intel Iris", "Mesa 24.1", "GPU Corp")
+        );
+        assert_eq!(report.matched_warning_count(), 4);
+        assert_eq!(report.matched_category_count(), 3);
+        assert_eq!(
+            report.warning_categories(),
+            &[
+                ("renderer".to_owned(), "Intel, Iris".to_owned()),
+                ("version".to_owned(), "Mesa".to_owned()),
+                ("vendor".to_owned(), "Corp".to_owned()),
+            ]
+        );
+        assert!(report.will_show_warning());
+        assert!(!report.is_showing_warning());
+        assert!(!report.warning_shown());
+        assert!(!report.warning_dismissed());
+        assert_eq!(report.reset_count(), 0);
+        assert_eq!(report.blocker_count(), 0);
+        assert_eq!(report.error(), None);
+        assert_eq!(
+            report.decision_boundary(),
+            GPU_WARNLIST_WARNING_DECISION_BOUNDARY
+        );
+        assert_eq!(
+            report.runtime_boundary(),
+            GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY
+        );
+        assert!(
+            report
+                .summary_fragment()
+                .contains("client_gpu_warnlist_runtime_report:status:loaded")
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_gpu_warnlist_runtime_warning_category:renderer:Intel, Iris")
+                && item.contains(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY)
+        }));
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_report_missing_warnlist_is_non_panicking() {
+        let stack = ClientResourceStack::new(Vec::new());
+        let report =
+            GpuWarnlistWarningDecisionCandidateReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientGpuWarnlistRuntimeStatus::Missing);
+        assert_eq!(report.resource(), GPU_WARNLIST_RESOURCE);
+        assert_eq!(report.pack_id(), None);
+        assert_eq!(report.matched_warning_count(), 0);
+        assert_eq!(report.matched_category_count(), 0);
+        assert_eq!(report.blocker_count(), 1);
+        assert!(
+            report
+                .representative_blockers()
+                .iter()
+                .any(|blocker| blocker.contains("missing client resource"))
+        );
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("missing client resource"))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_gpu_warnlist_runtime_failure:error:"))
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_report_failed_invalid_warnlist_is_non_panicking() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":"intel","version":[],"vendor":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report =
+            GpuWarnlistWarningDecisionCandidateReloadListener::default().runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientGpuWarnlistRuntimeStatus::Failed);
+        assert_eq!(report.resource(), GPU_WARNLIST_RESOURCE);
+        assert_eq!(report.pack_id(), None);
+        assert_eq!(report.blocker_count(), 1);
+        assert!(
+            report
+                .representative_blockers()
+                .iter()
+                .any(|blocker| blocker.contains("invalid gpu warnlist"))
+        );
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("invalid gpu warnlist"))
+        );
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_report_reload_keeps_decision_rows_and_appends_runtime_rows() {
+        let temp = TempPack::new();
+        temp.write(
+            GPU_WARNLIST_RESOURCE,
+            r#"{"renderer":["intel"],"version":["mesa"],"vendor":["corp"]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let listener = GpuWarnlistWarningDecisionCandidateReloadListener::default()
+            .with_device_info(GpuWarnlistDeviceInfo::new(
+                "OpenGL", "Intel", "Mesa", "Corp",
+            ));
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(GpuWarnlistReloadListener::default())
+            .with_listener(listener)
+            .run()
+            .expect("gpu warnlist reload should run");
+
+        assert_eq!(report.listener_reports()[0].name, "gpu_warnlist");
+        assert_eq!(
+            report.listener_reports()[1].name,
+            "gpu_warnlist_decision_candidates"
+        );
+        assert!(
+            report.listener_reports()[1].reload.items()[0]
+                .starts_with("gpu_warnlist_decision_candidates:")
+        );
+        assert!(
+            report.listener_reports()[1]
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_gpu_warnlist_runtime_report:status:loaded"))
+        );
+
+        let runtime = ClientResourceReloadRuntimeState::from_success(report);
+        let handoff = runtime
+            .handoff()
+            .expect("successful gpu warnlist reload should retain handoff");
+        assert!(handoff.has_gpu_warnlist_decision());
+        assert!(handoff.has_gpu_warnlist_runtime());
+    }
+
+    #[test]
     fn gpu_warnlist_evaluation_is_case_insensitive_and_uses_search() {
         let temp = TempPack::new();
         temp.write(
@@ -47261,6 +47759,25 @@ mod tests {
 
         assert_eq!(warnlist.report().resource(), GPU_WARNLIST_RESOURCE);
         assert_eq!(warnlist.report().pack_id(), VANILLA_PACK_ID);
+    }
+
+    #[test]
+    fn gpu_warnlist_runtime_report_committed_vanilla_loads() {
+        let report = GpuWarnlistWarningDecisionCandidateReloadListener::default()
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientGpuWarnlistRuntimeStatus::Loaded);
+        assert_eq!(report.resource(), GPU_WARNLIST_RESOURCE);
+        assert_eq!(report.pack_id(), Some(VANILLA_PACK_ID));
+        assert_eq!(report.blocker_count(), 0);
+        assert_eq!(report.error(), None);
+        assert_eq!(report.matched_warning_count(), 0);
+        assert_eq!(report.matched_category_count(), 0);
+        assert!(
+            report
+                .summary_fragment()
+                .contains(GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY)
+        );
     }
 
     #[test]
