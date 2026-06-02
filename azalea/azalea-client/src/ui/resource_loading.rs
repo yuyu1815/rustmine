@@ -15,6 +15,7 @@ use super::{
     },
 };
 use crate::resources::{
+    ClientResourceReloadManagerRuntimeReport, ClientResourceReloadManagerRuntimeStatus,
     ClientResourceRepository, ClientResourceStack,
     ResourceReloadEvent as ClientResourceReloadEvent, ResourceReloadManager,
     ResourceReloadProgressSnapshot, ResourceReloadReport, ResourceReloadResult, ResourceReloadStep,
@@ -32,6 +33,7 @@ pub struct ResourceLoadingTracker {
     flow: StartupFlow,
     startup_destination: StartupDestination,
     resource_reload_snapshot: Option<ResourceReloadProgressSnapshot>,
+    resource_reload_manager_report: Option<ClientResourceReloadManagerRuntimeReport>,
     resource_reload_error: Option<String>,
     pack_load_failure_toast: Option<ResourceLoadingPackLoadFailureToast>,
 }
@@ -42,6 +44,7 @@ impl ResourceLoadingTracker {
             flow: StartupFlow::new(accounts),
             startup_destination: StartupDestination::TitleMenu,
             resource_reload_snapshot: None,
+            resource_reload_manager_report: None,
             resource_reload_error: None,
             pack_load_failure_toast: None,
         }
@@ -52,6 +55,7 @@ impl ResourceLoadingTracker {
             flow,
             startup_destination: StartupDestination::TitleMenu,
             resource_reload_snapshot: None,
+            resource_reload_manager_report: None,
             resource_reload_error: None,
             pack_load_failure_toast: None,
         }
@@ -98,6 +102,18 @@ impl ResourceLoadingTracker {
         self.resource_reload_snapshot.as_ref()
     }
 
+    pub fn resource_reload_manager_report(
+        &self,
+    ) -> Option<&ClientResourceReloadManagerRuntimeReport> {
+        self.resource_reload_manager_report.as_ref()
+    }
+
+    pub fn resource_reload_manager_view(&self) -> Option<ResourceLoadingManagerRuntimeView> {
+        self.resource_reload_manager_report
+            .as_ref()
+            .map(ResourceLoadingManagerRuntimeView::from)
+    }
+
     pub fn resource_reload_error(&self) -> Option<&str> {
         self.resource_reload_error.as_deref()
     }
@@ -128,6 +144,7 @@ impl ResourceLoadingTracker {
             background_argb: background_argb(vanilla.background),
             logo_texture: Some(MojangLogoTexture::default()),
             reload: self.reload_view(),
+            manager_runtime: self.resource_reload_manager_view(),
             smoothing: LoadingOverlaySmoothing::vanilla(),
             fade: LoadingOverlayFadeTiming::vanilla(),
             vanilla,
@@ -166,16 +183,31 @@ impl ResourceLoadingTracker {
         self.pack_load_failure_toast = None;
     }
 
+    pub fn track_pending_resource_reload_manager(&mut self, manager: &ResourceReloadManager) {
+        self.resource_reload_manager_report = Some(manager.runtime_report());
+    }
+
     pub fn run_resource_reload(
         &mut self,
         manager: &ResourceReloadManager,
     ) -> ResourceReloadResult<ResourceReloadReport> {
+        self.track_pending_resource_reload_manager(manager);
         let report = manager.run_with_events(|event| self.apply_resource_reload_event(event));
 
         match &report {
-            Ok(_) => self.mark_complete(),
-            Err(error) => {
-                let error = error.to_string();
+            Ok(completed_report) => {
+                self.resource_reload_manager_report =
+                    Some(ClientResourceReloadManagerRuntimeReport::from_completed(
+                        manager,
+                        completed_report,
+                    ));
+                self.mark_complete();
+            }
+            Err(reload_error) => {
+                let error = reload_error.to_string();
+                self.resource_reload_manager_report = Some(
+                    ClientResourceReloadManagerRuntimeReport::from_failure(manager, reload_error),
+                );
                 self.resource_reload_error = Some(error.clone());
                 self.pack_load_failure_toast =
                     Some(ResourceLoadingPackLoadFailureToast::from_error(error));
@@ -281,6 +313,7 @@ pub struct MojangLoadingOverlayViewModel {
     pub background_argb: u32,
     pub logo_texture: Option<MojangLogoTexture>,
     pub reload: ResourceLoadingReloadView,
+    pub manager_runtime: Option<ResourceLoadingManagerRuntimeView>,
     pub smoothing: LoadingOverlaySmoothing,
     pub fade: LoadingOverlayFadeTiming,
 }
@@ -695,6 +728,32 @@ impl ResourceLoadingReloadView {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceLoadingManagerRuntimeView {
+    pub status: ClientResourceReloadManagerRuntimeStatus,
+    pub status_label: &'static str,
+    pub listener_count: usize,
+    pub listener_names: Vec<String>,
+    pub pack_ids: Vec<String>,
+    pub boundary: &'static str,
+    pub error_text: Option<String>,
+}
+
+impl From<&ClientResourceReloadManagerRuntimeReport> for ResourceLoadingManagerRuntimeView {
+    fn from(report: &ClientResourceReloadManagerRuntimeReport) -> Self {
+        let status = report.status();
+        Self {
+            status,
+            status_label: status.as_str(),
+            listener_count: report.listener_count(),
+            listener_names: report.listener_names().to_vec(),
+            pack_ids: report.pack_ids().to_vec(),
+            boundary: report.boundary(),
+            error_text: report.error_text().map(ToOwned::to_owned),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceLoadingReloadPhase {
     Fallback,
@@ -786,7 +845,7 @@ mod tests {
     use super::*;
     use crate::{
         resources::{
-            ClientResourceRepository, ClientResourceStack, ResourceReloadError,
+            ClientResourcePack, ClientResourceRepository, ClientResourceStack, ResourceReloadError,
             ResourceReloadListener, ResourceReloadManager, ResourceReloadResult,
             ResourceReloadTaskReport,
         },
@@ -960,6 +1019,176 @@ mod tests {
         );
         assert_eq!(view.reload.label, "textures");
         assert_eq!(view.reload.phase, ResourceLoadingReloadPhase::Preparation);
+    }
+
+    #[test]
+    fn tracker_retains_reload_manager_runtime_report_pending_before_events() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(vec![
+            ClientResourcePack::new("base-pack", "."),
+            ClientResourcePack::new("overlay-pack", "."),
+        ]))
+        .with_listener(TestReloadListener("textures"))
+        .with_listener(TestReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker.track_pending_resource_reload_manager(&manager);
+
+        let report = tracker
+            .resource_reload_manager_report()
+            .expect("pending manager report should be retained");
+        assert_eq!(
+            report.status(),
+            ClientResourceReloadManagerRuntimeStatus::Pending
+        );
+        assert_eq!(report.listener_count(), 2);
+        assert_eq!(report.listener_names(), ["textures", "sounds"]);
+        assert_eq!(report.pack_ids(), ["base-pack", "overlay-pack"]);
+        assert_eq!(
+            report.boundary(),
+            "client_resources_reloaded_runtime_application_pending"
+        );
+
+        let view = tracker
+            .resource_reload_manager_view()
+            .expect("pending manager report should have a UI view");
+        assert_eq!(view.status_label, "pending");
+        assert_eq!(view.listener_count, 2);
+        assert_eq!(view.pack_ids, ["base-pack", "overlay-pack"]);
+        assert_eq!(view.listener_names, ["textures", "sounds"]);
+        assert_eq!(
+            view.boundary,
+            "client_resources_reloaded_runtime_application_pending"
+        );
+    }
+
+    #[test]
+    fn tracker_retains_reload_manager_runtime_report_completed() {
+        let manager =
+            ResourceReloadManager::new(ClientResourceStack::new(vec![ClientResourcePack::new(
+                "base-pack",
+                ".",
+            )]))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(TestReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let report = tracker
+            .run_resource_reload(&manager)
+            .expect("reload should complete");
+
+        let manager_report = tracker
+            .resource_reload_manager_report()
+            .expect("completed manager report should be retained");
+        assert_eq!(
+            manager_report.status(),
+            ClientResourceReloadManagerRuntimeStatus::Completed
+        );
+        assert_eq!(manager_report.listener_count(), 2);
+        assert_eq!(manager_report.pack_ids(), ["base-pack"]);
+        assert_eq!(
+            manager_report.completed_listener_report_count(),
+            report.listener_reports().len()
+        );
+        assert_eq!(manager_report.actual_progress(), 1.0);
+
+        let overlay_view =
+            tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        let manager_view = overlay_view
+            .manager_runtime
+            .expect("overlay should expose completed manager runtime view");
+        assert_eq!(
+            manager_view.status,
+            ClientResourceReloadManagerRuntimeStatus::Completed
+        );
+        assert_eq!(manager_view.status_label, "completed");
+        assert_eq!(manager_view.listener_count, 2);
+        assert_eq!(manager_view.pack_ids, ["base-pack"]);
+        assert_eq!(manager_view.error_text, None);
+    }
+
+    #[test]
+    fn tracker_retains_reload_manager_runtime_report_failed() {
+        let manager = ResourceReloadManager::new(ClientResourceStack::new(vec![
+            ClientResourcePack::new("base-pack", "."),
+            ClientResourcePack::new("broken-pack", "."),
+        ]))
+        .with_listener(TestReloadListener("textures"))
+        .with_listener(FailingReloadListener("sounds"));
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        let error = tracker
+            .run_resource_reload(&manager)
+            .expect_err("reload should fail");
+        let error_text = error.to_string();
+
+        let manager_report = tracker
+            .resource_reload_manager_report()
+            .expect("failed manager report should be retained");
+        assert_eq!(
+            manager_report.status(),
+            ClientResourceReloadManagerRuntimeStatus::Failed
+        );
+        assert_eq!(manager_report.listener_count(), 2);
+        assert_eq!(manager_report.listener_names(), ["textures", "sounds"]);
+        assert_eq!(manager_report.pack_ids(), ["base-pack", "broken-pack"]);
+        assert_eq!(manager_report.error_text(), Some(error_text.as_str()));
+        assert_eq!(
+            manager_report.boundary(),
+            "client_resources_reloaded_runtime_application_pending"
+        );
+
+        let overlay_view =
+            tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+        let manager_view = overlay_view
+            .manager_runtime
+            .expect("overlay should expose failed manager runtime view");
+        assert_eq!(
+            manager_view.status,
+            ClientResourceReloadManagerRuntimeStatus::Failed
+        );
+        assert_eq!(manager_view.status_label, "failed");
+        assert_eq!(manager_view.listener_names, ["textures", "sounds"]);
+        assert_eq!(manager_view.pack_ids, ["base-pack", "broken-pack"]);
+        assert_eq!(manager_view.error_text, Some(error_text));
+    }
+
+    #[test]
+    fn tracker_retains_reload_manager_runtime_report_without_overriding_overlay_snapshot() {
+        let manager =
+            ResourceReloadManager::new(ClientResourceStack::new(vec![ClientResourcePack::new(
+                "base-pack",
+                ".",
+            )]))
+            .with_listener(TestReloadListener("textures"))
+            .with_listener(TestReloadListener("sounds"));
+        let report = manager.run().unwrap();
+        let preparation_event = &report.events()[1];
+        let mut tracker = ResourceLoadingTracker::new(Vec::new());
+
+        tracker.track_pending_resource_reload_manager(&manager);
+        tracker.apply_update(ResourceLoadingUpdate::task_progress(
+            loading_task_names::DOWNLOADING_ASSET,
+            "stone.png",
+            9,
+            10,
+        ));
+        tracker.apply_resource_reload_event(preparation_event);
+
+        let overlay_view =
+            tracker.loading_overlay_view(&VanillaLoadingOverlay::new(), Duration::ZERO);
+
+        assert_eq!(
+            overlay_view.vanilla.actual_progress,
+            preparation_event.progress_snapshot.actual_progress()
+        );
+        assert_ne!(overlay_view.vanilla.actual_progress, 0.9);
+        assert_eq!(
+            overlay_view
+                .manager_runtime
+                .expect("overlay should expose pending manager runtime view")
+                .status,
+            ClientResourceReloadManagerRuntimeStatus::Pending
+        );
     }
 
     #[test]
