@@ -125,6 +125,7 @@ const DYNAMIC_TEXTURE_MANAGER_BOUNDARY: &str =
     "dynamic_texture_manager_candidates_loaded_upload_pending";
 const PLAYER_SKIN_CACHE_BOUNDARY: &str =
     "player_skin_cache_candidates_loaded_runtime_lookup_pending";
+const FONT_MANAGER_RUNTIME_BOUNDARY: &str = "font_glyphs_loaded_runtime_fontset_pending";
 const CLOUD_RENDERER_REBUILD_BOUNDARY: &str =
     "cloud_texture_decode_complete_renderer_rebuild_pending";
 const GPU_WARNLIST_WARNING_DECISION_BOUNDARY: &str = "gpu_warnlist_loaded_warning_decision_pending";
@@ -2185,6 +2186,7 @@ impl ResourceReloadManager {
             .with_listener(FontDefinitionsReloadListener::default())
             .with_listener(FontProviderAssetReloadListener::default())
             .with_listener(FontGlyphAtlasCandidateReloadListener::default())
+            .with_listener(FontManagerRuntimeCandidateReloadListener::default())
             .with_listener(ColormapReloadListener::default())
             .with_listener(ModelDependencyReloadListener::default())
             .with_listener(ModelBakeCandidateReloadListener::default())
@@ -17442,6 +17444,587 @@ fn font_glyph_atlas_blockers_fragment(blockers: &[ClientFontGlyphAtlasBlocker]) 
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontManagerRuntimeCandidateCollection {
+    font_ids: Vec<String>,
+    representative_assets: Vec<String>,
+    font_definition_count: usize,
+    provider_count: usize,
+    ready_asset_count: usize,
+    glyph_source_count: usize,
+    reference_edge_count: usize,
+    glyph_atlas_blocker_count: usize,
+    candidates: Vec<ClientFontManagerRuntimeCandidate>,
+}
+
+impl ClientFontManagerRuntimeCandidateCollection {
+    pub fn font_ids(&self) -> &[String] {
+        &self.font_ids
+    }
+
+    pub fn representative_assets(&self) -> &[String] {
+        &self.representative_assets
+    }
+
+    pub fn candidates(&self) -> &[ClientFontManagerRuntimeCandidate] {
+        &self.candidates
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        FONT_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.glyph_atlas_blocker_count
+            + self
+                .candidates
+                .iter()
+                .map(ClientFontManagerRuntimeCandidate::blocker_count)
+                .sum::<usize>()
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "font_manager_runtime_candidates:candidates:{} fonts:{} providers:{} ready_assets:{} glyph_sources:{} refs:{} blockers:{} representative_fonts:{} representative_assets:{} boundary:{}",
+            self.candidate_count(),
+            self.font_definition_count,
+            self.provider_count,
+            self.ready_asset_count,
+            self.glyph_source_count,
+            self.reference_edge_count,
+            self.blocker_count(),
+            font_manager_runtime_list_fragment(&self.font_ids),
+            font_manager_runtime_list_fragment(&self.representative_assets),
+            self.boundary()
+        )
+    }
+
+    fn report_items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(ClientFontManagerRuntimeCandidate::report_item),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientFontManagerRuntimeCandidate {
+    id: String,
+    category: FontManagerRuntimeCandidateCategory,
+    representative_font_ids: Vec<String>,
+    representative_assets: Vec<String>,
+    runtime_sources: Vec<&'static str>,
+    dependencies: BTreeMap<&'static str, usize>,
+    blockers: Vec<&'static str>,
+}
+
+impl ClientFontManagerRuntimeCandidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> FontManagerRuntimeCandidateCategory {
+        self.category
+    }
+
+    pub fn representative_font_ids(&self) -> &[String] {
+        &self.representative_font_ids
+    }
+
+    pub fn representative_assets(&self) -> &[String] {
+        &self.representative_assets
+    }
+
+    pub fn runtime_sources(&self) -> &[&'static str] {
+        &self.runtime_sources
+    }
+
+    pub fn dependencies(&self) -> &BTreeMap<&'static str, usize> {
+        &self.dependencies
+    }
+
+    pub fn blockers(&self) -> &[&'static str] {
+        &self.blockers
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.blockers.len()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        FONT_MANAGER_RUNTIME_BOUNDARY
+    }
+
+    fn report_item(&self) -> String {
+        format!(
+            "font_manager_runtime_candidate:{} category:{} representative_fonts:{} representative_assets:{} runtime_sources:{} dependencies:{} blockers:{} boundary:{}",
+            self.id(),
+            self.category().as_str(),
+            font_manager_runtime_list_fragment(self.representative_font_ids()),
+            font_manager_runtime_list_fragment(self.representative_assets()),
+            self.runtime_sources().join("|"),
+            font_manager_runtime_dependencies_fragment(self.dependencies()),
+            font_manager_runtime_static_list_fragment(self.blockers()),
+            self.boundary()
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FontManagerRuntimeCandidateCategory {
+    FontSetReplacementCache,
+    CachedFontProviderLookup,
+    AtlasSpriteFontBinding,
+    PlayerGlyphProviderBinding,
+    GlyphDrawRenderPipelineLifecycle,
+}
+
+impl FontManagerRuntimeCandidateCategory {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::FontSetReplacementCache => "font_set_replacement_cache",
+            Self::CachedFontProviderLookup => "cached_font_provider_lookup",
+            Self::AtlasSpriteFontBinding => "atlas_sprite_font_binding",
+            Self::PlayerGlyphProviderBinding => "player_glyph_provider_binding",
+            Self::GlyphDrawRenderPipelineLifecycle => "glyph_draw_render_pipeline_lifecycle",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontManagerRuntimeCandidateReloadListener {
+    definitions: Vec<String>,
+}
+
+impl FontManagerRuntimeCandidateReloadListener {
+    pub fn new(definitions: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            definitions: definitions.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn definitions(&self) -> &[String] {
+        &self.definitions
+    }
+
+    pub fn load(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientFontManagerRuntimeCandidateCollection> {
+        load_client_font_manager_runtime_candidates(stack, &self.definitions)
+    }
+}
+
+impl Default for FontManagerRuntimeCandidateReloadListener {
+    fn default() -> Self {
+        Self {
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl ResourceReloadListener for FontManagerRuntimeCandidateReloadListener {
+    fn name(&self) -> &str {
+        "font_manager_runtime_candidates"
+    }
+
+    fn prepare(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        Ok(ResourceReloadTaskReport::new(
+            font_provider_asset_definition_resources(stack, &self.definitions)?,
+        ))
+    }
+
+    fn reload(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ResourceReloadTaskReport> {
+        let candidates = self.load(stack)?;
+        Ok(ResourceReloadTaskReport::new(candidates.report_items()))
+    }
+}
+
+pub fn load_client_font_manager_runtime_candidates(
+    stack: &ClientResourceStack,
+    definitions: &[String],
+) -> ResourceReloadResult<ClientFontManagerRuntimeCandidateCollection> {
+    let glyph_atlas = load_client_font_glyph_atlas_candidates(stack, definitions)?;
+    Ok(build_client_font_manager_runtime_candidates(&glyph_atlas))
+}
+
+fn build_client_font_manager_runtime_candidates(
+    glyph_atlas: &ClientFontGlyphAtlasCandidateCollection,
+) -> ClientFontManagerRuntimeCandidateCollection {
+    let font_ids = representative_font_ids(glyph_atlas);
+    let representative_assets = representative_font_assets(glyph_atlas);
+    let font_definition_count = glyph_atlas.definitions().len();
+    let provider_count = glyph_atlas
+        .definitions()
+        .iter()
+        .map(ClientFontGlyphAtlasDefinitionCandidate::provider_count)
+        .sum();
+    let ready_asset_count = glyph_atlas
+        .definitions()
+        .iter()
+        .map(ClientFontGlyphAtlasDefinitionCandidate::ready_asset_count)
+        .sum();
+    let glyph_source_count = glyph_atlas
+        .definitions()
+        .iter()
+        .map(ClientFontGlyphAtlasDefinitionCandidate::estimated_glyph_source_count)
+        .sum();
+    let reference_edge_count = glyph_atlas
+        .definitions()
+        .iter()
+        .map(ClientFontGlyphAtlasDefinitionCandidate::reference_edge_count)
+        .sum();
+    let glyph_atlas_blocker_count = glyph_atlas
+        .definitions()
+        .iter()
+        .map(ClientFontGlyphAtlasDefinitionCandidate::blocker_count)
+        .sum();
+
+    let metrics = FontManagerRuntimeMetrics {
+        font_definition_count,
+        provider_count,
+        ready_asset_count,
+        glyph_source_count,
+        reference_edge_count,
+    };
+    let candidates = font_manager_runtime_candidate_specs()
+        .into_iter()
+        .map(|spec| {
+            build_client_font_manager_runtime_candidate(
+                spec,
+                &font_ids,
+                &representative_assets,
+                metrics,
+            )
+        })
+        .collect();
+
+    ClientFontManagerRuntimeCandidateCollection {
+        font_ids,
+        representative_assets,
+        font_definition_count,
+        provider_count,
+        ready_asset_count,
+        glyph_source_count,
+        reference_edge_count,
+        glyph_atlas_blocker_count,
+        candidates,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FontManagerRuntimeMetrics {
+    font_definition_count: usize,
+    provider_count: usize,
+    ready_asset_count: usize,
+    glyph_source_count: usize,
+    reference_edge_count: usize,
+}
+
+struct FontManagerRuntimeCandidateSpec {
+    id: &'static str,
+    category: FontManagerRuntimeCandidateCategory,
+    runtime_sources: &'static [&'static str],
+    dependencies: &'static [(&'static str, FontManagerRuntimeDependencyMetric)],
+    blockers: &'static [&'static str],
+}
+
+#[derive(Clone, Copy)]
+enum FontManagerRuntimeDependencyMetric {
+    Constant(usize),
+    FontDefinitions,
+    Providers,
+    ReadyAssets,
+    GlyphSources,
+    ReferenceEdges,
+}
+
+fn font_manager_runtime_candidate_specs() -> Vec<FontManagerRuntimeCandidateSpec> {
+    vec![
+        FontManagerRuntimeCandidateSpec {
+            id: "font_set_replacement_cache",
+            category: FontManagerRuntimeCandidateCategory::FontSetReplacementCache,
+            runtime_sources: &[
+                "FontManager.prepare",
+                "FontManager.apply",
+                "FontManager.createFontSet",
+                "FontSet.reload",
+            ],
+            dependencies: &[
+                (
+                    "font_definitions",
+                    FontManagerRuntimeDependencyMetric::FontDefinitions,
+                ),
+                (
+                    "glyph_providers",
+                    FontManagerRuntimeDependencyMetric::Providers,
+                ),
+                (
+                    "glyph_sources",
+                    FontManagerRuntimeDependencyMetric::GlyphSources,
+                ),
+                (
+                    "fallback_provider",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "font_options",
+                    FontManagerRuntimeDependencyMetric::Constant(2),
+                ),
+            ],
+            blockers: &[
+                "runtime_font_set_map_missing",
+                "font_option_reload_missing",
+                "provider_close_lifecycle_missing",
+            ],
+        },
+        FontManagerRuntimeCandidateSpec {
+            id: "cached_font_provider_lookup",
+            category: FontManagerRuntimeCandidateCategory::CachedFontProviderLookup,
+            runtime_sources: &[
+                "FontManager.createFont",
+                "FontManager.createFontFilterFishy",
+                "CachedFontProvider.glyphs",
+                "CachedFontProvider.effect",
+            ],
+            dependencies: &[
+                (
+                    "font_sets",
+                    FontManagerRuntimeDependencyMetric::FontDefinitions,
+                ),
+                (
+                    "any_glyphs_cache",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "non_fishy_glyphs_cache",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "white_glyph_cache",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+            ],
+            blockers: &[
+                "font_provider_runtime_cache_missing",
+                "font_description_dispatch_missing",
+            ],
+        },
+        FontManagerRuntimeCandidateSpec {
+            id: "atlas_sprite_font_binding",
+            category: FontManagerRuntimeCandidateCategory::AtlasSpriteFontBinding,
+            runtime_sources: &[
+                "FontManager.apply",
+                "FontManager.getSpriteFont",
+                "AtlasGlyphProvider.sourceForSprite",
+                "AtlasManager.forEach",
+            ],
+            dependencies: &[
+                (
+                    "atlas_manager",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "atlas_glyph_provider_map",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "ready_provider_assets",
+                    FontManagerRuntimeDependencyMetric::ReadyAssets,
+                ),
+            ],
+            blockers: &[
+                "atlas_glyph_provider_binding_missing",
+                "sprite_font_fallback_missing",
+            ],
+        },
+        FontManagerRuntimeCandidateSpec {
+            id: "player_glyph_provider_binding",
+            category: FontManagerRuntimeCandidateCategory::PlayerGlyphProviderBinding,
+            runtime_sources: &[
+                "FontManager.<init>",
+                "CachedFontProvider.getGlyphSource",
+                "PlayerGlyphProvider.sourceForPlayer",
+                "PlayerSkinRenderCache",
+            ],
+            dependencies: &[
+                (
+                    "player_skin_render_cache",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "local_profile_resolver",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "texture_manager",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+            ],
+            blockers: &[
+                "player_glyph_provider_runtime_binding_missing",
+                "player_skin_cache_lookup_missing",
+            ],
+        },
+        FontManagerRuntimeCandidateSpec {
+            id: "glyph_draw_render_pipeline_lifecycle",
+            category: FontManagerRuntimeCandidateCategory::GlyphDrawRenderPipelineLifecycle,
+            runtime_sources: &[
+                "Font.drawInBatch",
+                "Font.StringSplitter",
+                "GlyphStitcher.stitch",
+                "GlyphRenderTypes.select",
+                "FontTexture",
+            ],
+            dependencies: &[
+                (
+                    "font_provider_cache",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "glyph_sources",
+                    FontManagerRuntimeDependencyMetric::GlyphSources,
+                ),
+                (
+                    "reference_edges",
+                    FontManagerRuntimeDependencyMetric::ReferenceEdges,
+                ),
+                (
+                    "texture_manager",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+                (
+                    "render_pipeline",
+                    FontManagerRuntimeDependencyMetric::Constant(1),
+                ),
+            ],
+            blockers: &[
+                "runtime_text_layout_missing",
+                "glyph_texture_stitch_upload_missing",
+                "glyph_draw_pipeline_missing",
+            ],
+        },
+    ]
+}
+
+fn build_client_font_manager_runtime_candidate(
+    spec: FontManagerRuntimeCandidateSpec,
+    font_ids: &[String],
+    representative_assets: &[String],
+    metrics: FontManagerRuntimeMetrics,
+) -> ClientFontManagerRuntimeCandidate {
+    ClientFontManagerRuntimeCandidate {
+        id: spec.id.to_owned(),
+        category: spec.category,
+        representative_font_ids: font_ids.iter().take(3).cloned().collect(),
+        representative_assets: representative_assets.iter().take(3).cloned().collect(),
+        runtime_sources: spec.runtime_sources.to_vec(),
+        dependencies: spec
+            .dependencies
+            .iter()
+            .map(|(name, metric)| {
+                (
+                    *name,
+                    font_manager_runtime_dependency_count(*metric, metrics),
+                )
+            })
+            .collect(),
+        blockers: spec.blockers.to_vec(),
+    }
+}
+
+fn font_manager_runtime_dependency_count(
+    metric: FontManagerRuntimeDependencyMetric,
+    metrics: FontManagerRuntimeMetrics,
+) -> usize {
+    match metric {
+        FontManagerRuntimeDependencyMetric::Constant(count) => count,
+        FontManagerRuntimeDependencyMetric::FontDefinitions => metrics.font_definition_count,
+        FontManagerRuntimeDependencyMetric::Providers => metrics.provider_count,
+        FontManagerRuntimeDependencyMetric::ReadyAssets => metrics.ready_asset_count,
+        FontManagerRuntimeDependencyMetric::GlyphSources => metrics.glyph_source_count,
+        FontManagerRuntimeDependencyMetric::ReferenceEdges => metrics.reference_edge_count,
+    }
+}
+
+fn representative_font_ids(glyph_atlas: &ClientFontGlyphAtlasCandidateCollection) -> Vec<String> {
+    glyph_atlas
+        .definitions()
+        .iter()
+        .map(|definition| font_identifier_for_definition_resource(definition.resource()))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn representative_font_assets(
+    glyph_atlas: &ClientFontGlyphAtlasCandidateCollection,
+) -> Vec<String> {
+    glyph_atlas
+        .definitions()
+        .iter()
+        .flat_map(ClientFontGlyphAtlasDefinitionCandidate::providers)
+        .flat_map(ClientFontGlyphAtlasProviderCandidate::asset_candidates)
+        .filter_map(|asset| {
+            asset
+                .selected_pack_id()
+                .map(|pack_id| format!("{}@{}", asset.resource(), pack_id))
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(6)
+        .collect()
+}
+
+fn font_identifier_for_definition_resource(resource: &str) -> String {
+    let Some(rest) = resource.strip_prefix("assets/") else {
+        return resource.to_owned();
+    };
+    let Some((namespace, path)) = rest.split_once("/font/") else {
+        return resource.to_owned();
+    };
+    let path = path.strip_suffix(".json").unwrap_or(path);
+    format!("{namespace}:{path}")
+}
+
+fn font_manager_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+    items.iter().take(5).cloned().collect::<Vec<_>>().join("|")
+}
+
+fn font_manager_runtime_static_list_fragment(items: &[&str]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+    items.join("|")
+}
+
+fn font_manager_runtime_dependencies_fragment(dependencies: &BTreeMap<&str, usize>) -> String {
+    if dependencies.is_empty() {
+        return "none".to_owned();
+    }
+    dependencies
+        .iter()
+        .map(|(name, count)| format!("{name}={count}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientLanguageResources {
     translations: BTreeMap<String, String>,
     report: ClientLanguageReloadReport,
@@ -24888,6 +25471,7 @@ mod tests {
                 "font_definitions",
                 "font_provider_assets",
                 "font_glyph_atlas_candidates",
+                "font_manager_runtime_candidates",
                 "colormaps",
                 "model_dependencies",
                 "model_bake_candidates",
@@ -26253,6 +26837,145 @@ mod tests {
             listener.reload.items()[3],
             "assets/example/font/default.json@test#1:reference glyph_sources:none assets:none refs:none blockers:#1:unresolved_reference:example:include/missing:assets/example/font/include/missing.json"
         );
+    }
+
+    #[test]
+    fn font_manager_runtime_candidates_report_fontset_cache_and_runtime_boundaries() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/custom.png","ascent":7,"chars":["ab"]},
+                {"type":"space","advances":{" ":4}},
+                {"type":"reference","id":"example:include/base"}
+            ]}"#,
+        );
+        temp.write(
+            "assets/example/font/include/base.json",
+            r#"{"providers":[{"type":"space","advances":{"x":5}}]}"#,
+        );
+        temp.write_bytes("assets/example/textures/font/custom.png", b"bitmap");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let collection =
+            FontManagerRuntimeCandidateReloadListener::new(["assets/example/font/default.json"])
+                .load(&stack)
+                .expect("font manager runtime candidates should load");
+
+        assert_eq!(collection.boundary(), FONT_MANAGER_RUNTIME_BOUNDARY);
+        assert_eq!(collection.candidate_count(), 5);
+        assert_eq!(collection.font_ids(), &["example:default".to_owned()][..]);
+        assert_eq!(
+            collection.representative_assets(),
+            &["assets/example/textures/font/custom.png@test".to_owned()][..]
+        );
+        assert_eq!(
+            collection.summary_fragment(),
+            "font_manager_runtime_candidates:candidates:5 fonts:1 providers:3 ready_assets:1 glyph_sources:3 refs:1 blockers:12 representative_fonts:example:default representative_assets:assets/example/textures/font/custom.png@test boundary:font_glyphs_loaded_runtime_fontset_pending"
+        );
+
+        let categories = collection
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.category().as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            categories,
+            [
+                "font_set_replacement_cache",
+                "cached_font_provider_lookup",
+                "atlas_sprite_font_binding",
+                "player_glyph_provider_binding",
+                "glyph_draw_render_pipeline_lifecycle",
+            ]
+        );
+
+        let font_set = &collection.candidates()[0];
+        assert_eq!(font_set.id(), "font_set_replacement_cache");
+        assert_eq!(
+            font_set.dependencies(),
+            &BTreeMap::from([
+                ("fallback_provider", 1),
+                ("font_definitions", 1),
+                ("font_options", 2),
+                ("glyph_providers", 3),
+                ("glyph_sources", 3),
+            ])
+        );
+        assert!(
+            font_set
+                .runtime_sources()
+                .contains(&"FontManager.createFontSet")
+        );
+        assert!(
+            font_set
+                .blockers()
+                .contains(&"runtime_font_set_map_missing")
+        );
+    }
+
+    #[test]
+    fn font_manager_runtime_listener_reports_summary_and_per_candidate_items() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/example/font/default.json",
+            r#"{"providers":[
+                {"type":"bitmap","file":"example:font/custom.png","ascent":7,"chars":["ab"]}
+            ]}"#,
+        );
+        temp.write_bytes("assets/example/textures/font/custom.png", b"bitmap");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ResourceReloadManager::new(stack)
+            .with_listener(FontManagerRuntimeCandidateReloadListener::new([
+                "assets/example/font/default.json",
+            ]))
+            .run()
+            .expect("font manager runtime candidates should report");
+
+        let listener = &report.listener_reports()[0];
+        assert_eq!(listener.name, "font_manager_runtime_candidates");
+        assert_eq!(
+            listener.reload.items()[0],
+            "font_manager_runtime_candidates:candidates:5 fonts:1 providers:1 ready_assets:1 glyph_sources:2 refs:0 blockers:12 representative_fonts:example:default representative_assets:assets/example/textures/font/custom.png@test boundary:font_glyphs_loaded_runtime_fontset_pending"
+        );
+        assert_eq!(listener.reload.items().len(), 6);
+        assert!(listener.reload.items()[1].contains(
+            "font_manager_runtime_candidate:font_set_replacement_cache category:font_set_replacement_cache"
+        ));
+        assert!(listener.reload.items()[2]
+            .contains("runtime_sources:FontManager.createFont|FontManager.createFontFilterFishy|CachedFontProvider.glyphs|CachedFontProvider.effect"));
+        assert!(listener.reload.items()[3].contains("category:atlas_sprite_font_binding"));
+        assert!(listener.reload.items()[4].contains("category:player_glyph_provider_binding"));
+        assert!(listener.reload.items()[5]
+            .contains("blockers:runtime_text_layout_missing|glyph_texture_stitch_upload_missing|glyph_draw_pipeline_missing"));
+    }
+
+    #[test]
+    fn committed_vanilla_font_manager_runtime_candidates_report_boundary_surface() {
+        let collection = FontManagerRuntimeCandidateReloadListener::default()
+            .load(&ClientResourceStack::vanilla())
+            .expect("committed vanilla font manager runtime candidates should load");
+
+        assert_eq!(collection.candidate_count(), 5);
+        assert_eq!(collection.boundary(), FONT_MANAGER_RUNTIME_BOUNDARY);
+        assert_eq!(collection.font_ids().len(), 7);
+        assert!(
+            !collection.representative_assets().is_empty(),
+            "vanilla font manager runtime boundary should retain representative font assets"
+        );
+        assert!(
+            collection
+                .candidates()
+                .iter()
+                .all(|candidate| candidate.boundary() == FONT_MANAGER_RUNTIME_BOUNDARY)
+        );
+        assert!(collection.candidates().iter().any(|candidate| {
+            candidate.category() == FontManagerRuntimeCandidateCategory::AtlasSpriteFontBinding
+                && candidate
+                    .blockers()
+                    .contains(&"atlas_glyph_provider_binding_missing")
+        }));
     }
 
     #[test]
