@@ -173,6 +173,8 @@ const REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY: &str =
 const REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY: &str =
     "regional_compliance_notifications_scheduled_runtime_ui_pending";
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
+const CLIENT_LANGUAGE_RUNTIME_BOUNDARY: &str =
+    "client_language_assets_loaded_runtime_lookup_pending";
 const CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY: &str =
     "client_resources_reloaded_runtime_application_pending";
 const DEFAULT_REGIONAL_COMPLIANCE_COUNTRY_CODE: &str = "ZZZ";
@@ -26642,6 +26644,192 @@ impl ClientLanguageState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientLanguageRuntimeStatus {
+    Loaded,
+    Failed,
+}
+
+impl ClientLanguageRuntimeStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientLanguageRuntimeReport {
+    status: ClientLanguageRuntimeStatus,
+    requested_language_code: String,
+    selected_language_code: String,
+    fallback_language_code: String,
+    loaded_file_count: usize,
+    translation_count: usize,
+    loaded_files: Vec<String>,
+    loaded_pack_ids: Vec<String>,
+    sample_translation_keys: Vec<String>,
+    error: Option<String>,
+    boundary: &'static str,
+}
+
+impl ClientLanguageRuntimeReport {
+    pub fn from_resources(
+        requested_language_code: impl Into<String>,
+        resources: &ClientLanguageResources,
+    ) -> Self {
+        let requested_language_code = requested_language_code.into().to_ascii_lowercase();
+        Self::from_parts(
+            requested_language_code,
+            resources.report().language_code().to_owned(),
+            resources.report(),
+            resources.translations(),
+        )
+    }
+
+    pub fn from_state(
+        requested_language_code: impl Into<String>,
+        state: &ClientLanguageState,
+    ) -> Self {
+        let requested_language_code = requested_language_code.into().to_ascii_lowercase();
+        Self::from_parts(
+            requested_language_code,
+            state.selected_language_code().to_owned(),
+            state.reload_report(),
+            state.translations(),
+        )
+    }
+
+    pub fn from_failure(
+        requested_language_code: impl Into<String>,
+        error: &ResourceReloadError,
+    ) -> Self {
+        let requested_language_code = requested_language_code.into().to_ascii_lowercase();
+        Self {
+            status: ClientLanguageRuntimeStatus::Failed,
+            requested_language_code: requested_language_code.clone(),
+            selected_language_code: requested_language_code,
+            fallback_language_code: DEFAULT_LANGUAGE_CODE.to_owned(),
+            loaded_file_count: 0,
+            translation_count: 0,
+            loaded_files: Vec::new(),
+            loaded_pack_ids: Vec::new(),
+            sample_translation_keys: Vec::new(),
+            error: Some(error.to_string()),
+            boundary: CLIENT_LANGUAGE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    fn from_parts(
+        requested_language_code: String,
+        selected_language_code: String,
+        reload_report: &ClientLanguageReloadReport,
+        translations: &BTreeMap<String, String>,
+    ) -> Self {
+        let loaded_files = reload_report.loaded_files().to_vec();
+        let loaded_pack_ids = loaded_pack_ids_from_language_files(&loaded_files);
+        let sample_translation_keys = translations.keys().take(6).cloned().collect();
+
+        Self {
+            status: ClientLanguageRuntimeStatus::Loaded,
+            requested_language_code,
+            selected_language_code,
+            fallback_language_code: DEFAULT_LANGUAGE_CODE.to_owned(),
+            loaded_file_count: loaded_files.len(),
+            translation_count: reload_report.translation_count(),
+            loaded_files,
+            loaded_pack_ids,
+            sample_translation_keys,
+            error: None,
+            boundary: CLIENT_LANGUAGE_RUNTIME_BOUNDARY,
+        }
+    }
+
+    pub fn status(&self) -> ClientLanguageRuntimeStatus {
+        self.status
+    }
+
+    pub fn requested_language_code(&self) -> &str {
+        &self.requested_language_code
+    }
+
+    pub fn selected_language_code(&self) -> &str {
+        &self.selected_language_code
+    }
+
+    pub fn fallback_language_code(&self) -> &str {
+        &self.fallback_language_code
+    }
+
+    pub fn loaded_file_count(&self) -> usize {
+        self.loaded_file_count
+    }
+
+    pub fn translation_count(&self) -> usize {
+        self.translation_count
+    }
+
+    pub fn loaded_files(&self) -> &[String] {
+        &self.loaded_files
+    }
+
+    pub fn loaded_pack_ids(&self) -> &[String] {
+        &self.loaded_pack_ids
+    }
+
+    pub fn sample_translation_keys(&self) -> &[String] {
+        &self.sample_translation_keys
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub fn boundary(&self) -> &'static str {
+        self.boundary
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "client_language_runtime:status:{} requested:{} selected:{} fallback:{} files:{} translations:{} packs:{} samples:{} error:{} boundary:{}",
+            self.status.as_str(),
+            self.requested_language_code(),
+            self.selected_language_code(),
+            self.fallback_language_code(),
+            self.loaded_file_count(),
+            self.translation_count(),
+            language_runtime_list_fragment(self.loaded_pack_ids()),
+            language_runtime_list_fragment(self.sample_translation_keys()),
+            self.error().unwrap_or("none"),
+            self.boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(self.loaded_files.iter().map(|loaded_file| {
+            format!(
+                "client_language_runtime_file:{loaded_file} boundary:{}",
+                self.boundary()
+            )
+        }));
+        items.extend(self.sample_translation_keys.iter().map(|key| {
+            format!(
+                "client_language_runtime_sample_key:{key} boundary:{}",
+                self.boundary()
+            )
+        }));
+        if let Some(error) = self.error() {
+            items.push(format!(
+                "client_language_runtime_failure:error:{error} boundary:{}",
+                self.boundary()
+            ));
+        }
+        items
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientLanguageReloadReport {
     language_code: String,
@@ -26704,6 +26892,18 @@ impl ClientLanguageReloadListener {
     ) -> ResourceReloadResult<ClientLanguageState> {
         self.load(stack).map(ClientLanguageResources::into_state)
     }
+
+    pub fn runtime_report(&self, stack: &ClientResourceStack) -> ClientLanguageRuntimeReport {
+        match self.load(stack) {
+            Ok(resources) => ClientLanguageRuntimeReport::from_resources(
+                &self.requested_language_code,
+                &resources,
+            ),
+            Err(error) => {
+                ClientLanguageRuntimeReport::from_failure(&self.requested_language_code, &error)
+            }
+        }
+    }
 }
 
 impl ResourceReloadListener for ClientLanguageReloadListener {
@@ -26728,11 +26928,15 @@ impl ResourceReloadListener for ClientLanguageReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         let resources = self.load(stack)?;
-        Ok(ResourceReloadTaskReport::new([
+        let runtime_report =
+            ClientLanguageRuntimeReport::from_resources(&self.requested_language_code, &resources);
+        let mut items = vec![
             format!("language:{}", resources.report.language_code()),
             format!("files:{}", resources.report.loaded_files().len()),
             format!("translations:{}", resources.report.translation_count()),
-        ]))
+        ];
+        items.extend(runtime_report.items());
+        Ok(ResourceReloadTaskReport::new(items))
     }
 }
 
@@ -26917,6 +27121,27 @@ fn read_language_resource(
         path: location.path.clone(),
         source,
     })
+}
+
+fn loaded_pack_ids_from_language_files(loaded_files: &[String]) -> Vec<String> {
+    loaded_files
+        .iter()
+        .filter_map(|loaded_file| {
+            loaded_file
+                .rsplit_once('@')
+                .map(|(_resource, pack_id)| pack_id)
+        })
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn language_runtime_list_fragment(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_owned();
+    }
+    items.iter().take(6).cloned().collect::<Vec<_>>().join("|")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47222,12 +47447,167 @@ mod tests {
         assert_eq!(report.listener_reports().len(), 1);
         assert_eq!(report.listener_reports()[0].name, "client_languages");
         assert_eq!(
-            report.listener_reports()[0].reload.items(),
+            &report.listener_reports()[0].reload.items()[..3],
             [
                 "language:en_us".to_owned(),
                 "files:1".to_owned(),
                 "translations:1".to_owned(),
             ]
+        );
+        assert!(
+            report.listener_reports()[0]
+                .reload
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_language_runtime:status:loaded "))
+        );
+    }
+
+    #[test]
+    fn language_runtime_report_successful_pack_priority_load() {
+        let low = TempPack::new();
+        low.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play","shared":"low en","only.low":"Low"}"#,
+        );
+        low.write(
+            "assets/minecraft/lang/pirate.json",
+            r#"{"menu.play":"Sail","shared":"low pirate"}"#,
+        );
+
+        let high = TempPack::new();
+        high.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"shared":"high en"}"#,
+        );
+        high.write(
+            "assets/minecraft/lang/pirate.json",
+            r#"{"shared":"high pirate","only.high":"High"}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![
+            ClientResourcePack::new("low", low.path()),
+            ClientResourcePack::new("high", high.path()),
+        ]);
+        let report = ClientLanguageReloadListener::new("PiRaTe").runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientLanguageRuntimeStatus::Loaded);
+        assert_eq!(report.requested_language_code(), "pirate");
+        assert_eq!(report.selected_language_code(), "pirate");
+        assert_eq!(report.fallback_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(report.loaded_file_count(), 4);
+        assert_eq!(report.translation_count(), 4);
+        assert_eq!(
+            report.loaded_pack_ids(),
+            ["high".to_owned(), "low".to_owned()]
+        );
+        assert_eq!(
+            report.loaded_files(),
+            [
+                "assets/minecraft/lang/en_us.json@low".to_owned(),
+                "assets/minecraft/lang/en_us.json@high".to_owned(),
+                "assets/minecraft/lang/pirate.json@low".to_owned(),
+                "assets/minecraft/lang/pirate.json@high".to_owned(),
+            ]
+        );
+        assert!(
+            report
+                .sample_translation_keys()
+                .contains(&"menu.play".to_owned())
+        );
+        assert!(report.summary_fragment().contains("status:loaded"));
+        assert!(report.items().iter().any(|item| {
+            item.contains("client_language_runtime_file:assets/minecraft/lang/pirate.json@high")
+        }));
+    }
+
+    #[test]
+    fn language_runtime_report_missing_fallback_language_failure_report() {
+        let temp = TempPack::new();
+        temp.write("assets/example/sounds.json", "{}");
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = ClientLanguageReloadListener::new("pirate").runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientLanguageRuntimeStatus::Failed);
+        assert_eq!(report.requested_language_code(), "pirate");
+        assert_eq!(report.selected_language_code(), "pirate");
+        assert_eq!(report.fallback_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(report.loaded_file_count(), 0);
+        assert_eq!(report.translation_count(), 0);
+        assert_eq!(report.loaded_files(), &[] as &[String]);
+        assert_eq!(report.loaded_pack_ids(), &[] as &[String]);
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("assets/*/lang/en_us.json"))
+        );
+        assert!(report.summary_fragment().contains("status:failed"));
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_language_runtime_failure:error:"))
+        );
+    }
+
+    #[test]
+    fn language_runtime_report_invalid_json_failure_report() {
+        let temp = TempPack::new();
+        temp.write(
+            "assets/minecraft/lang/en_us.json",
+            r#"{"menu.play":"Play","menu.quit":false}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report =
+            ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE).runtime_report(&stack);
+
+        assert_eq!(report.status(), ClientLanguageRuntimeStatus::Failed);
+        assert_eq!(report.requested_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(report.selected_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(report.loaded_file_count(), 0);
+        assert_eq!(report.translation_count(), 0);
+        assert!(
+            report
+                .error()
+                .is_some_and(|error| error.contains("failed to parse client resource json"))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.contains("client_language_runtime_failure:error:"))
+        );
+    }
+
+    #[test]
+    fn language_runtime_report_committed_vanilla_en_us_report_includes_boundary_items() {
+        let report = ClientLanguageReloadListener::new(DEFAULT_LANGUAGE_CODE)
+            .runtime_report(&ClientResourceStack::vanilla());
+
+        assert_eq!(report.status(), ClientLanguageRuntimeStatus::Loaded);
+        assert_eq!(report.requested_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(report.selected_language_code(), DEFAULT_LANGUAGE_CODE);
+        assert_eq!(report.loaded_file_count(), 1);
+        assert!(report.translation_count() > 1000);
+        assert_eq!(report.loaded_pack_ids(), ["vanilla".to_owned()]);
+        assert_eq!(
+            report.loaded_files(),
+            ["assets/minecraft/lang/en_us.json@vanilla".to_owned()]
+        );
+        assert_eq!(report.boundary(), CLIENT_LANGUAGE_RUNTIME_BOUNDARY);
+        assert!(
+            report
+                .items()
+                .iter()
+                .all(|item| item.contains(CLIENT_LANGUAGE_RUNTIME_BOUNDARY))
+        );
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item.starts_with("client_language_runtime_sample_key:"))
         );
     }
 
