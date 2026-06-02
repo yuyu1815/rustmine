@@ -170,6 +170,8 @@ const GPU_WARNLIST_RUNTIME_MANAGER_BOUNDARY: &str =
     "gpu_warnlist_decision_loaded_runtime_manager_pending";
 const REGIONAL_COMPLIANCE_NOTIFICATION_DECISION_BOUNDARY: &str =
     "regional_compliancies_loaded_notification_ui_pending";
+const REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY: &str =
+    "regional_compliance_notifications_scheduled_runtime_ui_pending";
 const SHADER_MANAGER_RUNTIME_BOUNDARY: &str = "shader_sources_loaded_runtime_compile_pending";
 const CLIENT_RESOURCE_RELOAD_RUNTIME_BOUNDARY: &str =
     "client_resources_reloaded_runtime_application_pending";
@@ -4123,6 +4125,268 @@ impl From<RegionalComplianceNotificationDecisionCandidateReport>
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientRegionalComplianceNotificationRuntimeState {
+    status: RegionalComplianceNotificationStateStatus,
+    country_code: String,
+    selected_notifications: Vec<RegionalComplianceNotification>,
+    scheduling_plan: RegionalComplianceSchedulingPlan,
+    blockers: Vec<String>,
+    elapsed_minutes: i64,
+    reset_count: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientRegionalComplianceDueNotification {
+    index: usize,
+    elapsed_minutes: i64,
+    delay: i64,
+    period: i64,
+    title: String,
+    message: String,
+}
+
+impl ClientRegionalComplianceNotificationRuntimeState {
+    pub fn from_notification_state(state: &RegionalComplianceNotificationState) -> Self {
+        Self {
+            status: state.status(),
+            country_code: state.country_code().to_owned(),
+            selected_notifications: state.selected_notifications().to_vec(),
+            scheduling_plan: state.scheduling_plan(),
+            blockers: state.blockers().to_vec(),
+            elapsed_minutes: 0,
+            reset_count: 0,
+        }
+    }
+
+    pub fn from_report(report: RegionalComplianceNotificationDecisionCandidateReport) -> Self {
+        let state = RegionalComplianceNotificationState::from_report(report);
+        Self::from_notification_state(&state)
+    }
+
+    pub fn boundary_marker(&self) -> &'static str {
+        REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY
+    }
+
+    pub fn status(&self) -> RegionalComplianceNotificationStateStatus {
+        self.status
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.status == RegionalComplianceNotificationStateStatus::Loaded
+    }
+
+    pub fn is_blocked(&self) -> bool {
+        self.status == RegionalComplianceNotificationStateStatus::Blocked
+    }
+
+    pub fn country_code(&self) -> &str {
+        &self.country_code
+    }
+
+    pub fn selected_notifications(&self) -> &[RegionalComplianceNotification] {
+        &self.selected_notifications
+    }
+
+    pub fn scheduling_plan(&self) -> RegionalComplianceSchedulingPlan {
+        self.scheduling_plan
+    }
+
+    pub fn notifications_enabled(&self) -> bool {
+        self.is_loaded() && self.scheduling_plan.is_enabled()
+    }
+
+    pub fn initial_delay_minutes(&self) -> Option<i64> {
+        self.scheduling_plan.initial_delay()
+    }
+
+    pub fn period_minutes(&self) -> Option<i64> {
+        self.scheduling_plan.optimal_period()
+    }
+
+    pub fn elapsed_minutes(&self) -> i64 {
+        self.elapsed_minutes
+    }
+
+    pub fn reset_count(&self) -> u64 {
+        self.reset_count
+    }
+
+    pub fn blockers(&self) -> &[String] {
+        &self.blockers
+    }
+
+    pub fn next_due_in_minutes(&self) -> Option<i64> {
+        self.selected_notifications
+            .iter()
+            .filter(|notification| self.notification_can_be_scheduled(notification))
+            .map(|notification| next_due_in_minutes(self.elapsed_minutes, notification))
+            .min()
+    }
+
+    pub fn due_notifications(&self) -> Vec<ClientRegionalComplianceDueNotification> {
+        if !self.notifications_enabled() {
+            return Vec::new();
+        }
+
+        self.selected_notifications
+            .iter()
+            .enumerate()
+            .filter(|(_, notification)| notification_is_due(self.elapsed_minutes, notification))
+            .map(|(index, notification)| {
+                ClientRegionalComplianceDueNotification::from_notification(
+                    index,
+                    self.elapsed_minutes,
+                    notification,
+                )
+            })
+            .collect()
+    }
+
+    pub fn tick(&mut self) -> Vec<ClientRegionalComplianceDueNotification> {
+        self.advance_minutes(1)
+    }
+
+    pub fn advance_minutes(
+        &mut self,
+        minutes: i64,
+    ) -> Vec<ClientRegionalComplianceDueNotification> {
+        if minutes <= 0 {
+            return Vec::new();
+        }
+
+        let mut due_notifications = Vec::new();
+        for _ in 0..minutes {
+            self.elapsed_minutes = self.elapsed_minutes.saturating_add(1);
+            due_notifications.extend(self.due_notifications());
+        }
+        due_notifications
+    }
+
+    pub fn reset(&mut self) {
+        self.elapsed_minutes = 0;
+        self.reset_count = self.reset_count.saturating_add(1);
+    }
+
+    pub fn reset_from_notification_state(&mut self, state: &RegionalComplianceNotificationState) {
+        let reset_count = self.reset_count.saturating_add(1);
+        *self = Self::from_notification_state(state);
+        self.reset_count = reset_count;
+    }
+
+    pub fn reconfigure_from_notification_state(
+        &mut self,
+        state: &RegionalComplianceNotificationState,
+    ) {
+        self.reset_from_notification_state(state);
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "regional_compliance_notification_runtime country:{} status:{} enabled:{} elapsed_minutes:{} initial_delay:{} period:{} selected:{} blockers:{} resets:{} {}",
+            self.country_code,
+            self.status.report_fragment(),
+            self.notifications_enabled(),
+            self.elapsed_minutes,
+            format_optional_i64(self.initial_delay_minutes()),
+            format_optional_i64(self.period_minutes()),
+            self.selected_notifications.len(),
+            self.blockers.len(),
+            self.reset_count,
+            self.boundary_marker()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.push(format!(
+            "regional_compliance_notification_runtime_status:{}",
+            self.status.report_fragment()
+        ));
+        items.push(format!(
+            "regional_compliance_notification_runtime_enabled:{}",
+            self.notifications_enabled()
+        ));
+        items.push(format!(
+            "regional_compliance_notification_runtime_elapsed_minutes:{}",
+            self.elapsed_minutes
+        ));
+        items.push(format!(
+            "regional_compliance_notification_runtime_next_due_minutes:{}",
+            format_optional_i64(self.next_due_in_minutes())
+        ));
+        items.push(format!(
+            "regional_compliance_notification_runtime_reset_count:{}",
+            self.reset_count
+        ));
+        items.push(self.boundary_marker().to_owned());
+
+        if self.blockers.is_empty() {
+            items.push("regional_compliance_notification_runtime_blockers:0".to_owned());
+        } else {
+            items.extend(self.blockers.iter().map(|blocker| {
+                format!("regional_compliance_notification_runtime_blocker:{blocker}")
+            }));
+        }
+
+        items
+    }
+
+    fn notification_can_be_scheduled(&self, notification: &RegionalComplianceNotification) -> bool {
+        self.notifications_enabled() && notification.period > 0
+    }
+}
+
+impl ClientRegionalComplianceDueNotification {
+    fn from_notification(
+        index: usize,
+        elapsed_minutes: i64,
+        notification: &RegionalComplianceNotification,
+    ) -> Self {
+        Self {
+            index,
+            elapsed_minutes,
+            delay: notification.delay(),
+            period: notification.period(),
+            title: notification.title().to_owned(),
+            message: notification.message().to_owned(),
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn elapsed_minutes(&self) -> i64 {
+        self.elapsed_minutes
+    }
+
+    pub fn delay(&self) -> i64 {
+        self.delay
+    }
+
+    pub fn period(&self) -> i64 {
+        self.period
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl RegionalComplianceNotificationStateStatus {
+    fn report_fragment(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
 impl RegionalComplianceNotificationDecisionCandidateReloadListener {
     pub fn new(resource: impl Into<String>) -> Self {
         Self {
@@ -4471,6 +4735,45 @@ pub fn regional_compliance_scheduling_plan(
         initial_delay,
         optimal_period,
     }
+}
+
+fn notification_is_due(
+    elapsed_minutes: i64,
+    notification: &RegionalComplianceNotification,
+) -> bool {
+    if notification.period <= 0 || elapsed_minutes < notification.delay {
+        return false;
+    }
+
+    elapsed_minutes
+        .saturating_sub(notification.delay)
+        .rem_euclid(notification.period)
+        == 0
+}
+
+fn next_due_in_minutes(elapsed_minutes: i64, notification: &RegionalComplianceNotification) -> i64 {
+    if notification_is_due(elapsed_minutes, notification) {
+        return 0;
+    }
+
+    if elapsed_minutes < notification.delay {
+        return notification.delay.saturating_sub(elapsed_minutes);
+    }
+
+    let remainder = elapsed_minutes
+        .saturating_sub(notification.delay)
+        .rem_euclid(notification.period);
+    if remainder == 0 {
+        notification.period
+    } else {
+        notification.period - remainder
+    }
+}
+
+fn format_optional_i64(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_owned())
 }
 
 fn gcd_i64(left: i64, right: i64) -> i64 {
@@ -37869,6 +38172,214 @@ mod tests {
         assert!(state.loaded_compliancies_report().is_none());
         assert_eq!(state.blockers().len(), 1);
         assert!(state.blockers()[0].contains("missing client resource"));
+    }
+
+    #[test]
+    fn regional_compliance_notification_runtime_enabled_kor_schedule_emits_due_notifications() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"KOR":[{"delay":1440,"period":60,"title":"over.24h","message":"playtime.message"},{"period":60,"title":"hours","message":"playtime.message"}],"USA":[]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("kor")
+            .state(&stack);
+        let mut runtime =
+            ClientRegionalComplianceNotificationRuntimeState::from_notification_state(&state);
+
+        assert!(runtime.notifications_enabled());
+        assert_eq!(runtime.elapsed_minutes(), 0);
+        assert_eq!(runtime.initial_delay_minutes(), Some(0));
+        assert_eq!(runtime.period_minutes(), Some(60));
+        assert_eq!(runtime.next_due_in_minutes(), Some(0));
+        let due_now = runtime.due_notifications();
+        assert_eq!(due_now.len(), 1);
+        assert_eq!(due_now[0].index(), 1);
+        assert_eq!(due_now[0].elapsed_minutes(), 0);
+
+        let due = runtime.advance_minutes(59);
+        assert!(due.is_empty());
+        assert_eq!(runtime.elapsed_minutes(), 59);
+        assert_eq!(runtime.next_due_in_minutes(), Some(1));
+
+        let due = runtime.tick();
+        assert_eq!(runtime.elapsed_minutes(), 60);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].index(), 1);
+        assert_eq!(due[0].elapsed_minutes(), 60);
+        assert_eq!(due[0].title(), "hours");
+        assert_eq!(runtime.next_due_in_minutes(), Some(0));
+
+        let due = runtime.advance_minutes(1380);
+        assert_eq!(runtime.elapsed_minutes(), 1440);
+        assert_eq!(due.len(), 24);
+        let due_at_1440 = due
+            .iter()
+            .filter(|notification| notification.elapsed_minutes() == 1440)
+            .collect::<Vec<_>>();
+        assert_eq!(due_at_1440.len(), 2);
+        assert_eq!(due_at_1440[0].title(), "over.24h");
+        assert_eq!(due_at_1440[1].title(), "hours");
+    }
+
+    #[test]
+    fn regional_compliance_notification_runtime_disabled_schedule_never_emits() {
+        let temp = TempPack::new();
+        temp.write(REGIONAL_COMPLIANCIES_RESOURCE, r#"{"USA":[]}"#);
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("usa")
+            .state(&stack);
+        let mut runtime =
+            ClientRegionalComplianceNotificationRuntimeState::from_notification_state(&state);
+
+        assert_eq!(
+            runtime.status(),
+            RegionalComplianceNotificationStateStatus::Loaded
+        );
+        assert!(!runtime.notifications_enabled());
+        assert_eq!(runtime.initial_delay_minutes(), None);
+        assert_eq!(runtime.period_minutes(), None);
+        assert_eq!(runtime.next_due_in_minutes(), None);
+        assert!(runtime.advance_minutes(240).is_empty());
+        assert_eq!(runtime.elapsed_minutes(), 240);
+        assert!(runtime.due_notifications().is_empty());
+    }
+
+    #[test]
+    fn regional_compliance_notification_runtime_zero_period_schedule_stays_disabled() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"period":0,"title":"zero","message":"zero.message"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("usa")
+            .state(&stack);
+        let mut runtime =
+            ClientRegionalComplianceNotificationRuntimeState::from_notification_state(&state);
+
+        assert_eq!(runtime.selected_notifications().len(), 1);
+        assert_eq!(
+            runtime.scheduling_plan(),
+            RegionalComplianceSchedulingPlan::Disabled
+        );
+        assert!(!runtime.notifications_enabled());
+        assert_eq!(runtime.next_due_in_minutes(), None);
+        assert!(runtime.advance_minutes(1).is_empty());
+    }
+
+    #[test]
+    fn regional_compliance_notification_runtime_due_uses_delay_offset() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"USA":[{"delay":15,"period":20,"title":"offset","message":"offset.message"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let state = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("usa")
+            .state(&stack);
+        let mut runtime =
+            ClientRegionalComplianceNotificationRuntimeState::from_notification_state(&state);
+
+        assert_eq!(runtime.initial_delay_minutes(), Some(15));
+        assert_eq!(runtime.period_minutes(), Some(20));
+        assert_eq!(runtime.next_due_in_minutes(), Some(15));
+        assert!(runtime.advance_minutes(14).is_empty());
+        assert_eq!(runtime.next_due_in_minutes(), Some(1));
+
+        let due = runtime.tick();
+        assert_eq!(runtime.elapsed_minutes(), 15);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].title(), "offset");
+        assert_eq!(due[0].elapsed_minutes(), 15);
+        assert_eq!(runtime.next_due_in_minutes(), Some(0));
+
+        assert!(runtime.advance_minutes(19).is_empty());
+        let due = runtime.tick();
+        assert_eq!(runtime.elapsed_minutes(), 35);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].elapsed_minutes(), 35);
+    }
+
+    #[test]
+    fn regional_compliance_notification_runtime_blocked_missing_compliancies_lifecycle() {
+        let blocked_stack = ClientResourceStack::new(Vec::new());
+        let blocked_state =
+            RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+                .with_country_code("kor")
+                .state(&blocked_stack);
+        let mut runtime = ClientRegionalComplianceNotificationRuntimeState::from_notification_state(
+            &blocked_state,
+        );
+
+        assert!(runtime.is_blocked());
+        assert_eq!(runtime.country_code(), "KOR");
+        assert_eq!(runtime.blockers().len(), 1);
+        assert!(!runtime.notifications_enabled());
+        assert!(runtime.advance_minutes(60).is_empty());
+        assert_eq!(runtime.elapsed_minutes(), 60);
+
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"KOR":[{"period":60,"title":"hours","message":"playtime.message"}]}"#,
+        );
+        let loaded_stack =
+            ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let loaded_state = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("kor")
+            .state(&loaded_stack);
+
+        runtime.reset_from_notification_state(&loaded_state);
+        assert!(runtime.is_loaded());
+        assert!(runtime.notifications_enabled());
+        assert_eq!(runtime.elapsed_minutes(), 0);
+        assert_eq!(runtime.reset_count(), 1);
+        assert!(runtime.blockers().is_empty());
+        assert_eq!(runtime.tick(), Vec::new());
+    }
+
+    #[test]
+    fn regional_compliance_notification_runtime_report_strings_contain_boundary() {
+        let temp = TempPack::new();
+        temp.write(
+            REGIONAL_COMPLIANCIES_RESOURCE,
+            r#"{"KOR":[{"period":60,"title":"hours","message":"playtime.message"}]}"#,
+        );
+
+        let stack = ClientResourceStack::new(vec![ClientResourcePack::new("test", temp.path())]);
+        let report = RegionalComplianceNotificationDecisionCandidateReloadListener::default()
+            .with_country_code("kor")
+            .report(&stack);
+        let runtime = ClientRegionalComplianceNotificationRuntimeState::from_report(report);
+
+        assert_eq!(
+            runtime.boundary_marker(),
+            REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY
+        );
+        assert!(
+            runtime
+                .summary_fragment()
+                .contains(REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY)
+        );
+        assert!(
+            runtime
+                .items()
+                .contains(&REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY.to_owned())
+        );
+        assert!(runtime.items().iter().any(|item| {
+            item.contains(
+                "regional_compliance_notification_runtime country:KOR status:loaded enabled:true",
+            )
+        }));
     }
 
     #[test]
