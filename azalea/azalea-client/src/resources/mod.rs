@@ -444,6 +444,60 @@ pub enum ServerResourcePackStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerResourcePackApplyPhase {
+    Received,
+    Accepted,
+    DownloadPending,
+    Downloaded,
+    HashValidationPending,
+    HashValidated,
+    OpenPending,
+    Opened,
+    ApplyPending,
+    Applied,
+    ReloadPending,
+    Reloaded,
+    SuccessReplyBlockedUntilApply,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackApplyPlan {
+    id: Uuid,
+    status: ServerResourcePackStatus,
+    phases: Vec<ServerResourcePackApplyPhase>,
+}
+
+impl ServerResourcePackApplyPlan {
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub fn status(&self) -> ServerResourcePackStatus {
+        self.status
+    }
+
+    pub fn phases(&self) -> &[ServerResourcePackApplyPhase] {
+        &self.phases
+    }
+
+    pub fn contains(&self, phase: ServerResourcePackApplyPhase) -> bool {
+        self.phases.contains(&phase)
+    }
+
+    pub fn is_applied(&self) -> bool {
+        self.status == ServerResourcePackStatus::Applied
+    }
+
+    pub fn can_send_successfully_loaded(&self) -> bool {
+        self.is_applied()
+    }
+
+    pub fn success_reply_is_blocked_until_apply(&self) -> bool {
+        self.contains(ServerResourcePackApplyPhase::SuccessReplyBlockedUntilApply)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServerResourcePackFailure {
     Download,
     HashMismatch,
@@ -648,6 +702,72 @@ impl ServerResourcePackApplyState {
 
     pub fn downloaded(&self) -> Option<&ServerResourcePackDownload> {
         self.downloaded.as_ref()
+    }
+
+    pub fn apply_plan(&self) -> ServerResourcePackApplyPlan {
+        use ServerResourcePackApplyPhase as Phase;
+
+        let phases = match self.status {
+            ServerResourcePackStatus::Pending => vec![Phase::Received],
+            ServerResourcePackStatus::Accepted => vec![
+                Phase::Received,
+                Phase::Accepted,
+                Phase::DownloadPending,
+                Phase::HashValidationPending,
+                Phase::OpenPending,
+                Phase::ApplyPending,
+                Phase::ReloadPending,
+                Phase::SuccessReplyBlockedUntilApply,
+            ],
+            ServerResourcePackStatus::Downloading => vec![
+                Phase::Received,
+                Phase::Accepted,
+                Phase::DownloadPending,
+                Phase::HashValidationPending,
+                Phase::OpenPending,
+                Phase::ApplyPending,
+                Phase::ReloadPending,
+                Phase::SuccessReplyBlockedUntilApply,
+            ],
+            ServerResourcePackStatus::Downloaded => vec![
+                Phase::Received,
+                Phase::Accepted,
+                Phase::Downloaded,
+                Phase::HashValidated,
+                Phase::OpenPending,
+                Phase::ApplyPending,
+                Phase::ReloadPending,
+                Phase::SuccessReplyBlockedUntilApply,
+            ],
+            ServerResourcePackStatus::Opened => vec![
+                Phase::Received,
+                Phase::Accepted,
+                Phase::Downloaded,
+                Phase::HashValidated,
+                Phase::Opened,
+                Phase::ApplyPending,
+                Phase::ReloadPending,
+                Phase::SuccessReplyBlockedUntilApply,
+            ],
+            ServerResourcePackStatus::Applied => vec![
+                Phase::Received,
+                Phase::Accepted,
+                Phase::Downloaded,
+                Phase::HashValidated,
+                Phase::Opened,
+                Phase::Applied,
+                Phase::Reloaded,
+            ],
+            ServerResourcePackStatus::Failed(_) | ServerResourcePackStatus::Declined => {
+                vec![Phase::Received]
+            }
+        };
+
+        ServerResourcePackApplyPlan {
+            id: self.request.id,
+            status: self.status,
+            phases,
+        }
     }
 
     pub fn open_downloaded(&mut self) -> Result<(), ServerResourcePackAck> {
@@ -22128,6 +22248,79 @@ mod tests {
             pack.status(),
             ServerResourcePackStatus::Failed(ServerResourcePackFailure::Reload)
         );
+    }
+
+    #[test]
+    fn resource_pack_apply_plan_blocks_success_until_pack_is_applied() {
+        let id = resource_pack_id(31);
+        let temp = TempPack::new();
+        temp.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"test"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        let received = pack.apply_plan();
+        assert_eq!(received.id(), id);
+        assert_eq!(received.status(), ServerResourcePackStatus::Pending);
+        assert_eq!(received.phases(), &[ServerResourcePackApplyPhase::Received]);
+        assert!(!received.is_applied());
+        assert!(!received.can_send_successfully_loaded());
+
+        pack.accept();
+        let accepted = pack.apply_plan();
+        assert!(accepted.contains(ServerResourcePackApplyPhase::DownloadPending));
+        assert!(accepted.contains(ServerResourcePackApplyPhase::HashValidationPending));
+        assert!(accepted.contains(ServerResourcePackApplyPhase::OpenPending));
+        assert!(accepted.contains(ServerResourcePackApplyPhase::ApplyPending));
+        assert!(accepted.contains(ServerResourcePackApplyPhase::ReloadPending));
+        assert!(accepted.success_reply_is_blocked_until_apply());
+        assert!(!accepted.can_send_successfully_loaded());
+
+        pack.start_download();
+        pack.download_path_succeeded(temp.path())
+            .expect("directory pack without enforced sha1 should download");
+        let downloaded = pack.apply_plan();
+        assert!(downloaded.contains(ServerResourcePackApplyPhase::Downloaded));
+        assert!(downloaded.contains(ServerResourcePackApplyPhase::HashValidated));
+        assert!(downloaded.contains(ServerResourcePackApplyPhase::OpenPending));
+        assert!(downloaded.success_reply_is_blocked_until_apply());
+        assert!(!downloaded.can_send_successfully_loaded());
+
+        pack.open_downloaded()
+            .expect("directory pack with pack.mcmeta should open");
+        let opened = pack.apply_plan();
+        assert!(opened.contains(ServerResourcePackApplyPhase::Opened));
+        assert!(opened.contains(ServerResourcePackApplyPhase::ApplyPending));
+        assert!(opened.contains(ServerResourcePackApplyPhase::ReloadPending));
+        assert!(opened.success_reply_is_blocked_until_apply());
+        assert!(!opened.can_send_successfully_loaded());
+
+        pack.apply_opened();
+        let applied = pack.apply_plan();
+        assert!(applied.contains(ServerResourcePackApplyPhase::Applied));
+        assert!(applied.contains(ServerResourcePackApplyPhase::Reloaded));
+        assert!(!applied.success_reply_is_blocked_until_apply());
+        assert!(applied.can_send_successfully_loaded());
+    }
+
+    #[test]
+    fn resource_pack_apply_plan_does_not_claim_failed_pack_was_applied() {
+        let id = resource_pack_id(32);
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.download_failed();
+        let plan = pack.apply_plan();
+
+        assert_eq!(
+            plan.status(),
+            ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download)
+        );
+        assert!(!plan.contains(ServerResourcePackApplyPhase::Applied));
+        assert!(!plan.contains(ServerResourcePackApplyPhase::Reloaded));
+        assert!(!plan.success_reply_is_blocked_until_apply());
+        assert!(!plan.can_send_successfully_loaded());
     }
 
     #[test]
