@@ -190,6 +190,16 @@ const CLIENT_RESOURCE_RELOAD_RUNTIME_HANDOFF_BOUNDARIES: &[&str] = &[
     REGIONAL_COMPLIANCE_NOTIFICATION_RUNTIME_BOUNDARY,
     MAP_TEXTURE_MANAGER_BOUNDARY,
 ];
+const SERVER_RESOURCE_PACK_APPLY_RUNTIME_BOUNDARY: &str =
+    "server_resource_pack_apply_visible_runtime_report";
+const SERVER_RESOURCE_PACK_DOWNLOAD_BOUNDARY: &str =
+    "server_resource_pack_download_client_cache_boundary";
+const SERVER_RESOURCE_PACK_OPEN_BOUNDARY: &str =
+    "server_resource_pack_open_metadata_validation_boundary";
+const SERVER_RESOURCE_PACK_RELOAD_BOUNDARY: &str =
+    "server_resource_pack_client_resources_reload_boundary";
+const SERVER_RESOURCE_PACK_APPLY_BOUNDARY: &str =
+    "server_resource_pack_apply_resource_stack_boundary";
 
 pub type ResourceReloadResult<T> = Result<T, ResourceReloadError>;
 
@@ -779,6 +789,10 @@ impl ServerResourcePackApplyState {
 
     pub fn reload_outcome(&self) -> Option<ServerResourcePackReloadOutcome> {
         self.reload_outcome
+    }
+
+    pub fn runtime_report(&self) -> ServerResourcePackApplyRuntimeReport {
+        ServerResourcePackApplyRuntimeReport::from_state(self)
     }
 
     pub fn apply_plan(&self) -> ServerResourcePackApplyPlan {
@@ -1560,6 +1574,10 @@ impl ServerResourcePackApplyModel {
         self.packs.clear();
         had_packs
     }
+
+    pub fn runtime_report(&self) -> ServerResourcePackApplyRuntimeReport {
+        ServerResourcePackApplyRuntimeReport::from_model(self)
+    }
 }
 
 impl From<&ServerResourcePackApplyState> for ServerResourcePackApplyStateSummary {
@@ -1586,6 +1604,262 @@ impl From<&ServerResourcePackApplyState> for ServerResourcePackApplyStateSummary
 impl Default for ServerResourcePackApplyModel {
     fn default() -> Self {
         Self::with_vanilla()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServerResourcePackApplyRuntimeReport {
+    items: Vec<String>,
+}
+
+impl ServerResourcePackApplyRuntimeReport {
+    pub fn from_state(pack: &ServerResourcePackApplyState) -> Self {
+        let mut stack_packs = ClientResourceStack::vanilla().packs().to_vec();
+        if pack.status() == ServerResourcePackStatus::Applied {
+            stack_packs.push(pack.resource_pack());
+        }
+        Self::from_packs(
+            &ClientResourceStack::new(stack_packs),
+            std::slice::from_ref(pack),
+        )
+    }
+
+    pub fn from_model(model: &ServerResourcePackApplyModel) -> Self {
+        Self::from_packs(&model.resource_stack(), model.packs())
+    }
+
+    fn from_packs(
+        resulting_stack: &ClientResourceStack,
+        packs: &[ServerResourcePackApplyState],
+    ) -> Self {
+        let applied_pack_count = packs
+            .iter()
+            .filter(|pack| pack.status() == ServerResourcePackStatus::Applied)
+            .count();
+        let failed_pack_count = packs
+            .iter()
+            .filter(|pack| matches!(pack.status(), ServerResourcePackStatus::Failed(_)))
+            .count();
+        let stack_pack_count = resulting_stack.packs().len();
+        let mut items = vec![format!(
+            "server_resource_pack_apply_runtime_report:status:{} server_pack_count:{} applied_pack_count:{} failed_pack_count:{} stack_pack_count:{} boundary:{} download_boundary:{} open_boundary:{} reload_boundary:{} apply_boundary:{}",
+            server_resource_pack_apply_report_status(packs),
+            packs.len(),
+            applied_pack_count,
+            failed_pack_count,
+            stack_pack_count,
+            SERVER_RESOURCE_PACK_APPLY_RUNTIME_BOUNDARY,
+            SERVER_RESOURCE_PACK_DOWNLOAD_BOUNDARY,
+            SERVER_RESOURCE_PACK_OPEN_BOUNDARY,
+            SERVER_RESOURCE_PACK_RELOAD_BOUNDARY,
+            SERVER_RESOURCE_PACK_APPLY_BOUNDARY
+        )];
+
+        items.extend(
+            packs
+                .iter()
+                .map(|pack| server_resource_pack_apply_runtime_report_item(pack, stack_pack_count)),
+        );
+        items.extend([
+            format!(
+                "server_resource_pack_apply_runtime_report_boundary:download:{}",
+                SERVER_RESOURCE_PACK_DOWNLOAD_BOUNDARY
+            ),
+            format!(
+                "server_resource_pack_apply_runtime_report_boundary:open:{}",
+                SERVER_RESOURCE_PACK_OPEN_BOUNDARY
+            ),
+            format!(
+                "server_resource_pack_apply_runtime_report_boundary:reload:{}",
+                SERVER_RESOURCE_PACK_RELOAD_BOUNDARY
+            ),
+            format!(
+                "server_resource_pack_apply_runtime_report_boundary:apply:{}",
+                SERVER_RESOURCE_PACK_APPLY_BOUNDARY
+            ),
+        ]);
+
+        Self { items }
+    }
+
+    pub fn items(&self) -> &[String] {
+        &self.items
+    }
+
+    pub fn summary_fragment(&self) -> &str {
+        self.items
+            .first()
+            .map(String::as_str)
+            .unwrap_or("server_resource_pack_apply_runtime_report:status:empty")
+    }
+}
+
+fn server_resource_pack_apply_report_status(
+    packs: &[ServerResourcePackApplyState],
+) -> &'static str {
+    if packs.is_empty() {
+        "empty"
+    } else if packs
+        .iter()
+        .any(|pack| matches!(pack.status(), ServerResourcePackStatus::Failed(_)))
+    {
+        "failed"
+    } else if packs
+        .iter()
+        .all(|pack| pack.status() == ServerResourcePackStatus::Applied)
+    {
+        "applied"
+    } else {
+        "pending"
+    }
+}
+
+fn server_resource_pack_apply_runtime_report_item(
+    pack: &ServerResourcePackApplyState,
+    stack_pack_count: usize,
+) -> String {
+    let request = pack.request();
+    let selected_pack = pack.downloaded().map(|download| {
+        let selected_pack_id = pack.resource_pack().id().to_owned();
+        let selected_pack_path = download
+            .path()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "none".to_owned());
+        let selected_pack_source = server_resource_pack_download_source(download);
+        (selected_pack_id, selected_pack_path, selected_pack_source)
+    });
+    let (selected_pack_id, selected_pack_path, selected_pack_source) = selected_pack
+        .as_ref()
+        .map(|(id, path, source)| (id.as_str(), path.as_str(), *source))
+        .unwrap_or(("none", "none", "none"));
+    let download = pack
+        .downloaded()
+        .map(ServerResourcePackDownloadSummary::from);
+    let download_kind = download
+        .as_ref()
+        .map(|download| server_resource_pack_download_kind_label(download.kind()))
+        .unwrap_or("none");
+    let download_len = download
+        .as_ref()
+        .map(|download| download.len())
+        .unwrap_or(0);
+    let download_sha1 = download
+        .as_ref()
+        .map(|download| download.sha1())
+        .filter(|sha1| !sha1.is_empty())
+        .unwrap_or("none");
+    let ack_sequence = server_resource_pack_ack_sequence_label(pack.ack_history());
+    let enters_resource_stack = pack.status() == ServerResourcePackStatus::Applied;
+
+    format!(
+        "server_resource_pack_apply_runtime_report_pack:id:{} status:{} request_url:{} request_hash:{} required:{} selected_pack_id:{} selected_pack_path:{} selected_pack_source:{} ack_sequence:{} reload_outcome:{} stack_pack_count:{} enters_resource_stack:{} download_kind:{} download_len:{} download_sha1:{} failure_reason:{} download_boundary:{} open_boundary:{} reload_boundary:{} apply_boundary:{}",
+        request.id(),
+        server_resource_pack_status_label(pack.status()),
+        request.url(),
+        server_resource_pack_request_hash_label(request.hash()),
+        request.required(),
+        selected_pack_id,
+        selected_pack_path,
+        selected_pack_source,
+        ack_sequence,
+        server_resource_pack_reload_outcome_label(pack.reload_outcome()),
+        stack_pack_count,
+        enters_resource_stack,
+        download_kind,
+        download_len,
+        download_sha1,
+        server_resource_pack_failure_reason_label(pack.status()),
+        SERVER_RESOURCE_PACK_DOWNLOAD_BOUNDARY,
+        SERVER_RESOURCE_PACK_OPEN_BOUNDARY,
+        SERVER_RESOURCE_PACK_RELOAD_BOUNDARY,
+        SERVER_RESOURCE_PACK_APPLY_BOUNDARY
+    )
+}
+
+fn server_resource_pack_request_hash_label(hash: &str) -> &str {
+    if hash.is_empty() { "none" } else { hash }
+}
+
+fn server_resource_pack_download_kind_label(
+    kind: ServerResourcePackDownloadSummaryKind,
+) -> &'static str {
+    match kind {
+        ServerResourcePackDownloadSummaryKind::Bytes => "bytes",
+        ServerResourcePackDownloadSummaryKind::Path => "path",
+    }
+}
+
+fn server_resource_pack_download_source(download: &ServerResourcePackDownload) -> &'static str {
+    match download {
+        ServerResourcePackDownload::Bytes { .. } => "bytes",
+        ServerResourcePackDownload::Path { path, .. } if path.is_dir() => "directory",
+        ServerResourcePackDownload::Path { .. } => "root_zip",
+    }
+}
+
+fn server_resource_pack_ack_sequence_label(acks: &[ServerResourcePackAck]) -> String {
+    if acks.is_empty() {
+        return "none".to_owned();
+    }
+
+    acks.iter()
+        .map(|ack| server_resource_pack_ack_action_label(ack.action))
+        .collect::<Vec<_>>()
+        .join(">")
+}
+
+fn server_resource_pack_status_label(status: ServerResourcePackStatus) -> &'static str {
+    match status {
+        ServerResourcePackStatus::Pending => "pending",
+        ServerResourcePackStatus::Accepted => "accepted",
+        ServerResourcePackStatus::Downloading => "downloading",
+        ServerResourcePackStatus::Downloaded => "downloaded",
+        ServerResourcePackStatus::Opened => "opened",
+        ServerResourcePackStatus::Applied => "applied",
+        ServerResourcePackStatus::Failed(_) => "failed",
+        ServerResourcePackStatus::Declined => "declined",
+    }
+}
+
+fn server_resource_pack_failure_reason_label(status: ServerResourcePackStatus) -> &'static str {
+    match status {
+        ServerResourcePackStatus::Failed(ServerResourcePackFailure::Download) => "download",
+        ServerResourcePackStatus::Failed(ServerResourcePackFailure::HashMismatch) => {
+            "hash_mismatch"
+        }
+        ServerResourcePackStatus::Failed(ServerResourcePackFailure::Open) => "open",
+        ServerResourcePackStatus::Failed(ServerResourcePackFailure::InvalidUrl) => "invalid_url",
+        ServerResourcePackStatus::Failed(ServerResourcePackFailure::Reload) => "reload",
+        ServerResourcePackStatus::Failed(ServerResourcePackFailure::Discarded) => "discarded",
+        _ => "none",
+    }
+}
+
+fn server_resource_pack_ack_action_label(action: ServerResourcePackAckAction) -> &'static str {
+    match action {
+        ServerResourcePackAckAction::SuccessfullyLoaded => "successfully_loaded",
+        ServerResourcePackAckAction::Declined => "declined",
+        ServerResourcePackAckAction::FailedDownload => "failed_download",
+        ServerResourcePackAckAction::Accepted => "accepted",
+        ServerResourcePackAckAction::Downloaded => "downloaded",
+        ServerResourcePackAckAction::InvalidUrl => "invalid_url",
+        ServerResourcePackAckAction::FailedReload => "failed_reload",
+        ServerResourcePackAckAction::Discarded => "discarded",
+    }
+}
+
+fn server_resource_pack_reload_outcome_label(
+    outcome: Option<ServerResourcePackReloadOutcome>,
+) -> &'static str {
+    match outcome {
+        Some(ServerResourcePackReloadOutcome::Succeeded {
+            successfully_loaded_ack_sent: true,
+        }) => "succeeded_ack_sent",
+        Some(ServerResourcePackReloadOutcome::Succeeded {
+            successfully_loaded_ack_sent: false,
+        }) => "succeeded_ack_suppressed",
+        Some(ServerResourcePackReloadOutcome::Failed) => "failed",
+        None => "none",
     }
 }
 
@@ -39559,6 +39833,156 @@ mod tests {
         assert_eq!(download.len(), bytes.len());
         assert_eq!(download.sha1(), expected_sha1);
         assert_eq!(download.path(), None);
+    }
+
+    #[test]
+    fn server_resource_pack_apply_runtime_report_reports_success_surface() {
+        let id = resource_pack_id(713);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        let mut pack = ServerResourcePackApplyState::new(ServerResourcePackRequest::new(
+            id,
+            "https://example.test/resource-pack",
+            "",
+            true,
+            None,
+        ));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download");
+        pack.open_downloaded()
+            .expect("server directory pack should open");
+        pack.apply_opened();
+
+        let report = pack.runtime_report();
+        let item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("pack report row should exist");
+
+        assert!(report.summary_fragment().contains("status:applied"));
+        assert!(report.summary_fragment().contains("server_pack_count:1"));
+        assert!(report.summary_fragment().contains("stack_pack_count:2"));
+        assert!(item.contains(&format!("id:{id}")));
+        assert!(item.contains("status:applied"));
+        assert!(item.contains("request_url:https://example.test/resource-pack"));
+        assert!(item.contains("request_hash:none"));
+        assert!(item.contains("required:true"));
+        assert!(item.contains(&format!("selected_pack_id:server:{id}")));
+        assert!(item.contains(&format!(
+            "selected_pack_path:{}",
+            server.path().to_string_lossy()
+        )));
+        assert!(item.contains("selected_pack_source:directory"));
+        assert!(item.contains("ack_sequence:accepted>downloaded>successfully_loaded"));
+        assert!(item.contains("reload_outcome:succeeded_ack_sent"));
+        assert!(item.contains("enters_resource_stack:true"));
+        assert!(item.contains("failure_reason:none"));
+        assert!(
+            item.contains("download_boundary:server_resource_pack_download_client_cache_boundary")
+        );
+        assert!(
+            item.contains("open_boundary:server_resource_pack_open_metadata_validation_boundary")
+        );
+        assert!(
+            item.contains("reload_boundary:server_resource_pack_client_resources_reload_boundary")
+        );
+        assert!(item.contains("apply_boundary:server_resource_pack_apply_resource_stack_boundary"));
+    }
+
+    #[test]
+    fn server_resource_pack_apply_runtime_report_reports_open_failure_surface() {
+        let id = resource_pack_id(714);
+        let server = TempPack::new();
+        let mut pack = ServerResourcePackApplyState::new(server_pack_request(id, true));
+
+        pack.accept();
+        pack.start_download();
+        pack.download_path_succeeded(server.path())
+            .expect("server directory pack should download before open validation");
+        pack.open_downloaded()
+            .expect_err("directory without pack.mcmeta should fail to open");
+
+        let report = pack.runtime_report();
+        let item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("pack report row should exist");
+
+        assert!(report.summary_fragment().contains("status:failed"));
+        assert!(item.contains("status:failed"));
+        assert!(item.contains("ack_sequence:accepted>downloaded>failed_reload"));
+        assert!(item.contains("reload_outcome:failed"));
+        assert!(item.contains("enters_resource_stack:false"));
+        assert!(item.contains("failure_reason:open"));
+        assert!(item.contains("selected_pack_source:directory"));
+    }
+
+    #[test]
+    fn server_resource_pack_apply_runtime_report_reports_model_stack_counts() {
+        let applied_id = resource_pack_id(715);
+        let failed_id = resource_pack_id(716);
+        let server = TempPack::new();
+        server.write(
+            "pack.mcmeta",
+            r#"{"pack":{"min_format":84,"max_format":84,"description":"server"}}"#,
+        );
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+
+        let applied = model.receive(server_pack_request(applied_id, true));
+        applied.accept();
+        applied.start_download();
+        applied
+            .download_path_succeeded(server.path())
+            .expect("valid server directory pack should download");
+        applied
+            .open_downloaded()
+            .expect("valid server directory pack should open");
+        applied.apply_opened();
+        let failed = model.receive(server_pack_request(failed_id, true));
+        failed.accept();
+        failed.download_failed();
+
+        let report = model.runtime_report();
+
+        assert!(report.summary_fragment().contains("status:failed"));
+        assert!(report.summary_fragment().contains("server_pack_count:2"));
+        assert!(report.summary_fragment().contains("applied_pack_count:1"));
+        assert!(report.summary_fragment().contains("failed_pack_count:1"));
+        assert!(report.summary_fragment().contains("stack_pack_count:2"));
+        assert_eq!(
+            report
+                .items()
+                .iter()
+                .filter(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+                .count(),
+            2
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("server_resource_pack_apply_runtime_report_boundary:download")
+        }));
+        assert!(
+            report.items().iter().any(
+                |item| item.contains("server_resource_pack_apply_runtime_report_boundary:open")
+            )
+        );
+        assert!(report.items().iter().any(|item| {
+            item.contains("server_resource_pack_apply_runtime_report_boundary:reload")
+        }));
+        assert!(
+            report
+                .items()
+                .iter()
+                .any(|item| item
+                    .contains("server_resource_pack_apply_runtime_report_boundary:apply"))
+        );
     }
 
     #[test]

@@ -814,6 +814,44 @@ mod tests {
     }
 
     #[test]
+    fn server_resource_pack_apply_runtime_report_surfaces_initial_accept_flow() {
+        let id = Uuid::from_u128(19);
+        let mut model = ServerResourcePackApplyModel::with_vanilla();
+        let mut pack = test_pack(id);
+        initial_resource_pack_ack(&mut pack);
+
+        record_initial_resource_pack_in_model(&mut model, pack);
+
+        let report = model.runtime_report();
+        let item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("initial accepted pack should be reported");
+
+        assert!(report.summary_fragment().contains("status:pending"));
+        assert!(item.contains(&format!("id:{id}")));
+        assert!(item.contains("status:accepted"));
+        assert!(item.contains("request_url:https://example.com/server-pack.zip"));
+        assert!(item.contains("request_hash:none"));
+        assert!(item.contains("required:true"));
+        assert!(item.contains("selected_pack_id:none"));
+        assert!(item.contains("ack_sequence:accepted"));
+        assert!(item.contains("reload_outcome:none"));
+        assert!(item.contains("stack_pack_count:1"));
+        assert!(
+            item.contains("download_boundary:server_resource_pack_download_client_cache_boundary")
+        );
+        assert!(
+            item.contains("open_boundary:server_resource_pack_open_metadata_validation_boundary")
+        );
+        assert!(
+            item.contains("reload_boundary:server_resource_pack_client_resources_reload_boundary")
+        );
+        assert!(item.contains("apply_boundary:server_resource_pack_apply_resource_stack_boundary"));
+    }
+
+    #[test]
     fn initial_pack_model_uses_vanilla_when_entity_has_no_existing_model() {
         let id = Uuid::from_u128(16);
         let mut pack = test_pack(id);
@@ -889,6 +927,39 @@ mod tests {
                 .pack_id,
             format!("server:{id}")
         );
+    }
+
+    #[test]
+    fn server_resource_pack_apply_runtime_report_surfaces_finished_apply_flow() {
+        let id = Uuid::from_u128(20);
+        let server = TempPack::new();
+        write_valid_pack(&server);
+        let mut initial = test_pack(id);
+        initial_resource_pack_ack(&mut initial);
+        let mut model = initial_resource_pack_model(initial);
+
+        model.record(applied_test_pack(id, server.path()));
+
+        let report = model.runtime_report();
+        let item = report
+            .items()
+            .iter()
+            .find(|item| item.starts_with("server_resource_pack_apply_runtime_report_pack:"))
+            .expect("finished applied pack should be reported");
+
+        assert!(report.summary_fragment().contains("status:applied"));
+        assert!(report.summary_fragment().contains("stack_pack_count:2"));
+        assert!(item.contains("status:applied"));
+        assert!(item.contains(&format!("selected_pack_id:server:{id}")));
+        assert!(item.contains(&format!(
+            "selected_pack_path:{}",
+            server.path().to_string_lossy()
+        )));
+        assert!(item.contains("selected_pack_source:directory"));
+        assert!(item.contains("ack_sequence:accepted>downloaded>successfully_loaded"));
+        assert!(item.contains("reload_outcome:succeeded_ack_sent"));
+        assert!(item.contains("enters_resource_stack:true"));
+        assert!(item.contains("failure_reason:none"));
     }
 
     fn test_pack(id: Uuid) -> ServerResourcePackApplyState {
