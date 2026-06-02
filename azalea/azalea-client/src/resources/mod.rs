@@ -7732,6 +7732,344 @@ impl PlayerSkinCacheCandidateSet {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientPlayerSkinCacheState {
+    status: ClientPlayerSkinCacheLoadStatus,
+    candidate_set: PlayerSkinCacheCandidateSet,
+    candidates: Vec<ClientPlayerSkinCacheCandidateState>,
+    candidates_by_id: BTreeMap<String, usize>,
+    candidates_by_category: BTreeMap<String, Vec<usize>>,
+    candidates_by_category_id: BTreeMap<(String, String), usize>,
+    runtime_boundary: &'static str,
+}
+
+impl ClientPlayerSkinCacheState {
+    pub fn from_candidates(candidate_set: PlayerSkinCacheCandidateSet) -> Self {
+        let runtime_boundary = PLAYER_SKIN_CACHE_BOUNDARY;
+        let candidates = candidate_set
+            .candidates()
+            .iter()
+            .map(|candidate| {
+                ClientPlayerSkinCacheCandidateState::from_candidate(candidate, runtime_boundary)
+            })
+            .collect::<Vec<_>>();
+        let mut candidates_by_id = BTreeMap::new();
+        let mut candidates_by_category: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut candidates_by_category_id = BTreeMap::new();
+
+        for (index, candidate) in candidates.iter().enumerate() {
+            candidates_by_id.insert(candidate.id().to_owned(), index);
+            candidates_by_category
+                .entry(candidate.category().to_owned())
+                .or_default()
+                .push(index);
+            candidates_by_category_id.insert(
+                (candidate.category().to_owned(), candidate.id().to_owned()),
+                index,
+            );
+        }
+
+        let status = if candidates.is_empty() {
+            ClientPlayerSkinCacheLoadStatus::Missing
+        } else if candidates
+            .iter()
+            .any(|candidate| candidate.status() == ClientPlayerSkinCacheLoadStatus::Missing)
+        {
+            ClientPlayerSkinCacheLoadStatus::Missing
+        } else if candidates
+            .iter()
+            .any(|candidate| candidate.status() == ClientPlayerSkinCacheLoadStatus::Blocked)
+        {
+            ClientPlayerSkinCacheLoadStatus::Blocked
+        } else {
+            ClientPlayerSkinCacheLoadStatus::Loaded
+        };
+
+        Self {
+            status,
+            candidate_set,
+            candidates,
+            candidates_by_id,
+            candidates_by_category,
+            candidates_by_category_id,
+            runtime_boundary,
+        }
+    }
+
+    pub fn status(&self) -> ClientPlayerSkinCacheLoadStatus {
+        self.status
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_set.candidate_count()
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.candidate_set.representative_texture_id_count()
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.candidate_set.runtime_source_count()
+    }
+
+    pub fn profile_lookup_dependency_count(&self) -> usize {
+        self.candidate_set.profile_lookup_dependency_count()
+    }
+
+    pub fn profile_texture_unpack_dependency_count(&self) -> usize {
+        self.candidate_set.profile_texture_unpack_dependency_count()
+    }
+
+    pub fn skin_download_dependency_count(&self) -> usize {
+        self.candidate_set.skin_download_dependency_count()
+    }
+
+    pub fn local_skin_cache_dependency_count(&self) -> usize {
+        self.candidate_set.local_skin_cache_dependency_count()
+    }
+
+    pub fn texture_manager_dependency_count(&self) -> usize {
+        self.candidate_set.texture_manager_dependency_count()
+    }
+
+    pub fn render_cache_dependency_count(&self) -> usize {
+        self.candidate_set.render_cache_dependency_count()
+    }
+
+    pub fn font_dependency_count(&self) -> usize {
+        self.candidate_set.font_dependency_count()
+    }
+
+    pub fn model_renderer_dependency_count(&self) -> usize {
+        self.candidate_set.model_renderer_dependency_count()
+    }
+
+    pub fn candidate_blocker_count(&self) -> usize {
+        self.candidate_set.blocker_count()
+    }
+
+    pub fn runtime_blocker_count(&self) -> usize {
+        self.candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.status() == ClientPlayerSkinCacheLoadStatus::Blocked
+                    && candidate.runtime_boundary() == self.runtime_boundary
+            })
+            .count()
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blocker_count() + self.runtime_blocker_count()
+    }
+
+    pub fn total_blocker_count(&self) -> usize {
+        self.blocker_count()
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn candidate_set(&self) -> &PlayerSkinCacheCandidateSet {
+        &self.candidate_set
+    }
+
+    pub fn candidates(&self) -> &[ClientPlayerSkinCacheCandidateState] {
+        &self.candidates
+    }
+
+    pub fn candidate(&self, id: &str) -> Option<&ClientPlayerSkinCacheCandidateState> {
+        self.candidates_by_id
+            .get(id)
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn candidates_by_category(
+        &self,
+        category: &str,
+    ) -> Vec<&ClientPlayerSkinCacheCandidateState> {
+        self.candidates_by_category
+            .get(category)
+            .into_iter()
+            .flat_map(|indexes| indexes.iter())
+            .filter_map(|index| self.candidates.get(*index))
+            .collect()
+    }
+
+    pub fn candidate_by_category_id(
+        &self,
+        category: &str,
+        id: &str,
+    ) -> Option<&ClientPlayerSkinCacheCandidateState> {
+        self.candidates_by_category_id
+            .get(&(category.to_owned(), id.to_owned()))
+            .and_then(|index| self.candidates.get(*index))
+    }
+
+    pub fn summary_fragment(&self) -> String {
+        format!(
+            "player_skin_cache_state:status:{:?} candidates:{} representative_texture_ids:{} runtime_sources:{} deps:profile_lookup:{} profile_texture_unpack:{} skin_download:{} local_skin_cache:{} texture_manager:{} render_cache:{} font:{} model_renderer:{} candidate_blockers:{} runtime_blockers:{} blockers:{} boundary:{}",
+            self.status(),
+            self.candidate_count(),
+            self.representative_texture_id_count(),
+            self.runtime_source_count(),
+            self.profile_lookup_dependency_count(),
+            self.profile_texture_unpack_dependency_count(),
+            self.skin_download_dependency_count(),
+            self.local_skin_cache_dependency_count(),
+            self.texture_manager_dependency_count(),
+            self.render_cache_dependency_count(),
+            self.font_dependency_count(),
+            self.model_renderer_dependency_count(),
+            self.candidate_blocker_count(),
+            self.runtime_blocker_count(),
+            self.blocker_count(),
+            self.runtime_boundary()
+        )
+    }
+
+    pub fn items(&self) -> Vec<String> {
+        let mut items = vec![self.summary_fragment()];
+        items.extend(
+            self.candidates
+                .iter()
+                .map(ClientPlayerSkinCacheCandidateState::item_string),
+        );
+        items
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientPlayerSkinCacheLoadStatus {
+    Loaded,
+    Blocked,
+    Missing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientPlayerSkinCacheCandidateState {
+    id: String,
+    category: String,
+    representative_texture_ids: Vec<String>,
+    runtime_sources: Vec<String>,
+    dependencies: PlayerSkinCacheDependencyFlags,
+    candidate_blockers: Vec<String>,
+    runtime_blockers: Vec<String>,
+    runtime_boundary: &'static str,
+    status: ClientPlayerSkinCacheLoadStatus,
+}
+
+impl ClientPlayerSkinCacheCandidateState {
+    fn from_candidate(
+        candidate: &PlayerSkinCacheCandidate,
+        runtime_boundary: &'static str,
+    ) -> Self {
+        Self {
+            id: candidate.id().to_owned(),
+            category: candidate.category().to_owned(),
+            representative_texture_ids: candidate.representative_texture_ids().to_vec(),
+            runtime_sources: candidate.runtime_sources().to_vec(),
+            dependencies: candidate.dependencies(),
+            candidate_blockers: candidate.blockers().to_vec(),
+            runtime_blockers: vec![runtime_boundary.to_owned()],
+            runtime_boundary,
+            status: ClientPlayerSkinCacheLoadStatus::Blocked,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> &str {
+        &self.category
+    }
+
+    pub fn representative_texture_ids(&self) -> &[String] {
+        &self.representative_texture_ids
+    }
+
+    pub fn representative_texture_id_count(&self) -> usize {
+        self.representative_texture_ids.len()
+    }
+
+    pub fn runtime_sources(&self) -> &[String] {
+        &self.runtime_sources
+    }
+
+    pub fn runtime_source_count(&self) -> usize {
+        self.runtime_sources.len()
+    }
+
+    pub fn dependencies(&self) -> PlayerSkinCacheDependencyFlags {
+        self.dependencies
+    }
+
+    pub fn candidate_blockers(&self) -> &[String] {
+        &self.candidate_blockers
+    }
+
+    pub fn runtime_blockers(&self) -> &[String] {
+        &self.runtime_blockers
+    }
+
+    pub fn runtime_boundary(&self) -> &'static str {
+        self.runtime_boundary
+    }
+
+    pub fn blocker_count(&self) -> usize {
+        self.candidate_blockers.len() + self.runtime_blockers.len()
+    }
+
+    pub fn status(&self) -> ClientPlayerSkinCacheLoadStatus {
+        self.status
+    }
+
+    fn item_string(&self) -> String {
+        let representative_texture_ids = if self.representative_texture_ids.is_empty() {
+            "none".to_owned()
+        } else {
+            self.representative_texture_ids.join(",")
+        };
+        let runtime_sources = if self.runtime_sources.is_empty() {
+            "none".to_owned()
+        } else {
+            self.runtime_sources.join(",")
+        };
+        let candidate_blockers = if self.candidate_blockers.is_empty() {
+            "none".to_owned()
+        } else {
+            self.candidate_blockers.join(",")
+        };
+        let runtime_blockers = if self.runtime_blockers.is_empty() {
+            "none".to_owned()
+        } else {
+            self.runtime_blockers.join(",")
+        };
+        format!(
+            "player_skin_cache_state_candidate:{} status:{:?} category:{} representative_texture_ids:{} runtime_sources:{} deps:profile_lookup:{} profile_texture_unpack:{} skin_download:{} local_skin_cache:{} texture_manager:{} render_cache:{} font:{} model_renderer:{} candidate_blockers:{} runtime_blockers:{} blocker_details:{} runtime_blocker_details:{} boundary:{}",
+            self.id,
+            self.status,
+            self.category,
+            representative_texture_ids,
+            runtime_sources,
+            self.dependencies.profile_lookup,
+            self.dependencies.profile_texture_unpack,
+            self.dependencies.skin_download,
+            self.dependencies.local_skin_cache,
+            self.dependencies.texture_manager,
+            self.dependencies.render_cache,
+            self.dependencies.font,
+            self.dependencies.model_renderer,
+            self.candidate_blockers.len(),
+            self.runtime_blockers.len(),
+            candidate_blockers,
+            runtime_blockers,
+            self.runtime_boundary
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlayerSkinCacheCandidate {
     id: String,
     category: String,
@@ -11882,6 +12220,15 @@ impl PlayerSkinCacheCandidateReloadListener {
     ) -> ResourceReloadResult<PlayerSkinCacheCandidateSet> {
         Ok(build_player_skin_cache_candidate_set())
     }
+
+    pub fn load_state(
+        &self,
+        stack: &ClientResourceStack,
+    ) -> ResourceReloadResult<ClientPlayerSkinCacheState> {
+        Ok(ClientPlayerSkinCacheState::from_candidates(
+            self.load(stack)?,
+        ))
+    }
 }
 
 impl ResourceReloadListener for PlayerSkinCacheCandidateReloadListener {
@@ -11894,7 +12241,7 @@ impl ResourceReloadListener for PlayerSkinCacheCandidateReloadListener {
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
         Ok(ResourceReloadTaskReport::new([self
-            .load(stack)?
+            .load_state(stack)?
             .summary_fragment()]))
     }
 
@@ -11902,7 +12249,9 @@ impl ResourceReloadListener for PlayerSkinCacheCandidateReloadListener {
         &self,
         stack: &ClientResourceStack,
     ) -> ResourceReloadResult<ResourceReloadTaskReport> {
-        Ok(ResourceReloadTaskReport::new(self.load(stack)?.items()))
+        Ok(ResourceReloadTaskReport::new(
+            self.load_state(stack)?.items(),
+        ))
     }
 }
 
@@ -38646,32 +38995,111 @@ mod tests {
     }
 
     #[test]
-    fn committed_vanilla_skin_manager_candidate_listener_reports_boundary_surface() {
+    fn player_skin_cache_state_tracks_runtime_blocked_counts_and_lookup() {
+        let state = PlayerSkinCacheCandidateReloadListener
+            .load_state(&ClientResourceStack::vanilla())
+            .expect("skin manager state should load");
+
+        assert_eq!(state.status(), ClientPlayerSkinCacheLoadStatus::Blocked);
+        assert_eq!(state.candidate_count(), 5);
+        assert_eq!(state.representative_texture_id_count(), 10);
+        assert_eq!(state.runtime_source_count(), 29);
+        assert_eq!(state.profile_lookup_dependency_count(), 2);
+        assert_eq!(state.profile_texture_unpack_dependency_count(), 2);
+        assert_eq!(state.skin_download_dependency_count(), 1);
+        assert_eq!(state.local_skin_cache_dependency_count(), 1);
+        assert_eq!(state.texture_manager_dependency_count(), 4);
+        assert_eq!(state.render_cache_dependency_count(), 3);
+        assert_eq!(state.font_dependency_count(), 1);
+        assert_eq!(state.model_renderer_dependency_count(), 2);
+        assert_eq!(state.candidate_blocker_count(), 28);
+        assert_eq!(state.runtime_blocker_count(), 5);
+        assert_eq!(state.blocker_count(), 33);
+        assert_eq!(state.total_blocker_count(), 33);
+        assert_eq!(state.runtime_boundary(), PLAYER_SKIN_CACHE_BOUNDARY);
+        assert!(
+            state
+                .summary_fragment()
+                .contains("candidate_blockers:28 runtime_blockers:5 blockers:33")
+        );
+
+        let download = state
+            .candidate("skin_texture_download_register")
+            .expect("download/register candidate should be indexed by id");
+        assert_eq!(download.status(), ClientPlayerSkinCacheLoadStatus::Blocked);
+        assert_eq!(
+            download.category(),
+            "skin_cape_elytra_texture_download_register"
+        );
+        assert_eq!(
+            download.runtime_blockers(),
+            &[PLAYER_SKIN_CACHE_BOUNDARY.to_owned()]
+        );
+        assert!(download.dependencies().skin_download);
+        assert!(download.dependencies().local_skin_cache);
+        assert!(download.dependencies().texture_manager);
+        assert_eq!(download.representative_texture_id_count(), 3);
+        assert_eq!(download.runtime_source_count(), 5);
+        assert_eq!(download.blocker_count(), 9);
+
+        assert_eq!(
+            state
+                .candidates_by_category("font_player_head_glyph_provider")
+                .iter()
+                .map(|candidate| candidate.id())
+                .collect::<Vec<_>>(),
+            vec!["font_player_glyph_provider"]
+        );
+        let render_cache = state
+            .candidate_by_category_id(
+                "resolvable_profile_render_info_cache",
+                "player_skin_render_cache_lookup",
+            )
+            .expect("render cache candidate should be indexed by category and id");
+        assert!(render_cache.dependencies().profile_lookup);
+        assert!(render_cache.dependencies().render_cache);
+        assert!(render_cache.dependencies().model_renderer);
+        assert!(
+            render_cache
+                .runtime_sources()
+                .contains(&"PlayerSkinRenderCache.RenderInfo.textureView".to_owned())
+        );
+    }
+
+    #[test]
+    fn committed_vanilla_default_player_skin_cache_state_reports_runtime_pending_boundary() {
         let report = ResourceReloadManager::new(ClientResourceStack::vanilla())
             .with_listener(PlayerSkinCacheCandidateReloadListener)
             .run()
-            .expect("committed vanilla skin manager candidates should report");
+            .expect("committed vanilla player skin cache state should report");
 
         let listener = &report.listener_reports()[0];
         assert_eq!(listener.name, "player_skin_cache_candidates");
         assert_eq!(listener.preparation.items().len(), 1);
         assert!(
             listener.preparation.items()[0]
-                .starts_with("player_skin_cache_candidates:candidates:5")
+                .starts_with("player_skin_cache_state:status:Blocked candidates:5")
+        );
+        assert!(
+            listener.preparation.items()[0]
+                .contains("candidate_blockers:28 runtime_blockers:5 blockers:33")
         );
         assert!(listener.reload.items().iter().any(|item| {
-            item.contains("player_skin_cache_candidate:profile_texture_lookup_cache")
+            item.contains("player_skin_cache_state_candidate:profile_texture_lookup_cache")
+                && item.contains("status:Blocked")
                 && item.contains("deps:profile_lookup:true profile_texture_unpack:true")
+                && item.contains("runtime_blockers:1")
                 && item
                     .contains("boundary:player_skin_cache_candidates_loaded_runtime_lookup_pending")
         }));
         assert!(listener.reload.items().iter().any(|item| {
-            item.contains("player_skin_cache_candidate:skin_texture_download_register")
+            item.contains("player_skin_cache_state_candidate:skin_texture_download_register")
                 && item.contains("representative_texture_ids:minecraft:skins/{hash},minecraft:capes/{hash},minecraft:elytra/{hash}")
                 && item.contains("skin_texture_http_download_unavailable")
+                && item.contains("runtime_blocker_details:player_skin_cache_candidates_loaded_runtime_lookup_pending")
         }));
         assert!(listener.reload.items().iter().any(|item| {
-            item.contains("player_skin_cache_candidate:font_player_glyph_provider")
+            item.contains("player_skin_cache_state_candidate:font_player_glyph_provider")
                 && item.contains("runtime_sources:FontManager.<init>(TextureManager,AtlasManager,PlayerSkinRenderCache)")
                 && item.contains("font_player_glyph_provider_integration_unavailable")
         }));
